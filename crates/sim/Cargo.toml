@@ -1,0 +1,31 @@
+[package]
+name = "redshift-sim"
+description = "Deterministic game simulation. No engine dependencies, no floating point."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Dependencies here face a high bar: anything using floats, randomly-seeded
+# hashing, or threads is disqualified. See CONTRIBUTING.md.
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+ron = { workspace = true }
+
+[lints.clippy]
+# The core invariant of this crate. Floating point is not reproducible across
+# architectures, and this crate must produce bit-identical results on ARM and
+# x86 or multiplayer desyncs. See docs/02-simulation.md.
+#
+# `Fx` is the replacement. If you are reaching for a float here, you want
+# fixed-point instead — or the code belongs in redshift-render.
+#
+# CI additionally greps for float *types*, which these lints do not catch on
+# their own (a struct field is neither arithmetic nor a comparison).
+float_arithmetic = "deny"
+float_cmp = "deny"
+lossy_float_literal = "deny"
+cast_possible_truncation = "allow"  # deliberate and pervasive in fixed-point code

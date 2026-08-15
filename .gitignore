@@ -1,0 +1,25 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Desync and crash dumps produced at runtime
+/dumps
+*.desync
+
+# Replays recorded locally
+/replays
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Blender working files
+*.blend1
+*.blend2

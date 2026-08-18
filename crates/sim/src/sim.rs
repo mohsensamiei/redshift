@@ -487,6 +487,12 @@ impl Sim {
             if stats.vision <= Fx::ZERO {
                 continue;
             }
+            // A radar with no power goes dark. Without this, losing a reactor
+            // costs a player nothing they can see, which removes most of the
+            // reason to attack one.
+            if self.is_unpowered(unit) {
+                continue;
+            }
             self.visibility
                 .reveal(unit.owner, unit.cell(), stats.vision);
             // A detector reveals cloaked things across the same ground it
@@ -588,7 +594,8 @@ impl Sim {
     /// that consume none — a wall, a refinery — carry on regardless, which is
     /// what makes a power plant worth attacking rather than merely worth owning.
     pub fn is_unpowered(&self, unit: &Unit) -> bool {
-        self.stats.get(unit.owner, unit.kind).power_draw > 0 && !self.power.is_satisfied(unit.owner)
+        let stats = self.stats.get(unit.owner, unit.kind);
+        stats.power_draw > 0 && !stats.works_unpowered && !self.power.is_satisfied(unit.owner)
     }
 
     // -- Production ----------------------------------------------------------
@@ -610,9 +617,14 @@ impl Sim {
             }
             let owner = unit.owner;
 
-            // A base short of power builds slowly rather than not at all. One
-            // that simply froze would end the match on the spot; one that slows
-            // gives the player a chance to notice and build a plant.
+            // Production is the one thing the original degrades rather than
+            // stopping: a base that simply froze would end the match on the
+            // spot, whereas one that slows gives the player a chance to notice
+            // and build a plant.
+            //
+            // Everything *else* that draws power stops outright, handled where
+            // each capability is used — "disabled" means something different
+            // for a radar than for a gun.
             if !self.power.is_satisfied(owner)
                 && !self.tick.is_multiple_of(crate::power::LOW_POWER_DIVISOR)
             {

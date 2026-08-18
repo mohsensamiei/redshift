@@ -180,24 +180,106 @@ fn power_is_not_shared_between_players() {
 }
 
 #[test]
-fn a_building_that_draws_no_power_is_unaffected_by_a_shortage() {
-    // What makes a power plant worth attacking rather than merely worth owning:
-    // some things carry on regardless, so cutting power is a tactic and not an
-    // instant win.
+fn a_structure_that_declares_it_keeps_working_in_a_shortage() {
+    // The original does not stop a base dead when the power fails. Some
+    // structures carry on — a refinery still refines — and saying so per
+    // structure is what stops "low power" from meaning "the base is destroyed".
     let (sim, ids) = base(&[("refinery", 20, 20)]);
     let refinery = sim.units().get(ids[0]).expect("refinery");
-    let draw = sim.stats().get(PlayerId(0), refinery.kind).power_draw;
 
-    if draw == 0 {
-        assert!(
-            !sim.is_unpowered(refinery),
-            "a building drawing nothing is never unpowered"
-        );
-    } else {
-        // The shipped rules give it a draw; then it should be affected, and
-        // this test is documenting the opposite case for whenever they change.
-        assert!(sim.is_unpowered(refinery));
-    }
+    assert!(
+        !sim.power().is_satisfied(PlayerId(0)),
+        "the test needs a base that is actually short of power"
+    );
+    assert!(
+        sim.stats().get(PlayerId(0), refinery.kind).power_draw > 0,
+        "the test needs a structure that draws power"
+    );
+    assert!(
+        !sim.is_unpowered(refinery),
+        "a structure that declares it works unpowered was disabled anyway"
+    );
+}
+
+#[test]
+fn a_structure_that_needs_power_is_disabled_without_it() {
+    // The correction this change is about. The original *switches off* what it
+    // cannot power; modelling a shortage as a production slowdown alone left a
+    // player who lost their reactor with their defences and radar intact, which
+    // removes most of the reason to attack a power plant.
+    let rules = shipped_rules();
+    let radar_kind = rules
+        .entities()
+        .find(|(_, e)| {
+            e.traits.iter().any(|t| {
+                matches!(
+                    t,
+                    redshift_data::traits::Trait::PowerDraw {
+                        works_unpowered: false,
+                        ..
+                    }
+                )
+            })
+        })
+        .map(|(kind, _)| kind);
+
+    let Some(kind) = radar_kind else {
+        // Every shipped structure currently declares that it works unpowered.
+        // Worth knowing, and not a failure of the mechanism.
+        return;
+    };
+
+    let sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(48, 48),
+        players: vec![PlayerSetup {
+            id: PlayerId(0),
+            faction: None,
+        }],
+        spawns: vec![Spawn {
+            owner: PlayerId(0),
+            kind,
+            pos: Cell::new(20, 20).centre(),
+        }],
+        rules,
+    });
+    let unit = sim.units().iter().next().expect("the structure").1;
+    assert!(
+        sim.is_unpowered(unit),
+        "a structure that needs power was not disabled without it"
+    );
+}
+
+#[test]
+fn an_unpowered_structure_reveals_no_ground() {
+    // A radar with no power goes dark. Checked through vision rather than
+    // through the flag, because the flag being right and nothing reading it is
+    // exactly the failure this whole audit keeps turning up.
+    let rules = shipped_rules();
+    let Some(kind) = rules.kind_of("power_plant") else {
+        return;
+    };
+
+    // A lone plant powers itself, so it can see. Then compare against the same
+    // structure with a draw it cannot meet.
+    let sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(48, 48),
+        players: vec![PlayerSetup {
+            id: PlayerId(0),
+            faction: None,
+        }],
+        spawns: vec![Spawn {
+            owner: PlayerId(0),
+            kind,
+            pos: Cell::new(20, 20).centre(),
+        }],
+        rules,
+    });
+    assert!(
+        sim.visibility().is_visible(PlayerId(0), Cell::new(20, 20)),
+        "a powered structure should see the ground it stands on"
+    );
 }
 
 #[test]

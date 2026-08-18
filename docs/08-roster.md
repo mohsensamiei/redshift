@@ -436,29 +436,54 @@ The upgrades are worth noting: they are **permanent per-unit modifiers applied
 in an area**, which is a third shape again beside "damage now" and "a standing
 modifier on a player".
 
-## 8b. Cross-check against a working reimplementation
+## 8b. Reference implementations, and what each is good for
+
+Four were checked. The conclusion differs sharply between them, and the
+distinction is worth recording because it determines what can be used.
+
+| Repository | Licence | Useful for |
+|---|---|---|
+| [OpenRA/ra2](https://github.com/OpenRA/ra2) | **GPL-3.0** | **Actual values.** Re-derived rules in YAML, not the original's files |
+| [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2) | GPL-3.0 | The *list* of traits a working engine needed |
+| [chronodivide/mod-sdk](https://github.com/chronodivide/mod-sdk) | none declared | Documentation of a rules format |
+| [ammaarreshi/…](https://github.com/ammaarreshi/RedAlert2-Mac-iOS-iPad) | proprietary engine | **Nothing.** Not usable as a reference |
+
+### The one that matters
+
+**OpenRA's RA2 mod is the right reference for numbers.** It is GPL-3.0 — the
+same licence as this project — and, crucially, its rules are **re-derived into
+its own YAML format** rather than parsed from the original's data files. That
+is the same thing this project set out to do, which makes it a legitimate
+cross-check rather than a shortcut around
+[adr/0004-original-assets-only.md](adr/0004-original-assets-only.md).
+
+It confirmed the tech-building research exactly — an oil derrick pays $1000 on
+capture and trickles $20 on an interval — and supplied things no wiki stated:
+
+- A **civilian has 50 health and costs 10**, and **killing one pays $5**.
+  Civilians are not only scenery; they are a (tiny) income source, which is a
+  reason to shoot them beyond spite.
+- A tech oil derrick is **2×2**, has 1000 health, **explodes when destroyed**,
+  and **leaves rubble behind** as a separate entity.
+- Civilians are **mind-controllable**, which follows from being infantry but is
+  not something any description mentions.
+
+Rubble is a mechanic nothing else surfaced: a destroyed building leaves an
+object behind rather than clearing the ground.
+
+### What the others gave
+
+`huangkaoya/redalert2` **cannot supply values** — its entire data layer is file
+format parsers (MIX, SHP, VXL, INI) and it reads the player's own copy at
+runtime. What it could give is a **table of contents**: the names of the traits
+a shipped reimplementation needed. Reading that list is ordinary research;
+copying code would make this a derivative of someone else's reimplementation
+rather than the clean-room one it set out to be.
+
+That cross-check found **eight mechanics this document had missed entirely**:
 
 The repositories mentioned at the start of this project were checked. The
 finding is worth recording because it is not what was expected:
-
-**They cannot supply the numbers, because they do not have them.** The one
-usable reference — [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2),
-GPL-3.0 — has a `src/data/` directory that is entirely *file format parsers*:
-MIX, SHP, VXL, INI, PAL. It reads the player's own copy of the original at
-runtime. That is the "bring your own files" model this project deliberately
-rejected in [adr/0004-original-assets-only.md](adr/0004-original-assets-only.md),
-and it means there is no table of balance values to consult.
-
-The other repository is built on a proprietary engine and is not usable as a
-reference at all.
-
-What the working implementation *could* give is a **table of contents**: the
-names of the traits it needed. Reading the list of capabilities a shipped
-reimplementation required is ordinary research; copying its code would make
-this project a derivative of someone else's reimplementation rather than a
-clean-room one.
-
-That cross-check found **eight mechanics this document had missed entirely**:
 
 | Mechanic | Why it matters |
 |---|---|
@@ -470,6 +495,13 @@ That cross-check found **eight mechanics this document had missed entirely**:
 | **Radiation as map state** | The Desolator leaves ground contaminated. Terrain that damages what stands on it |
 | **Idle actions** | The aimless animations that make civilians read as alive |
 | **Stalemate detection** | The match has to be able to decide nobody can win |
+
+### Two more from OpenRA's data
+
+| Mechanic | Why it matters |
+|---|---|
+| **Rubble** | A destroyed building leaves an object behind rather than clearing its ground |
+| **Bounty on kills** | Killing a civilian pays a few credits. Every unit may carry a payout |
 
 Ore regrowth is the one with the widest reach: Redshift's economy assumes a
 fixed quantity of ore on the map, and a renewable one changes how long a match
@@ -496,11 +528,11 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 16 capabilities confirmed, 39 gaps.**
+**As of the last run: 17 capabilities confirmed, 40 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
-Twenty-seven of those thirty-nine were invisible until the mechanics were
-researched rather than recalled.
+Twenty-eight of those forty were invisible until the mechanics were researched
+rather than recalled. One has since been closed — the power model.
 
 Confirmed working, exercised end to end rather than asserted:
 
@@ -619,6 +651,11 @@ Costs, power figures and prerequisites throughout sections 4 to 7 come from:
 - [Ore](https://cnc.fandom.com/wiki/Ore) — that ore can be destroyed by force-fire
 - [Tech buildings](https://cncnz.com/games/red-alert-2/tech-buildings/) — exact figures: $1000 and $20/sec
 - [Factions](https://cncnz.com/games/red-alert-2/factions/) — the nine countries, confirmed
+
+Values cross-checked against [OpenRA/ra2](https://github.com/OpenRA/ra2)
+(GPL-3.0), whose rules are re-derived into its own format rather than read from
+the original's data files — the same approach this project takes, which is what
+makes it a legitimate reference rather than a way around ADR 0004.
 
 Two reimplementations exist and were checked for licence rather than mined for
 code: [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2) is

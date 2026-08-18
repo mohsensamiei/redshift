@@ -194,7 +194,7 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, thirty-nine gaps, each an ignored test with its reason attached.
+confirmed, forty gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -206,6 +206,13 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 
 Closing a gap means deleting an `#[ignore]`. Prefer that to ticking a box here:
 a checkbox can be wrong and a test cannot.
+
+### Filling in the remaining numbers
+
+OpenRA's RA2 mod (GPL-3.0) re-derives the original's rules into its own YAML
+and is the right reference for values this project still lacks. It confirmed
+the tech-building figures exactly and supplied several mechanics no description
+mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
 
 ### Verifying the specification
 

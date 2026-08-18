@@ -85,6 +85,8 @@ pub struct UnitStats {
     pub power_supply: u32,
     /// Power this draws. Anything with a draw stops working in a shortage.
     pub power_draw: u32,
+    /// Whether this keeps working when its owner is short of power.
+    pub works_unpowered: bool,
     /// Whether harvesters can unload here.
     pub is_refinery: bool,
     /// Physical radius, for keeping units out of each other.
@@ -120,6 +122,7 @@ impl Default for UnitStats {
             detector: false,
             power_supply: 0,
             power_draw: 0,
+            works_unpowered: false,
             // One cell, not zero. A zero footprint would make a thing occupy
             // nothing and stack invisibly with everything else.
             footprint: (1, 1),
@@ -153,6 +156,7 @@ impl StateHash for UnitStats {
         h.write_bool(self.detector);
         h.write_u32(self.power_supply);
         h.write_u32(self.power_draw);
+        h.write_bool(self.works_unpowered);
         h.write_u8(self.footprint.0);
         h.write_u8(self.footprint.1);
     }
@@ -272,7 +276,13 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             }
             Trait::Detector => stats.detector = true,
             Trait::PowerSupply { output } => stats.power_supply = *output,
-            Trait::PowerDraw { amount } => stats.power_draw = *amount,
+            Trait::PowerDraw {
+                amount,
+                works_unpowered,
+            } => {
+                stats.power_draw = *amount;
+                stats.works_unpowered = *works_unpowered;
+            }
             Trait::Footprint { width, height } => {
                 stats.footprint = ((*width).max(1), (*height).max(1))
             }

@@ -150,9 +150,22 @@ pub enum Trait {
     /// Supplies power to the grid.
     PowerSupply { output: u32 },
 
-    /// Draws power from the grid. Low power slows production and disables some
-    /// structures, as in the original.
-    PowerDraw { amount: u32 },
+    /// Draws power from the grid.
+    ///
+    /// A structure short of power **stops working**, which is the original's
+    /// rule and not the same as working slowly. A radar goes dark; an
+    /// anti-air gun holds its fire. That is most of what makes attacking a
+    /// power plant worth doing.
+    PowerDraw {
+        amount: u32,
+        /// Whether this keeps working in a shortage.
+        ///
+        /// A few structures do — a refinery still refines, a wall still
+        /// blocks — and saying so per structure is what stops "low power" from
+        /// meaning "the base is destroyed".
+        #[serde(default)]
+        works_unpowered: bool,
+    },
 
     /// Gathers resources.
     Harvester {

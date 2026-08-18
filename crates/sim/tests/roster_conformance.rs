@@ -565,6 +565,24 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
+#[ignore = "gap: a destroyed building clears its ground completely"]
+fn a_destroyed_building_leaves_rubble() {
+    // From OpenRA's data rather than any description: a destroyed structure
+    // leaves a separate rubble object standing on its footprint. Redshift frees
+    // the ground the moment the building dies.
+    panic!("destruction removes the entity and releases its ground");
+}
+
+#[test]
+#[ignore = "gap: no bounty — killing something pays nothing"]
+fn killing_a_civilian_pays_a_small_bounty() {
+    // Civilians are worth a few credits each. Small, but it means shooting them
+    // is a decision with an upside rather than only spite — and any unit may
+    // carry a payout.
+    panic!("credits come from ore and refunds only");
+}
+
+#[test]
 #[ignore = "gap: units have unlimited ammunition and never rearm"]
 fn a_unit_runs_out_of_ammunition_and_returns_to_rearm() {
     // Found by cross-checking a working reimplementation's trait list. Assumed
@@ -686,13 +704,91 @@ fn a_destroyed_bridge_is_repaired_by_an_engineer_at_its_hut() {
 }
 
 #[test]
-#[ignore = "gap: low power disables structures, it does not merely slow them"]
-fn a_radar_stops_working_when_power_runs_short() {
-    // Researched: the original *switches off* radar towers and flak cannons in
-    // low power. Redshift models a shortage as a production slowdown only, so a
-    // player who loses their reactor keeps their air defence — which is most of
-    // what makes attacking a power plant worth doing.
-    panic!("low power slows production; nothing is ever disabled");
+fn a_structure_stops_working_when_power_runs_short() {
+    // The correction this closed: the original *switches off* what it cannot
+    // power. Modelling a shortage as a production slowdown alone left a player
+    // who lost their reactor with their radar and air defence intact, which
+    // removes most of the reason to attack a power plant.
+    //
+    // Structures say for themselves whether they carry on — a refinery does, a
+    // radar does not — so "low power" degrades a base rather than destroying it.
+    use redshift_data::traits::Trait;
+
+    let needs_power = |id: &str, works_unpowered: bool| EntityDef {
+        id: id.into(),
+        name_key: format!("b.{id}"),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Vision {
+                range: Hundredths(600),
+            },
+            Trait::PowerDraw {
+                amount: 100,
+                works_unpowered,
+            },
+        ],
+    };
+
+    let rules = rules_with(
+        vec![needs_power("radar", false), needs_power("refinery", true)],
+        vec![],
+    );
+    let radar = rules.kind_of("radar").unwrap();
+    let refinery = rules.kind_of("refinery").unwrap();
+
+    // No power plant anywhere, so both are in a shortage.
+    let sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(40, 40),
+        players: vec![PlayerSetup {
+            id: PlayerId(0),
+            faction: None,
+        }],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind: radar,
+                pos: Cell::new(10, 10).centre(),
+            },
+            Spawn {
+                owner: PlayerId(0),
+                kind: refinery,
+                pos: Cell::new(20, 20).centre(),
+            },
+        ],
+        rules,
+    });
+
+    assert!(
+        !sim.power().is_satisfied(PlayerId(0)),
+        "the base should be short"
+    );
+
+    let ids = sim.units().ids();
+    assert!(
+        sim.is_unpowered(sim.units().get(ids[0]).unwrap()),
+        "the radar should have gone dark"
+    );
+    assert!(
+        !sim.is_unpowered(sim.units().get(ids[1]).unwrap()),
+        "the refinery declared it works unpowered and should have carried on"
+    );
+
+    // And the disabling is real, not just a flag: the dark radar reveals
+    // nothing while the refinery still sees.
+    assert!(
+        !sim.visibility().is_visible(PlayerId(0), Cell::new(10, 10)),
+        "an unpowered radar is still revealing ground"
+    );
+    assert!(
+        sim.visibility().is_visible(PlayerId(0), Cell::new(20, 20)),
+        "the refinery should still see"
+    );
 }
 
 #[test]

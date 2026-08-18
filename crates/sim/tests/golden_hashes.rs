@@ -66,20 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when crushing, self-repair and death explosions landed. Units
-/// carry a damage clock and stats carry the crush classes, so the hash covers
-/// different bytes. Determinism was confirmed first across every suite.
+/// Re-recorded when transports landed. Units carry a carrier and a cargo list,
+/// so the hash covers different bytes. Determinism was confirmed first across
+/// every behaviour suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x2310f522bb3779ef),
-    (50, 0x2970a479a2d672c1),
-    (100, 0x74f0e7ca23562552),
-    (200, 0x66a5c696ae450260),
-    (400, 0xd36c669c5e7adb0d),
+    (10, 0x52ef1b7bf4ffc8f1),
+    (50, 0x202f2b77b4304bf1),
+    (100, 0xbacb1b745d8b719c),
+    (200, 0xf2a1d7396afe2a76),
+    (400, 0xb2db9384d7018c25),
 ];
 
 #[test]

@@ -266,6 +266,12 @@ const BUILD_RADIUS: i32 = 8;
 /// would be indistinguishable from attack-move.
 const GUARD_LEASH: i32 = 4;
 
+/// How close a passenger must get to a transport to climb aboard.
+const BOARDING_RANGE: i32 = 2;
+
+/// How far around a transport passengers are set down.
+const UNLOAD_SPREAD: i32 = 4;
+
 /// How far a death explosion reaches, in cells.
 ///
 /// A single figure for now. The original varies it by warhead, which is where
@@ -487,6 +493,9 @@ impl Sim {
         let mut crushed: Vec<EntityId> = Vec::new();
 
         for (id, unit) in self.units.iter() {
+            if unit.is_aboard() {
+                continue;
+            }
             let stats = self.stats.get(unit.owner, unit.kind);
             if stats.crushes == 0 || !stats.mobile {
                 continue;
@@ -603,6 +612,9 @@ impl Sim {
             if !unit.is_alive() {
                 continue;
             }
+            if unit.is_aboard() {
+                continue;
+            }
             let stats = self.stats.get(unit.owner, unit.kind);
             if stats.vision <= Fx::ZERO {
                 continue;
@@ -645,6 +657,13 @@ impl Sim {
     /// unfair and — since the interface and the simulation would be working
     /// from different answers — a source of desyncs.
     pub fn can_see(&self, player: PlayerId, unit: &Unit) -> bool {
+        // Inside a transport is not somewhere anyone can see. This one check
+        // keeps a passenger out of targeting, out of the renderer, and out of
+        // every "nearest enemy" search, which is why it lives here rather than
+        // being repeated at each of them.
+        if unit.is_aboard() {
+            return false;
+        }
         if !self.visibility.is_visible(player, unit.cell()) {
             return false;
         }
@@ -1070,6 +1089,9 @@ impl Sim {
         }
 
         for (id, unit) in self.units.iter() {
+            if unit.is_aboard() {
+                continue;
+            }
             let stats = self.stats.get(unit.owner, unit.kind);
             // Aircraft fly over everything, each other included.
             if stats.locomotor == Locomotor::Air {
@@ -1196,7 +1218,7 @@ impl Sim {
             let Some(unit) = self.units.get(attacker) else {
                 continue;
             };
-            if !unit.is_alive() {
+            if !unit.is_alive() || unit.is_aboard() {
                 continue;
             }
             let Some(weapon) = self.combat.weapon(unit.kind).copied() else {
@@ -1457,6 +1479,21 @@ impl Sim {
             claim_footprint(&mut self.map, centre, footprint, false);
         }
 
+        // Passengers die with the transport that was carrying them. The
+        // alternative — spilling them out — would make a loaded transport safer
+        // than an empty one, which is exactly backwards.
+        let doomed: Vec<EntityId> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .flat_map(|(_, u)| u.cargo.clone())
+            .collect();
+        for id in doomed {
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.health = 0;
+            }
+        }
+
         self.units.retain(|_, unit| unit.is_alive());
     }
 
@@ -1513,6 +1550,33 @@ impl Sim {
                                 returning: None,
                             };
                         }
+                    }
+                }
+                CommandKind::Load { units, transport } => {
+                    for &id in units {
+                        if !self.owned_by(id, command.player)
+                            || !self.owned_by(*transport, command.player)
+                            || !self.may_board(*transport, id)
+                        {
+                            continue;
+                        }
+                        let Some(cell) = self.units.get(*transport).map(|t| t.cell()) else {
+                            continue;
+                        };
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Board {
+                                transport: *transport,
+                                approach: Travel::to(cell, DEFAULT_NODE_BUDGET),
+                            };
+                        }
+                        if !self.path_queue.contains(&id) {
+                            self.path_queue.push(id);
+                        }
+                    }
+                }
+                CommandKind::Unload { transport, at } => {
+                    if self.owned_by(*transport, command.player) {
+                        self.unload(*transport, *at);
                     }
                 }
                 CommandKind::PlaceBuilding { producer, at } => {
@@ -1681,8 +1745,140 @@ impl Sim {
                     }
                 }
 
+                Order::Board {
+                    transport,
+                    approach,
+                } => {
+                    // The transport may have filled up, driven off or been
+                    // destroyed while this unit was walking to it. Arriving is
+                    // not the same as boarding, which is why this is its own
+                    // order rather than a flag on a move.
+                    let target = self.units.get(transport);
+                    let gone = target.is_none_or(|t| !t.is_alive());
+                    let full = target.is_some_and(|t| {
+                        t.cargo.len() >= self.stats.get(t.owner, t.kind).capacity as usize
+                    });
+                    if gone || full {
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Idle;
+                        }
+                        continue;
+                    }
+
+                    let Some(target_cell) = target.map(|t| t.cell()) else {
+                        continue;
+                    };
+                    let close = unit.cell().chebyshev_to(target_cell) <= BOARDING_RANGE;
+
+                    if close {
+                        self.board(id, transport);
+                    } else if approach.destination != target_cell {
+                        // The transport moved: follow it.
+                        if let Some(unit) = self.units.get_mut(id)
+                            && let Order::Board { approach, .. } = &mut unit.order
+                        {
+                            *approach = Travel::to(target_cell, DEFAULT_NODE_BUDGET);
+                        }
+                        if !self.path_queue.contains(&id) {
+                            self.path_queue.push(id);
+                        }
+                    }
+                }
+
                 Order::AttackMove(_) | Order::Move(_) | Order::Idle => {}
             }
+        }
+    }
+
+    /// Puts a unit inside a transport.
+    ///
+    /// The passenger stays in the arena — it keeps its identity, health and
+    /// rank — and is skipped by every pass that acts on the world.
+    fn board(&mut self, passenger: EntityId, transport: EntityId) {
+        // Releases the ground it was standing on, so nothing paths around a
+        // unit that is no longer there.
+        if let Some(unit) = self.units.get_mut(passenger) {
+            unit.carrier = Some(transport);
+            unit.order = Order::Idle;
+            unit.combat.target = None;
+        }
+        if let Some(t) = self.units.get_mut(transport) {
+            t.cargo.push(passenger);
+        }
+    }
+
+    /// Puts every passenger back on the ground near the transport.
+    fn unload(&mut self, transport: EntityId, at: Cell) {
+        let Some(t) = self.units.get(transport) else {
+            return;
+        };
+        let cargo = t.cargo.clone();
+        let owner = t.owner;
+
+        let mut placed: Vec<Cell> = Vec::new();
+        for passenger in cargo {
+            let Some(unit) = self.units.get(passenger) else {
+                continue;
+            };
+            let movement = self.stats.get(unit.owner, unit.kind).movement;
+
+            // Each passenger gets its own cell, or they would all be unloaded
+            // on top of each other and spend the next second shoving apart.
+            let spot = (0..=UNLOAD_SPREAD).find_map(|radius| {
+                ring_offsets(radius).into_iter().find_map(|(dx, dy)| {
+                    let cell = Cell::new(at.x + dx, at.y + dy);
+                    (!placed.contains(&cell) && self.map.is_passable(cell, movement))
+                        .then_some(cell)
+                })
+            });
+            let Some(cell) = spot else {
+                // Nowhere to stand. The passenger stays aboard rather than
+                // being destroyed or dropped into a wall.
+                continue;
+            };
+            placed.push(cell);
+
+            if let Some(unit) = self.units.get_mut(passenger) {
+                unit.carrier = None;
+                unit.pos = cell.centre();
+                unit.order = Order::Idle;
+            }
+            if let Some(t) = self.units.get_mut(transport) {
+                t.cargo.retain(|p| *p != passenger);
+            }
+        }
+        let _ = owner;
+    }
+
+    /// Whether a transport may take this passenger.
+    fn may_board(&self, transport: EntityId, passenger: EntityId) -> bool {
+        let (Some(t), Some(p)) = (self.units.get(transport), self.units.get(passenger)) else {
+            return false;
+        };
+        if t.owner != p.owner || transport == passenger {
+            return false;
+        }
+        if !t.is_alive() || !p.is_alive() || p.is_aboard() {
+            return false;
+        }
+        let stats = self.stats.get(t.owner, t.kind);
+        if stats.capacity == 0 || t.cargo.len() >= stats.capacity as usize {
+            return false;
+        }
+        // The allowed list names entity ids, so a transport can carry infantry
+        // and refuse tanks without either of them knowing about the other.
+        let allowed = self
+            .rules
+            .entity(t.kind)
+            .traits
+            .iter()
+            .find_map(|trait_| match trait_ {
+                redshift_data::traits::Trait::Transport { allowed, .. } => Some(allowed),
+                _ => None,
+            });
+        match allowed {
+            Some(list) if !list.is_empty() => list.contains(&self.rules.entity(p.kind).id),
+            _ => true,
         }
     }
 
@@ -1988,6 +2184,10 @@ impl Sim {
             // replaced. Replacing it would quietly turn an attack-move into a
             // plain move the first time a route was recomputed, and the unit
             // would stop engaging without anything having obviously changed.
+            if unit.is_aboard() {
+                continue;
+            }
+
             // A unit that is fighting stands and fights, provided its order
             // allows it to. This is the entire difference between a move and an
             // attack-move: a player repositioning an army expects it to arrive,

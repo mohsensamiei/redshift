@@ -136,6 +136,15 @@ pub enum Order {
         /// Set while walking back to the post after being drawn off it.
         returning: Option<Travel>,
     },
+    /// Walking to a transport in order to board it.
+    ///
+    /// A separate order rather than a flag on `Move`, because arriving is not
+    /// the end of it: the unit has to still want to board when it gets there,
+    /// and the transport may have filled up or driven off in the meantime.
+    Board {
+        transport: EntityId,
+        approach: Travel,
+    },
 }
 
 /// Where a unit is going and how far it has got.
@@ -189,7 +198,7 @@ impl Order {
     pub fn travel(&self) -> Option<&Travel> {
         match self {
             Order::Move(t) | Order::AttackMove(t) => Some(t),
-            Order::Attack { approach, .. } => Some(approach),
+            Order::Attack { approach, .. } | Order::Board { approach, .. } => Some(approach),
             Order::Guard { returning, .. } => returning.as_ref(),
             Order::Idle => None,
         }
@@ -198,7 +207,7 @@ impl Order {
     pub fn travel_mut(&mut self) -> Option<&mut Travel> {
         match self {
             Order::Move(t) | Order::AttackMove(t) => Some(t),
-            Order::Attack { approach, .. } => Some(approach),
+            Order::Attack { approach, .. } | Order::Board { approach, .. } => Some(approach),
             Order::Guard { returning, .. } => returning.as_mut(),
             Order::Idle => None,
         }
@@ -244,6 +253,16 @@ pub struct Unit {
     pub production: Option<crate::production::ProductionQueue>,
     /// Kills to this unit's name.
     pub kills: u32,
+    /// The transport this is riding in, if any.
+    ///
+    /// A unit aboard something is still in the arena — it keeps its identity,
+    /// its health and its rank — but it must be skipped by everything that
+    /// acts on the world: movement, targeting, vision, separation, crushing
+    /// and drawing. Missing one of those is the classic bug here, and it looks
+    /// like a passenger shooting from inside a sealed truck.
+    pub carrier: Option<EntityId>,
+    /// Who is riding in this, in the order they boarded.
+    pub cargo: Vec<EntityId>,
     /// Ticks since it last took damage.
     ///
     /// Counted up like [`Unit::since_fired`], so a unit that has never been hit
@@ -273,6 +292,8 @@ impl Unit {
             health: max_health,
             order: Order::Idle,
             kills: 0,
+            carrier: None,
+            cargo: Vec::new(),
             since_damaged: u32::MAX,
             since_fired: u32::MAX,
             harvest: None,
@@ -287,6 +308,16 @@ impl Unit {
 
     pub fn is_alive(&self) -> bool {
         self.health > 0
+    }
+
+    /// Whether this unit is riding inside something.
+    ///
+    /// The single check every pass over the world has to make. Named rather
+    /// than inlined as `carrier.is_some()` so that grepping for it finds every
+    /// place that remembered.
+    #[inline]
+    pub fn is_aboard(&self) -> bool {
+        self.carrier.is_some()
     }
 
     /// Applies damage, saturating at zero.
@@ -324,6 +355,19 @@ impl StateHash for Unit {
             None => h.write_u8(0),
         }
         h.write_u32(self.kills);
+        match self.carrier {
+            Some(id) => {
+                h.write_u8(1);
+                h.write_u32(id.index());
+                h.write_u32(id.generation());
+            }
+            None => h.write_u8(0),
+        }
+        h.write_u32(self.cargo.len() as u32);
+        for id in &self.cargo {
+            h.write_u32(id.index());
+            h.write_u32(id.generation());
+        }
         h.write_u32(self.since_damaged);
         h.write_u32(self.since_fired);
         h.write(&self.combat);
@@ -341,6 +385,15 @@ impl StateHash for Unit {
                 h.write_u8(3);
                 h.write_u32(target.index());
                 h.write_u32(target.generation());
+                h.write(approach);
+            }
+            Order::Board {
+                transport,
+                approach,
+            } => {
+                h.write_u8(5);
+                h.write_u32(transport.index());
+                h.write_u32(transport.generation());
                 h.write(approach);
             }
             Order::Guard { post, returning } => {

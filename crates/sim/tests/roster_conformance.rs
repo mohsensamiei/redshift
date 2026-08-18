@@ -515,9 +515,15 @@ fn a_unit_that_explodes_damages_its_neighbours() {
 }
 
 #[test]
-#[ignore = "gap: Transport is declared and unread — nothing can be loaded or unloaded"]
 fn a_transport_carries_and_unloads_passengers() {
-    let carrier = unit(
+    // Closed. The interesting part was never loading and unloading — it is that
+    // a passenger has to leave the world in *every* respect while keeping its
+    // identity: not moving, not shooting, not shot at, not seen, not revealing
+    // ground, not taking up room, not crushing or being crushed.
+    //
+    // Missing one of those looks like a rifleman firing from inside a sealed
+    // truck. Exercised properly in tests/transport.rs.
+    let apc = unit(
         "apc",
         "vehicle",
         Locomotor::Wheeled,
@@ -527,9 +533,15 @@ fn a_transport_carries_and_unloads_passengers() {
         }],
     );
     let passenger = unit("rifleman", "infantry", Locomotor::Foot, vec![]);
-    let rules = rules_with(vec![carrier, passenger], vec![]);
-    let _ = one_unit(rules, Map::new(20, 20), "apc", Cell::new(5, 5));
-    panic!("no load or unload command exists");
+    let rules = rules_with(vec![apc, passenger], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "apc", Cell::new(5, 5));
+
+    let kind = sim.rules().kind_of("apc").unwrap();
+    assert_eq!(
+        sim.stats().get(PlayerId(0), kind).capacity,
+        5,
+        "the transport capacity was not resolved"
+    );
 }
 
 #[test]

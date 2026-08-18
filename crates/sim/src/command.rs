@@ -58,6 +58,13 @@ pub enum CommandKind {
     },
     /// Hold this ground and engage whatever comes near.
     Guard { units: Vec<EntityId> },
+    /// Send units to climb into a transport.
+    Load {
+        units: Vec<EntityId>,
+        transport: EntityId,
+    },
+    /// Put a transport's passengers back on the ground.
+    Unload { transport: EntityId, at: Cell },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -146,6 +153,22 @@ impl StateHash for Command {
                     h.write_u32(u.index());
                     h.write_u32(u.generation());
                 }
+            }
+            CommandKind::Load { units, transport } => {
+                h.write_u8(8);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
+                h.write_u32(transport.index());
+                h.write_u32(transport.generation());
+            }
+            CommandKind::Unload { transport, at } => {
+                h.write_u8(9);
+                h.write_u32(transport.index());
+                h.write_u32(transport.generation());
+                h.write(at);
             }
             CommandKind::PlaceBuilding { producer, at } => {
                 h.write_u8(4);

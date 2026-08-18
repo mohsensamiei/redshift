@@ -32,6 +32,7 @@ fn rules() -> Rules {
         range: Hundredths(1200),
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
+        homing: false,
     }];
 
     let unit = |id: &str, vision: i32| EntityDef {

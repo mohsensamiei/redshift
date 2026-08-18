@@ -46,6 +46,14 @@ pub struct WeaponStats {
     /// Squared range, precomputed so the hot path never takes a square root.
     pub range_sq: FxWide,
     pub splash_radius: Fx,
+    /// Cells the shot travels per tick. Zero means it lands instantly.
+    pub projectile_speed: Fx,
+    /// Whether the shot follows its target.
+    ///
+    /// A missile hits what it was aimed at; a shell flies to where the target
+    /// *was*. That difference is most of what separates artillery from a tank
+    /// gun, and it is a weapon property rather than a global rule.
+    pub homing: bool,
     pub turret: bool,
     /// Binary angle units the turret traverses per tick.
     pub turret_rate: u16,
@@ -201,6 +209,10 @@ pub fn weapon_of(
         range,
         range_sq: range.sq(),
         splash_radius: Fx::from_raw(weapon.splash_radius.to_fx_raw()),
+        projectile_speed: Fx::from_raw(
+            weapon.projectile_speed.to_fx_raw() / crate::TICKS_PER_SECOND as i32,
+        ),
+        homing: weapon.homing,
         turret,
         turret_rate: crate::stats::degrees_per_second_to_tick(turret_rate),
     })
@@ -380,6 +392,8 @@ impl StateHash for CombatTable {
                     h.write_u32(w.reload);
                     h.write_i32(w.range.raw());
                     h.write_i32(w.splash_radius.raw());
+                    h.write_i32(w.projectile_speed.raw());
+                    h.write_bool(w.homing);
                     h.write_bool(w.turret);
                     h.write_u16(w.turret_rate);
                 }
@@ -424,6 +438,7 @@ mod tests {
                 range: Hundredths(400),
                 splash_radius: Hundredths::ZERO,
                 projectile_speed: Hundredths::ZERO,
+                homing: false,
             },
             WeaponDef {
                 id: "cannon".into(),
@@ -433,6 +448,7 @@ mod tests {
                 range: Hundredths(600),
                 splash_radius: Hundredths(30),
                 projectile_speed: Hundredths(2000),
+                homing: false,
             },
         ];
 

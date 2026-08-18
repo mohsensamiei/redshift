@@ -185,6 +185,7 @@ fn bench_rules() -> Rules {
             range: Hundredths(450),
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
+            homing: false,
         },
         WeaponDef {
             id: "cannon".into(),
@@ -194,6 +195,7 @@ fn bench_rules() -> Rules {
             range: Hundredths(600),
             splash_radius: Hundredths(40),
             projectile_speed: Hundredths(2000),
+            homing: false,
         },
     ];
 

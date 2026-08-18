@@ -24,6 +24,7 @@ fn rules() -> Rules {
         range: Hundredths(500),
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
+        homing: false,
     }];
 
     let base = |id: &str, extra: Vec<Trait>| {

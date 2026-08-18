@@ -53,6 +53,7 @@ fn rifle() -> WeaponDef {
         range: Hundredths(400),
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
+        homing: false,
     }
 }
 
@@ -566,15 +567,285 @@ fn a_neutral_structure_belongs_to_nobody_and_is_hostile_to_nobody() {
 }
 
 #[test]
-#[ignore = "gap: projectiles — every shot lands instantly, so travel time and interception do not exist"]
 fn a_slow_projectile_takes_time_to_arrive() {
-    panic!("weapons apply damage on the tick they fire");
+    // The gap this closed. A shot that lands on the tick it is fired cannot be
+    // dodged, cannot be intercepted, and makes outranging strictly better than
+    // it should be.
+    let artillery = WeaponDef {
+        id: "artillery".into(),
+        damage: 100,
+        warhead: "shot".into(),
+        reload: Ticks(60),
+        range: Hundredths(1000),
+        splash_radius: Hundredths(50),
+        // Two cells a second: slow enough to watch.
+        projectile_speed: Hundredths(200),
+        homing: false,
+    };
+    // Sight to match the gun. A weapon that outranges its own vision cannot
+    // fire without a spotter, which is realistic and not what this is testing.
+    let mut gunner = unit(
+        "gunner",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![Trait::Armed {
+            weapon: "artillery".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    gunner.traits.retain(|t| !matches!(t, Trait::Vision { .. }));
+    gunner.traits.push(Trait::Vision {
+        range: Hundredths(1600),
+    });
+    let victim = unit("victim", "infantry", Locomotor::Foot, vec![]);
+
+    let rules = Rules::from_parts(
+        vec![gunner, victim],
+        vec![rifle(), artillery],
+        armour(),
+        vec![],
+    )
+    .expect("rules");
+
+    let gunner_kind = rules.kind_of("gunner").unwrap();
+    let victim_kind = rules.kind_of("victim").unwrap();
+    let mut sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(40, 40),
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind: gunner_kind,
+                pos: Cell::new(10, 20).centre(),
+            },
+            Spawn {
+                owner: PlayerId(1),
+                kind: victim_kind,
+                pos: Cell::new(18, 20).centre(),
+            },
+        ],
+        rules,
+    });
+    let target = sim.units().ids()[1];
+
+    // Find the tick it fires on, and the tick the damage lands.
+    let mut fired_at = None;
+    let mut landed_at = None;
+    for tick in 0..400u32 {
+        sim.tick(&[]);
+        if fired_at.is_none() && !sim.projectiles().is_empty() {
+            fired_at = Some(tick);
+        }
+        if landed_at.is_none() && sim.units().get(target).is_none_or(|u| u.health < 200) {
+            landed_at = Some(tick);
+            break;
+        }
+    }
+
+    let fired = fired_at.expect("the gun never fired");
+    let landed = landed_at.expect("the shot never landed");
+    assert!(
+        landed > fired,
+        "the shot landed on the tick it was fired ({fired}), which is the instant-hit model"
+    );
+    assert!(
+        landed - fired > 2,
+        "eight cells at two cells a second should take about eighty ticks, not {}",
+        landed - fired
+    );
+}
+
+#[test]
+fn an_instant_weapon_still_hits_on_the_tick_it_fires() {
+    // A rifle needs no special case, and the behaviour everything was built on
+    // must be preserved exactly.
+    let shooter = unit(
+        "shooter",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Armed {
+            weapon: "rifle".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    let victim = unit("victim", "infantry", Locomotor::Foot, vec![]);
+    let rules = rules_with(vec![shooter, victim], vec![]);
+
+    let shooter_kind = rules.kind_of("shooter").unwrap();
+    let victim_kind = rules.kind_of("victim").unwrap();
+    let mut sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(20, 20),
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind: shooter_kind,
+                pos: Cell::new(5, 5).centre(),
+            },
+            Spawn {
+                owner: PlayerId(1),
+                kind: victim_kind,
+                pos: Cell::new(7, 5).centre(),
+            },
+        ],
+        rules,
+    });
+    let target = sim.units().ids()[1];
+
+    for _ in 0..100 {
+        sim.tick(&[]);
+        assert!(
+            sim.projectiles().is_empty(),
+            "an instant weapon created a projectile"
+        );
+        if sim.units().get(target).is_none_or(|u| u.health < 200) {
+            return;
+        }
+    }
+    panic!("the rifle never did any damage");
+}
+
+#[test]
+fn a_ballistic_shot_misses_a_target_that_moves() {
+    // The difference between artillery and a tank gun, and the reason homing is
+    // a weapon property rather than a global rule.
+    let artillery = WeaponDef {
+        id: "artillery".into(),
+        damage: 100,
+        warhead: "shot".into(),
+        reload: Ticks(200),
+        range: Hundredths(1500),
+        splash_radius: Hundredths::ZERO,
+        projectile_speed: Hundredths(100),
+        homing: false,
+    };
+    // Sight to match the gun. A weapon that outranges its own vision cannot
+    // fire without a spotter, which is realistic and not what this is testing.
+    let mut gunner = unit(
+        "gunner",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![Trait::Armed {
+            weapon: "artillery".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    gunner.traits.retain(|t| !matches!(t, Trait::Vision { .. }));
+    gunner.traits.push(Trait::Vision {
+        range: Hundredths(1600),
+    });
+    let runner = unit("runner", "infantry", Locomotor::Foot, vec![]);
+    let rules = Rules::from_parts(
+        vec![gunner, runner],
+        vec![rifle(), artillery],
+        armour(),
+        vec![],
+    )
+    .expect("rules");
+
+    let gunner_kind = rules.kind_of("gunner").unwrap();
+    let runner_kind = rules.kind_of("runner").unwrap();
+    let mut sim = Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(60, 60),
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind: gunner_kind,
+                pos: Cell::new(10, 30).centre(),
+            },
+            Spawn {
+                owner: PlayerId(1),
+                kind: runner_kind,
+                pos: Cell::new(22, 30).centre(),
+            },
+        ],
+        rules,
+    });
+    let runner_id = sim.units().ids()[1];
+
+    // Wait for the shot to be in the air, then run.
+    for _ in 0..200 {
+        sim.tick(&[]);
+        if !sim.projectiles().is_empty() {
+            break;
+        }
+    }
+    assert!(!sim.projectiles().is_empty(), "the gun never fired");
+
+    sim.tick(&[Command::new(
+        PlayerId(1),
+        0,
+        CommandKind::Move {
+            units: vec![runner_id],
+            target: Cell::new(22, 45),
+        },
+    )]);
+    for _ in 0..400 {
+        sim.tick(&[]);
+    }
+
+    assert!(
+        sim.units().get(runner_id).is_some_and(|u| u.health == 200),
+        "a ballistic shell tracked a target that ran away from it"
+    );
 }
 
 #[test]
 #[ignore = "gap: air targeting — nothing distinguishes an air target from a ground one"]
 fn an_anti_air_weapon_hits_aircraft_and_not_tanks() {
     panic!("the armour table has an 'air' class and no unit is ever in it");
+}
+
+#[test]
+#[ignore = "gap: a unit has one weapon and one kind of action, not a set of them"]
+fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
+    // Tanya shoots infantry and vehicles with a gun, and destroys *buildings*
+    // with charges — a different action with different valid targets, chosen by
+    // what she is pointed at. A tank fires at what it can reach and crushes
+    // what it drives over, both at once.
+    //
+    // This is not the same gap as "two weapons". The model is currently "a unit
+    // has *the* weapon and *the* target"; the reality is a set of actions, each
+    // with its own targeting rule, and something deciding which applies. That
+    // is closer to ADR 0006 than to a data field: capability is a list, not a
+    // slot.
+    panic!(
+        "Armed is a single unique trait, and there is no notion of an action with its own valid targets"
+    );
 }
 
 #[test]

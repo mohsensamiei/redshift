@@ -25,6 +25,7 @@ fn rules() -> Rules {
         range: Hundredths(400),
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
+        homing: false,
     }];
     let soldier = EntityDef {
         id: "soldier".into(),

@@ -35,6 +35,7 @@ fn rules() -> Rules {
             range: Hundredths(500),
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
+            homing: false,
         },
         WeaponDef {
             id: "cannon".into(),
@@ -44,6 +45,7 @@ fn rules() -> Rules {
             range: Hundredths(600),
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
+            homing: false,
         },
         WeaponDef {
             id: "mortar".into(),
@@ -54,6 +56,7 @@ fn rules() -> Rules {
             // Wide enough to catch a neighbouring cell.
             splash_radius: Hundredths(150),
             projectile_speed: Hundredths(800),
+            homing: false,
         },
     ];
 

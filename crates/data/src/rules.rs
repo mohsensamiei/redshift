@@ -68,6 +68,12 @@ pub struct WeaponDef {
     /// Cells the damage spreads over. Zero for a single target.
     #[serde(default)]
     pub splash_radius: crate::value::Hundredths,
+    /// Whether the shot follows its target once fired.
+    ///
+    /// A missile hits what it was aimed at; a shell flies to where the target
+    /// was standing and misses if it moved. Ignored when the shot is instant.
+    #[serde(default)]
+    pub homing: bool,
     /// Projectile speed in cells per second. Zero means the shot lands at once.
     #[serde(default)]
     pub projectile_speed: crate::value::Hundredths,

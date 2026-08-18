@@ -366,6 +366,7 @@ fn a_weapon_without_an_armour_row_is_refused() {
             range: Hundredths(300),
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
+            homing: false,
         }],
         minimal_armour(),
         Vec::new(),

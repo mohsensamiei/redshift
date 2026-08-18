@@ -160,12 +160,15 @@ and reasoning in docs/08-roster.md.
 
 **Medium — real mechanics with interactions**
 
-- [ ] **Projectiles** — shots currently land instantly *(foundational)*
+- [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [ ] **Air targeting** — nothing tells an air target from a ground one *(foundational)*
 - [ ] Deploy — unit↔structure, and stance toggling
 - [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
 - [ ] Multiple weapons per unit — anti-ground and anti-air on one chassis
+- [ ] **A unit chooses between actions by what it is aimed at** — Tanya shoots
+      units and demolishes buildings; a tank fires and crushes. Capability is a
+      list, not a slot
 - [ ] Placed charges — armed now, detonating later
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
 - [ ] Wandering civilians — autonomous, purposeless movement
@@ -184,8 +187,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Nine capabilities confirmed,
-thirteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Twelve capabilities
+confirmed, thirteen gaps, each an ignored test with its reason attached.
 
 ```sh
 cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore

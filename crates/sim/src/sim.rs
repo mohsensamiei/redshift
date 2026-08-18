@@ -19,6 +19,7 @@ use crate::map::{Cell, Locomotor, Map, SurfaceMask, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::power::PowerGrid;
 use crate::production::{ProductionItem, ProductionQueue};
+use crate::projectile::{IMPACT_TOLERANCE, Projectile};
 use crate::rank::Rank;
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
@@ -292,6 +293,8 @@ pub struct Sim {
     /// stationary, and with no indication why.
     stats: StatTable,
     treasury: Treasury,
+    /// Shots between firing and landing.
+    projectiles: Vec<Projectile>,
     power: PowerGrid,
     visibility: Visibility,
     /// Reused between ticks so separation does not allocate every frame.
@@ -356,6 +359,7 @@ impl Sim {
             combat: CombatTable::build(&setup.rules),
             separation_buckets: Vec::new(),
             treasury: Treasury::new(factions.len(), STARTING_CREDITS),
+            projectiles: Vec::new(),
             power: PowerGrid::new(factions.len()),
             visibility: Visibility::new(map_width, map_height, factions.len()),
             rules: setup.rules,
@@ -442,7 +446,9 @@ impl Sim {
         self.service_path_requests();
         self.move_units();
         self.separate_units();
+        let landed = self.advance_projectiles();
         let hits = self.acquire_and_fire();
+        self.resolve_damage(&landed);
         self.resolve_damage(&hits);
         self.remove_the_dead();
         // After deaths, for the same reason the power grid is: a destroyed
@@ -563,6 +569,11 @@ impl Sim {
                 self.power.add_draw(unit.owner, stats.power_draw);
             }
         }
+    }
+
+    /// Shots currently in the air.
+    pub fn projectiles(&self) -> &[Projectile] {
+        &self.projectiles
     }
 
     /// The power grid, for the interface.
@@ -1041,6 +1052,7 @@ impl Sim {
     /// that shifts whenever slots are reused.
     fn acquire_and_fire(&mut self) -> Vec<PendingHit> {
         let mut hits = Vec::new();
+        let mut launched: Vec<Projectile> = Vec::new();
 
         // A snapshot for targeting, so every attacker sees the same world.
         // Cloning the arena each tick would be wasteful; the targeting pass
@@ -1130,22 +1142,87 @@ impl Sim {
             }
 
             let Some(target) = target else { continue };
+            let owner = unit.owner;
+            let firing_from = unit.pos;
             unit.combat.reload_remaining = weapon.reload;
             // Firing gives a cloaked unit away.
             unit.since_fired = 0;
             let at = self.units.get(target).map(|t| t.pos);
 
             if let Some(at) = at {
-                hits.push(PendingHit {
-                    attacker,
-                    target,
-                    damage: weapon.damage,
-                    warhead: weapon.warhead,
-                    splash_radius: weapon.splash_radius,
-                    at,
-                });
+                if weapon.projectile_speed > Fx::ZERO {
+                    // Slow enough to be worth watching fly. Launched now and
+                    // resolved when it lands, which is what lets it be dodged.
+                    launched.push(Projectile {
+                        attacker,
+                        owner,
+                        target: weapon.homing.then_some(target),
+                        aim: at,
+                        pos: firing_from,
+                        speed: weapon.projectile_speed,
+                        damage: weapon.damage,
+                        warhead: weapon.warhead,
+                        splash_radius: weapon.splash_radius,
+                        fuse: crate::projectile::MAX_FLIGHT_TICKS,
+                    });
+                } else {
+                    // A rifle. Instant, exactly as before.
+                    hits.push(PendingHit {
+                        attacker,
+                        target,
+                        damage: weapon.damage,
+                        warhead: weapon.warhead,
+                        splash_radius: weapon.splash_radius,
+                        at,
+                    });
+                }
             }
         }
+        self.projectiles.extend(launched);
+        hits
+    }
+
+    /// Moves everything in flight and resolves what lands.
+    ///
+    /// Run before targeting, so a shot fired last tick lands before this tick's
+    /// shots are chosen — otherwise a unit would keep firing at something the
+    /// shell already in the air is about to kill.
+    fn advance_projectiles(&mut self) -> Vec<PendingHit> {
+        let mut hits = Vec::new();
+        let mut still_flying = Vec::with_capacity(self.projectiles.len());
+
+        // Taken out so the aim can be refreshed against the arena while the
+        // projectiles are mutated.
+        let flying = std::mem::take(&mut self.projectiles);
+        for mut shot in flying {
+            // A homing shot follows its target. One whose target has died
+            // carries on to where it was last seen, which is both simpler and
+            // more truthful than making the shot vanish in mid-air.
+            if let Some(target) = shot.target
+                && let Some(unit) = self.units.get(target)
+                && unit.is_alive()
+            {
+                shot.aim = unit.pos;
+            }
+
+            let arrived = shot.advance();
+            if arrived {
+                hits.push(PendingHit {
+                    attacker: shot.attacker,
+                    // A homing shot damages what it was following; a ballistic
+                    // one damages whatever is standing where it landed, which
+                    // the splash pass works out.
+                    target: shot.target.unwrap_or(EntityId::NONE),
+                    damage: shot.damage,
+                    warhead: shot.warhead,
+                    splash_radius: shot.splash_radius.max(IMPACT_TOLERANCE),
+                    at: shot.pos,
+                });
+            } else if !shot.is_spent() {
+                still_flying.push(shot);
+            }
+        }
+        self.projectiles = still_flying;
         hits
     }
 
@@ -1926,6 +2003,14 @@ impl Sim {
         // whenever the difference happens to matter.
         h.write_u64(self.rules.hash());
         h.write(&self.stats);
+        // Shots in flight are world state: two peers that disagree about a
+        // shell already in the air will disagree about who is alive a second
+        // later, and the divergence would surface with nothing visibly wrong
+        // at the moment it happened.
+        h.write_u32(self.projectiles.len() as u32);
+        for shot in &self.projectiles {
+            h.write(shot);
+        }
 
         // Slot order, including empty slots, so that two peers whose arenas
         // differ only in which slots are free still register as divergent —

@@ -28,6 +28,7 @@
 //! See `docs/02-simulation.md` and `docs/adr/0003-deterministic-lockstep.md`.
 
 pub mod arena;
+pub mod combat;
 pub mod command;
 pub mod fx;
 pub mod hash;
@@ -41,6 +42,7 @@ pub mod unit;
 mod trig_table;
 
 pub use arena::{Arena, EntityId};
+pub use combat::{ArmourId, CombatState, CombatTable, DamageTable, WarheadId, WeaponStats};
 pub use command::{Command, CommandKind, PlayerId};
 pub use fx::{Angle, Fx, FxWide};
 pub use hash::{StateHash, StateHasher};

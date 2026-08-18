@@ -228,7 +228,7 @@ fn cells_per_tick(per_second: Hundredths) -> Fx {
 }
 
 /// Degrees per second to binary angle units per tick.
-fn degrees_per_second_to_tick(degrees_per_second: u32) -> u16 {
+pub(crate) fn degrees_per_second_to_tick(degrees_per_second: u32) -> u16 {
     let per_tick = (degrees_per_second as i64 * FULL_TURN) / 360 / TICKS_PER_SECOND as i64;
     per_tick.clamp(0, u16::MAX as i64) as u16
 }

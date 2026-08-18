@@ -333,6 +333,145 @@ fn reconstruct(workspace: &PathWorkspace, start_idx: u32, end_idx: u32, map: &Ma
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds a map split by a wall of rock, with a channel of water crossing
+    /// it — so land, sea and air each have a different answer.
+    ///
+    /// ```text
+    ///        x=0        x=5(rock)      x=11
+    ///   y=0  . . . . .  #  . . . . .
+    ///   y=3  ~ ~ ~ ~ ~  ~  ~ ~ ~ ~ ~   <- water channel through the wall
+    ///   y=6  . . . . .  #  . . . . .
+    /// ```
+    fn divided_map() -> Map {
+        let mut map = Map::new(12, 8);
+        map.fill_rect(Cell::new(5, 0), Cell::new(5, 7), Terrain::Rock);
+        map.fill_rect(Cell::new(0, 3), Cell::new(11, 3), Terrain::Water);
+        map
+    }
+
+    #[test]
+    fn a_ship_stays_on_water_and_a_tank_stays_off_it() {
+        let map = divided_map();
+        let mut workspace = PathWorkspace::new(map.cell_count());
+
+        // The ship follows the channel straight through the wall.
+        let ship = find_path(
+            &map,
+            &mut workspace,
+            Cell::new(1, 3),
+            Cell::new(10, 3),
+            Locomotor::Ship,
+            10_000,
+        );
+        let route = match ship {
+            PathResult::Found(cells) => cells,
+            other => panic!("a ship on open water should find a route, got {other:?}"),
+        };
+        for cell in &route {
+            assert_eq!(
+                map.terrain(*cell),
+                Terrain::Water,
+                "the ship routed through {cell:?}, which is not water"
+            );
+        }
+
+        // The same journey by land has to go around the water, and cannot
+        // cross the wall at all — so it fails outright.
+        let tank = find_path(
+            &map,
+            &mut workspace,
+            Cell::new(1, 3),
+            Cell::new(10, 3),
+            Locomotor::Tracked,
+            10_000,
+        );
+        assert!(
+            matches!(tank, PathResult::Unreachable),
+            "a tank should not be able to start on water, got {tank:?}"
+        );
+    }
+
+    #[test]
+    fn aircraft_fly_over_everything_in_the_way() {
+        let map = divided_map();
+        let mut workspace = PathWorkspace::new(map.cell_count());
+
+        let air = find_path(
+            &map,
+            &mut workspace,
+            Cell::new(1, 1),
+            Cell::new(10, 6),
+            Locomotor::Air,
+            10_000,
+        );
+        let route = match air {
+            PathResult::Found(cells) => cells,
+            other => panic!("aircraft should always find a route, got {other:?}"),
+        };
+
+        // The route is direct: it crosses both the rock wall and the water
+        // rather than detouring around either.
+        assert!(
+            route.iter().any(|c| map.terrain(*c) == Terrain::Rock),
+            "the flight path avoided the rock instead of crossing it"
+        );
+
+        // And it is no longer than the diagonal distance, which is what
+        // ignoring terrain buys.
+        let straight = (10i32 - 1).abs().max((6i32 - 1).abs()) as usize;
+        assert!(
+            route.len() <= straight + 1,
+            "the flight took {} steps for a {straight}-step journey",
+            route.len()
+        );
+    }
+
+    #[test]
+    fn ground_units_route_around_water_rather_than_through_it() {
+        let mut map = Map::new(12, 8);
+        // A pond that does not quite reach the map edge.
+        map.fill_rect(Cell::new(4, 2), Cell::new(7, 5), Terrain::Water);
+        let mut workspace = PathWorkspace::new(map.cell_count());
+
+        let route = match find_path(
+            &map,
+            &mut workspace,
+            Cell::new(1, 4),
+            Cell::new(10, 4),
+            Locomotor::Tracked,
+            10_000,
+        ) {
+            PathResult::Found(cells) => cells,
+            other => panic!("there is a way around, got {other:?}"),
+        };
+        assert!(
+            route.iter().all(|c| map.terrain(*c) != Terrain::Water),
+            "a tracked unit routed through water"
+        );
+    }
+
+    #[test]
+    fn a_ship_cannot_reach_a_landlocked_destination() {
+        // Better to report no route than to path partway and stall against the
+        // shore every tick.
+        let mut map = Map::new(10, 10);
+        map.fill_rect(Cell::new(0, 0), Cell::new(9, 4), Terrain::Water);
+        let mut workspace = PathWorkspace::new(map.cell_count());
+
+        let result = find_path(
+            &map,
+            &mut workspace,
+            Cell::new(2, 2),
+            Cell::new(5, 8),
+            Locomotor::Ship,
+            10_000,
+        );
+        assert!(
+            matches!(result, PathResult::Unreachable),
+            "expected no route to dry land, got {result:?}"
+        );
+    }
     use crate::map::Terrain;
 
     fn workspace_for(map: &Map) -> PathWorkspace {

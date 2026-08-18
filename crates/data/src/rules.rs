@@ -90,6 +90,21 @@ impl ArmourTable {
     /// An unlisted pairing is full damage. That is the forgiving default on
     /// purpose: a missing entry should mean "nothing special", not "immune",
     /// because immunity by omission is invisible until a match hinges on it.
+    /// The armour classes, in declaration order.
+    pub fn classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    /// The warheads, in a stable order.
+    ///
+    /// `BTreeMap` keys, so the order is the sorted one and identical on every
+    /// machine. That matters because the simulation interns these to integer
+    /// indices: a different order would give the same warhead a different index
+    /// on two peers, and every damage lookup after that would disagree.
+    pub fn warheads(&self) -> Vec<String> {
+        self.table.keys().cloned().collect()
+    }
+
     pub fn multiplier(&self, warhead: &str, armour: &str) -> Percent {
         self.table
             .get(warhead)

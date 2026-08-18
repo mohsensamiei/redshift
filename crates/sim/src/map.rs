@@ -358,6 +358,70 @@ impl StateHash for Map {
 mod tests {
     use super::*;
 
+    /// Terrain each locomotor may enter.
+    ///
+    /// Written out as a table rather than as assertions scattered through the
+    /// movement tests, because this *is* the rule — a naval unit that can drive
+    /// onto grass, or a tank that can ford a lake, is a gameplay bug that no
+    /// pathfinding test would catch.
+    #[test]
+    fn locomotors_enter_only_the_terrain_they_should() {
+        use Locomotor::*;
+        use Terrain::*;
+
+        // (locomotor, ground, water, rock)
+        let expected = [
+            (Foot, true, false, false),
+            (Wheeled, true, false, false),
+            (Tracked, true, false, false),
+            // Naval units live on water and nowhere else.
+            (Ship, false, true, false),
+            // Hover crosses both surfaces, which is the whole point of it.
+            (Hover, true, true, false),
+            // Aircraft ignore terrain entirely, elevation included.
+            (Air, true, true, true),
+        ];
+
+        for (locomotor, ground, water, rock) in expected {
+            assert_eq!(
+                locomotor.can_enter(Ground),
+                ground,
+                "{locomotor:?} on ground"
+            );
+            assert_eq!(locomotor.can_enter(Water), water, "{locomotor:?} on water");
+            assert_eq!(locomotor.can_enter(Rock), rock, "{locomotor:?} on rock");
+        }
+    }
+
+    #[test]
+    fn only_aircraft_cross_high_ground() {
+        // Rock stands in for cliffs and elevation until maps carry height.
+        // Everything on the surface must be stopped by it; only aircraft pass.
+        for locomotor in [
+            Locomotor::Foot,
+            Locomotor::Wheeled,
+            Locomotor::Tracked,
+            Locomotor::Ship,
+            Locomotor::Hover,
+        ] {
+            assert!(
+                !locomotor.can_enter(Terrain::Rock),
+                "{locomotor:?} should not cross high ground"
+            );
+        }
+        assert!(Locomotor::Air.can_enter(Terrain::Rock));
+    }
+
+    #[test]
+    fn impassable_terrain_costs_more_than_any_route() {
+        // The cost lookup should never be reached for impassable terrain, but
+        // if it ever is, the answer has to be "never choose this" rather than a
+        // number A* might weigh against a detour.
+        assert_eq!(Locomotor::Ship.cost_percent(Terrain::Ground), u32::MAX);
+        assert_eq!(Locomotor::Tracked.cost_percent(Terrain::Water), u32::MAX);
+        assert_eq!(Locomotor::Air.cost_percent(Terrain::Rock), 100);
+    }
+
     #[test]
     fn cell_centre_is_half_a_cell_in() {
         let c = Cell::new(3, 4);

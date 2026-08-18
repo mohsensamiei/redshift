@@ -281,7 +281,7 @@ mod tests {
     fn a_unit_is_expressible_as_a_list() {
         // The design claim, exercised: a heavy tank is a combination of
         // existing traits, with no type of its own.
-        let tank = vec![
+        let tank = [
             Trait::Health {
                 max: 400,
                 armour: "heavy".into(),

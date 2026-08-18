@@ -12,6 +12,7 @@ use redshift_data::rules::{EntityKind, Rules};
 use crate::arena::{Arena, EntityId};
 use crate::combat::{self, CombatTable, PendingHit};
 use crate::command::{Command, CommandKind, PlayerId};
+use crate::economy::{self, Treasury};
 use crate::fx::{Angle, Fx};
 use crate::hash::StateHasher;
 use crate::map::{Cell, Locomotor, Map, WorldPos};
@@ -19,8 +20,8 @@ use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
 use crate::unit::{
-    ARRIVAL_TOLERANCE, FIRING_ARC, MAX_SEPARATION_STEP, MOVE_ALIGNMENT, Order, SEPARATION_EPSILON,
-    Unit,
+    ARRIVAL_TOLERANCE, FIRING_ARC, HarvestStage, MAX_SEPARATION_STEP, MOVE_ALIGNMENT, Order,
+    SEPARATION_EPSILON, Unit,
 };
 use crate::{TICKS_PER_SECOND, Tick};
 
@@ -166,7 +167,7 @@ const FORMATION_MAX_RADIUS: i32 = 6;
 /// Built rather than stored because the outer rings are large, but the order is
 /// deterministic: top edge left to right, then right edge, then bottom right to
 /// left, then left edge. Two peers walking this produce the same formation.
-fn ring_offsets(radius: i32) -> Vec<(i32, i32)> {
+pub(crate) fn ring_offsets(radius: i32) -> Vec<(i32, i32)> {
     if radius == 0 {
         return vec![(0, 0)];
     }
@@ -185,6 +186,18 @@ fn ring_offsets(radius: i32) -> Vec<(i32, i32)> {
     }
     out
 }
+
+/// How close a harvester must get to a refinery to unload.
+///
+/// Generous, because a refinery occupies several cells and a harvester that
+/// has to reach the exact centre would push through the building.
+const UNLOAD_RANGE: Fx = Fx::from_frac(250, 100);
+
+/// Credits every player starts with.
+///
+/// A placeholder until match settings are data. Enough to build an opening base
+/// without being able to skip the early economy.
+const STARTING_CREDITS: u32 = 5_000;
 
 /// The simulated world.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -207,6 +220,7 @@ pub struct Sim {
     /// units, and skipping this would leave every unit with default stats —
     /// stationary, and with no indication why.
     stats: StatTable,
+    treasury: Treasury,
     /// Reused between ticks so separation does not allocate every frame.
     #[serde(skip)]
     separation_buckets: Vec<Vec<EntityId>>,
@@ -246,13 +260,20 @@ impl Sim {
 
         let mut units = Arena::with_capacity(setup.spawns.len());
         for spawn in &setup.spawns {
-            let max_health = stats.get(spawn.owner, spawn.kind).max_health;
-            units.insert(Unit::new(
+            let spawn_stats = stats.get(spawn.owner, spawn.kind);
+            let mut unit = Unit::new(
                 spawn.owner,
                 spawn.kind,
                 setup.map.clamp_pos(spawn.pos),
-                max_health,
-            ));
+                spawn_stats.max_health,
+            );
+            // Harvesters begin their cycle the moment they exist. Waiting for
+            // an order would mean telling each one to start working, which the
+            // original never did.
+            if spawn_stats.harvest_capacity.is_some() {
+                unit.harvest = Some(crate::unit::HarvestState::default());
+            }
+            units.insert(unit);
         }
         let workspace = PathWorkspace::new(setup.map.cell_count());
         Sim {
@@ -264,6 +285,7 @@ impl Sim {
             workspace,
             combat: CombatTable::build(&setup.rules),
             separation_buckets: Vec::new(),
+            treasury: Treasury::new(factions.len(), STARTING_CREDITS),
             rules: setup.rules,
             stats,
             players: setup.players,
@@ -316,9 +338,15 @@ impl Sim {
     /// Spawns a unit. Test and scenario setup only — in a match, units arrive
     /// through production, which is a command.
     pub fn spawn_unit(&mut self, owner: PlayerId, kind: EntityKind, pos: WorldPos) -> EntityId {
-        let max_health = self.stats.get(owner, kind).max_health;
-        self.units
-            .insert(Unit::new(owner, kind, self.map.clamp_pos(pos), max_health))
+        let stats = self.stats.get(owner, kind);
+        let mut unit = Unit::new(owner, kind, self.map.clamp_pos(pos), stats.max_health);
+        // A harvester begins its cycle the moment it exists. Waiting for an
+        // order would mean the player had to tell each one to start working,
+        // which the original never did.
+        if stats.harvest_capacity.is_some() {
+            unit.harvest = Some(crate::unit::HarvestState::default());
+        }
+        self.units.insert(unit)
     }
 
     /// Advances the world by exactly one tick.
@@ -335,6 +363,7 @@ impl Sim {
         );
 
         self.apply_commands(commands);
+        self.run_harvesters();
         self.service_path_requests();
         self.move_units();
         self.separate_units();
@@ -343,6 +372,185 @@ impl Sim {
         self.remove_the_dead();
 
         self.tick += 1;
+    }
+
+    // -- Economy -------------------------------------------------------------
+
+    /// Advances every harvester through its cycle.
+    ///
+    /// The cycle sets ordinary [`Order::Move`] orders and watches for them to
+    /// finish, so it inherits the pathfinding, repathing and partial-route
+    /// handling that movement already has rather than growing a second copy.
+    ///
+    /// Every step has to survive the next one failing: a field can run dry
+    /// while a harvester walks to it, and a refinery can be destroyed while it
+    /// walks home. Keeping the whole cycle in one place means each of those has
+    /// an obvious recovery rather than leaving a harvester wedged.
+    fn run_harvesters(&mut self) {
+        // Cells already being worked, so two harvesters do not pile onto one
+        // square while the rest of a field sits untouched. Built in arena
+        // order, so every peer builds the same list.
+        let claimed: Vec<Cell> = self
+            .units
+            .iter()
+            .filter_map(|(_, u)| u.harvest.and_then(|h| h.field))
+            .collect();
+
+        for id in self.units.ids() {
+            let Some(unit) = self.units.get(id) else {
+                continue;
+            };
+            let Some(state) = unit.harvest else {
+                continue;
+            };
+            let stats = self.stats.get(unit.owner, unit.kind);
+            let Some(capacity) = stats.harvest_capacity else {
+                continue;
+            };
+
+            let owner = unit.owner;
+            let position = unit.pos;
+            let cell = unit.cell();
+            let travelling = !unit.order.is_idle();
+
+            match state.stage {
+                HarvestStage::Approaching => {
+                    // The field may have been mined out by someone else while
+                    // this harvester was walking to it.
+                    let target_gone = state.field.is_none_or(|c| !self.map.has_ore(c));
+                    if target_gone {
+                        self.assign_field(id, cell, &claimed);
+                        continue;
+                    }
+                    if state.field == Some(cell) {
+                        self.set_harvest(id, |h| {
+                            h.stage = HarvestStage::Gathering;
+                            h.gather_delay = 0;
+                        });
+                    } else if !travelling {
+                        // Arrived somewhere that is not the field: the route
+                        // was partial or blocked. Ask again from here.
+                        self.assign_field(id, cell, &claimed);
+                    }
+                }
+
+                HarvestStage::Gathering => {
+                    if state.gather_delay > 0 {
+                        self.set_harvest(id, |h| h.gather_delay = h.gather_delay.saturating_sub(1));
+                        continue;
+                    }
+
+                    let wanted = (capacity - state.load).min(economy::ORE_PER_BITE as u32) as u16;
+                    let taken = self.map.take_ore(cell, wanted) as u32;
+                    let load = state.load + taken;
+
+                    if taken == 0 || load >= capacity {
+                        if load > 0 {
+                            self.send_harvester_home(id, load, owner, position);
+                        } else {
+                            self.assign_field(id, cell, &claimed);
+                        }
+                    } else {
+                        self.set_harvest(id, |h| {
+                            h.load = load;
+                            h.gather_delay = economy::GATHER_INTERVAL;
+                        });
+                    }
+                }
+
+                HarvestStage::Returning => {
+                    let refinery = economy::nearest_refinery(
+                        &self.units,
+                        owner,
+                        position.x,
+                        position.y,
+                        &|u| self.stats.get(u.owner, u.kind).is_refinery,
+                    );
+                    let Some(refinery) = refinery else {
+                        // Nowhere to unload. The load is kept rather than
+                        // dropped: silently destroying a player's income when a
+                        // refinery is lost mid-run would be very hard to notice
+                        // and very annoying to diagnose.
+                        continue;
+                    };
+                    let Some(target) = self.units.get(refinery) else {
+                        continue;
+                    };
+                    let target_cell = target.cell();
+                    let reached = Fx::dist_sq(position.x - target.pos.x, position.y - target.pos.y)
+                        <= UNLOAD_RANGE.sq();
+
+                    if reached {
+                        self.treasury
+                            .deposit(owner, state.load * economy::CREDITS_PER_ORE);
+                        self.set_harvest(id, |h| h.load = 0);
+                        self.assign_field(id, cell, &claimed);
+                    } else if !travelling {
+                        // Not there and not moving: head for the refinery.
+                        self.order_move(owner, id, target_cell);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Sends a harvester to the nearest unworked ore, or idles it if there is
+    /// none within reach.
+    fn assign_field(&mut self, id: EntityId, from: Cell, claimed: &[Cell]) {
+        let field = economy::nearest_ore(&self.map, from, economy::ORE_SEARCH_RADIUS, claimed);
+        let Some(field) = field else {
+            // Nothing left within reach. Idling is visible and diagnosable;
+            // rescanning the whole map every tick would not be.
+            self.set_harvest(id, |h| {
+                h.stage = HarvestStage::Approaching;
+                h.field = None;
+            });
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.order = Order::Idle;
+            }
+            return;
+        };
+
+        self.set_harvest(id, |h| {
+            h.stage = HarvestStage::Approaching;
+            h.field = Some(field);
+            h.gather_delay = 0;
+        });
+        let owner = self.units.get(id).map(|u| u.owner);
+        if let Some(owner) = owner {
+            self.order_move(owner, id, field);
+        }
+    }
+
+    fn send_harvester_home(&mut self, id: EntityId, load: u32, owner: PlayerId, at: WorldPos) {
+        self.set_harvest(id, |h| {
+            h.stage = HarvestStage::Returning;
+            h.field = None;
+            h.load = load;
+            h.gather_delay = 0;
+        });
+        let refinery = economy::nearest_refinery(&self.units, owner, at.x, at.y, &|u| {
+            self.stats.get(u.owner, u.kind).is_refinery
+        });
+        if let Some(refinery) = refinery
+            && let Some(cell) = self.units.get(refinery).map(|u| u.cell())
+        {
+            self.order_move(owner, id, cell);
+        }
+    }
+
+    /// Edits a harvester's cycle state in place.
+    fn set_harvest<F: FnOnce(&mut crate::unit::HarvestState)>(&mut self, id: EntityId, edit: F) {
+        if let Some(unit) = self.units.get_mut(id)
+            && let Some(state) = unit.harvest.as_mut()
+        {
+            edit(state);
+        }
+    }
+
+    /// Credits available to each player.
+    pub fn treasury(&self) -> &Treasury {
+        &self.treasury
     }
 
     // -- Separation ----------------------------------------------------------

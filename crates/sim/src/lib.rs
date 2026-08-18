@@ -30,6 +30,7 @@
 pub mod arena;
 pub mod combat;
 pub mod command;
+pub mod economy;
 pub mod fx;
 pub mod hash;
 pub mod map;
@@ -44,6 +45,7 @@ mod trig_table;
 pub use arena::{Arena, EntityId};
 pub use combat::{ArmourId, CombatState, CombatTable, DamageTable, WarheadId, WeaponStats};
 pub use command::{Command, CommandKind, PlayerId};
+pub use economy::Treasury;
 pub use fx::{Angle, Fx, FxWide};
 pub use hash::{StateHash, StateHasher};
 pub use map::{Cell, Locomotor, Map, Terrain, WorldPos};

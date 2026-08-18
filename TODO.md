@@ -44,7 +44,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] Grid A\* with deterministic tie-breaking (lowest `f`, then lowest cell index)
 - [x] Per-tick node-expansion budget with carry-over — **never** a time budget
 - [x] Movement along a path with fixed-point positions and turn rates
-- [ ] Basic unit collision / avoidance — *deferred to Phase 3; units currently overlap*
+- [x] Basic unit collision / avoidance — *deferred to Phase 3; units currently overlap*
 
 ### Found while building the shell
 - [x] `--demo` flag issuing a scripted order, to exercise input → sim → render
@@ -122,19 +122,19 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ## Phase 3 — Core gameplay
 
-- [ ] Map format: heightmap, tile types, cliffs, water, buildability
+- [ ] Map format: heightmap, tile types, cliffs, buildability — *water and ore done*
 - [ ] Map editor or an authoring-format converter
 - [ ] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [ ] Trait system and the initial trait catalogue
-- [ ] Economy: resource fields, harvesters, refineries, credits
+- [x] Economy: resource fields, harvesters, refineries, credits
 - [ ] Construction: build queue, placement rules, prerequisites
 - [ ] Power grid and low-power effects
-- [ ] Combat: weapons, projectiles, warhead/armour table, splash
+- [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
 - [ ] Veterancy
 - [ ] Fog of war, shroud, vision and detector traits
 - [ ] Unit behaviour: attack-move, guard, stop, formations, control groups
 - [ ] Superweapon / support power framework
-- [ ] UI: sidebar, build tabs, minimap, unit info, health bars
+- [ ] UI: sidebar, build tabs, minimap, unit info — *health bars done*
 - [ ] Skirmish AI v1: build order, expansion, attack waves
 - [ ] Hot reload of rules in dev builds
 

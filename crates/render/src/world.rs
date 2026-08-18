@@ -201,7 +201,21 @@ pub fn build_terrain_mesh(map: &Map) -> Mesh {
             // read as a flat sheet of colour. Derived from the coordinates so
             // it is stable, not random.
             let jitter = (((x * 7 + y * 13) % 5) as f32) * 0.015;
+            // Ore tints the ground rather than replacing it. A field is
+            // something lying *on* the map, and a harvester working it should
+            // visibly thin the patch out over a run rather than flipping cells
+            // to bare earth one at a time.
+            let ore = map.ore(cell) as f32 / redshift_sim::map::MAX_ORE_PER_CELL as f32;
             let colour = match terrain {
+                Terrain::Ground if ore > 0.0 => {
+                    let mix = ore.clamp(0.0, 1.0);
+                    let blend = |ground: f32, gold: f32| ground + (gold - ground) * mix;
+                    vertex_colour(
+                        blend(0.32 + jitter, 0.78),
+                        blend(0.40 + jitter, 0.60),
+                        blend(0.22 + jitter, 0.14),
+                    )
+                }
                 Terrain::Ground => vertex_colour(0.32 + jitter, 0.40 + jitter, 0.22 + jitter),
                 Terrain::Water => vertex_colour(0.11, 0.28, 0.46),
                 Terrain::Rock => vertex_colour(0.34, 0.32, 0.30),

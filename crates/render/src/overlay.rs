@@ -174,6 +174,16 @@ pub fn update_overlay(
     out.push_str(&format!("{:<14}{:>8}\n", "units", view.unit_count()));
     out.push_str(&format!(
         "{:<14}{:>8}\n",
+        "credits",
+        session.sim().treasury().credits(session.local_player())
+    ));
+    out.push_str(&format!(
+        "{:<14}{:>8}\n",
+        "ore left",
+        session.sim().map().total_ore()
+    ));
+    out.push_str(&format!(
+        "{:<14}{:>8}\n",
         "paths queued",
         view.pending_paths()
     ));

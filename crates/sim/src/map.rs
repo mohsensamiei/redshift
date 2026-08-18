@@ -229,6 +229,14 @@ pub struct Map {
     width: u16,
     height: u16,
     terrain: Vec<Terrain>,
+    /// Harvestable ore per cell.
+    ///
+    /// A parallel array rather than a variant of [`Terrain`], because ore is
+    /// not a *kind* of ground — it sits on top of ground that units still walk
+    /// over, and it changes constantly as harvesters work while the terrain
+    /// beneath never does. Folding it into the terrain enum would mean
+    /// mutating passability every time a harvester took a load.
+    ore: Vec<u16>,
 }
 
 impl Map {
@@ -241,6 +249,7 @@ impl Map {
         Map {
             width,
             height,
+            ore: vec![0; width as usize * height as usize],
             terrain: vec![Terrain::Ground; width as usize * height as usize],
         }
     }
@@ -344,12 +353,95 @@ impl Map {
     }
 }
 
+/// The most ore one cell can hold.
+///
+/// A cell is a unit of harvesting, not a continuous quantity: a harvester takes
+/// a bite and the cell visibly thins out. Capping it keeps a field's total
+/// predictable from its area, which is what makes a map's economy readable.
+pub const MAX_ORE_PER_CELL: u16 = 500;
+
+impl Map {
+    /// Ore remaining in a cell. Out of bounds reads as none.
+    #[inline]
+    pub fn ore(&self, cell: Cell) -> u16 {
+        self.index(cell).map_or(0, |i| self.ore[i as usize])
+    }
+
+    /// Whether a cell has anything left to harvest.
+    #[inline]
+    pub fn has_ore(&self, cell: Cell) -> bool {
+        self.ore(cell) > 0
+    }
+
+    /// Sets a cell's ore, clamped to [`MAX_ORE_PER_CELL`].
+    pub fn set_ore(&mut self, cell: Cell, amount: u16) {
+        if let Some(i) = self.index(cell) {
+            self.ore[i as usize] = amount.min(MAX_ORE_PER_CELL);
+        }
+    }
+
+    /// Removes up to `wanted` ore from a cell, returning what was actually
+    /// taken.
+    ///
+    /// Returns the amount rather than assuming the request was met: a
+    /// harvester asking for more than remains must be credited only for what
+    /// it got, or the map would fund ore it never held.
+    pub fn take_ore(&mut self, cell: Cell, wanted: u16) -> u16 {
+        let Some(i) = self.index(cell) else {
+            return 0;
+        };
+        let available = self.ore[i as usize];
+        let taken = wanted.min(available);
+        self.ore[i as usize] = available - taken;
+        taken
+    }
+
+    /// Ore left on the whole map.
+    pub fn total_ore(&self) -> u64 {
+        self.ore.iter().map(|&a| a as u64).sum()
+    }
+
+    /// Scatters an ore field centred on `centre`.
+    ///
+    /// Density falls off with distance so a field has a rich middle and thin
+    /// edges, which gives harvesters somewhere obvious to start and makes a
+    /// contested field worth fighting over at its centre.
+    ///
+    /// Deterministic given the same arguments — it uses no randomness at all,
+    /// so two peers building a map from the same description get the same ore.
+    pub fn add_ore_field(&mut self, centre: Cell, radius: i32, richness: u16) {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let cell = Cell::new(centre.x + dx, centre.y + dy);
+                // Ore only sits on ground. Scattering it into a lake would show
+                // a field no harvester could ever reach.
+                if self.terrain(cell) != Terrain::Ground {
+                    continue;
+                }
+                let distance = dx.abs().max(dy.abs());
+                if distance > radius {
+                    continue;
+                }
+                let falloff = radius + 1 - distance;
+                let amount = (richness as i32 * falloff) / (radius + 1);
+                let existing = self.ore(cell) as i32;
+                self.set_ore(cell, (existing + amount).min(u16::MAX as i32) as u16);
+            }
+        }
+    }
+}
+
 impl StateHash for Map {
     fn state_hash(&self, h: &mut StateHasher) {
         h.write_u16(self.width);
         h.write_u16(self.height);
         for t in &self.terrain {
             h.write_u8(*t as u8);
+        }
+        // Ore is part of the world state, not scenery: two peers that disagree
+        // about how much is left will disagree about credits a minute later.
+        for amount in &self.ore {
+            h.write_u16(*amount);
         }
     }
 }

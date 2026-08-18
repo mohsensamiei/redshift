@@ -117,11 +117,13 @@ fn demo_order(mut session: ResMut<Session>, mut frames: Local<u32>, mut issued: 
     *issued = true;
 
     let local = session.local_player();
+    // Combat units only. Ordering the harvesters to attack would drag them off
+    // their run, which is exactly what the demo is meant to show working.
     let units: Vec<_> = session
         .sim()
         .view()
         .units()
-        .filter(|(_, u)| u.owner == local)
+        .filter(|(_, u)| u.owner == local && u.harvest.is_none())
         .map(|(id, _)| id)
         .collect();
 
@@ -154,6 +156,7 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
     let tank = kind("grizzly_tank");
     let infantry = kind("gi");
     let harvester = kind("harvester");
+    let refinery = kind("refinery");
 
     let mut spawns = Vec::new();
     // Close enough that a demo run reaches contact, far enough that the walk
@@ -175,11 +178,21 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
                 pos: Cell::new(base_x + dx * (i % 2 + 3), base_y + dy * (i / 2)).centre(),
             });
         }
+        // A refinery and two harvesters each, so the economy runs from the
+        // first tick. Placement is mirrored so neither side starts closer to
+        // its ore than the other.
         spawns.push(Spawn {
             owner,
-            kind: harvester,
-            pos: Cell::new(base_x + dx * 5, base_y + dy * 2).centre(),
+            kind: refinery,
+            pos: Cell::new(base_x - dx * 6, base_y - dy * 6).centre(),
         });
+        for i in 0..2i32 {
+            spawns.push(Spawn {
+                owner,
+                kind: harvester,
+                pos: Cell::new(base_x - dx * 4, base_y - dy * (5 + i)).centre(),
+            });
+        }
     }
 
     MatchSetup {
@@ -228,6 +241,14 @@ fn skirmish_map() -> Map {
     ] {
         map.set_terrain(Cell::new(x, y), Terrain::Rock);
     }
+    // Ore fields: one near each start, and a contested pair in the middle.
+    // Placed rather than scattered randomly so the map reads the same every
+    // match and the two players start with the same opportunity.
+    map.add_ore_field(Cell::new(8, 8), 4, 400);
+    map.add_ore_field(Cell::new(40, 40), 4, 400);
+    map.add_ore_field(Cell::new(24, 12), 3, 300);
+    map.add_ore_field(Cell::new(24, 36), 3, 300);
+
     map
 }
 

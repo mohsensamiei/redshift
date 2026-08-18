@@ -53,6 +53,16 @@ pub struct UnitStats {
     pub can_crush: bool,
     /// Whether this kind can move at all. Structures cannot.
     pub mobile: bool,
+    /// How much ore this can carry, if it harvests at all.
+    ///
+    /// `None` rather than zero: "cannot harvest" and "can harvest nothing" are
+    /// different, and the harvester loop needs to skip the first entirely
+    /// rather than run a cycle that can never make progress.
+    pub harvest_capacity: Option<u32>,
+    /// Ore gathered per bite, in hundredths of a unit.
+    pub gather_rate: u32,
+    /// Whether harvesters can unload here.
+    pub is_refinery: bool,
     /// Physical radius, for keeping units out of each other.
     ///
     /// Derived from the same source the renderer sizes its placeholder from, so
@@ -74,6 +84,9 @@ impl StateHash for UnitStats {
         h.write_bool(self.can_crush);
         h.write_bool(self.mobile);
         h.write_i32(self.radius.raw());
+        h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
+        h.write_u32(self.gather_rate);
+        h.write_bool(self.is_refinery);
     }
 }
 
@@ -174,6 +187,14 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             Trait::Vision { range } => stats.vision = Fx::from_raw(range.to_fx_raw()),
             Trait::Selectable { priority } => stats.selection_priority = *priority,
             Trait::Crushes { classes } => stats.can_crush = !classes.is_empty(),
+            Trait::Harvester {
+                capacity,
+                gather_rate,
+            } => {
+                stats.harvest_capacity = Some(*capacity);
+                stats.gather_rate = gather_rate.0.max(0) as u32;
+            }
+            Trait::Refinery { .. } => stats.is_refinery = true,
             Trait::Buildable {
                 cost, build_time, ..
             } => {

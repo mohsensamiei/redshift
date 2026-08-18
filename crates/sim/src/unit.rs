@@ -45,6 +45,70 @@ pub const MAX_SEPARATION_STEP: Fx = Fx::from_raw(6553);
 
 pub const MOVE_ALIGNMENT: u16 = 4096;
 
+/// A harvester's cycle.
+///
+/// Held beside the order rather than inside it, for the same reason combat
+/// state is: a harvester *moves* while it harvests, and the two answer
+/// different questions. "Where am I going" is an order and goes through the
+/// ordinary movement and pathfinding code, which is already tested. "What am I
+/// doing when I get there" is this.
+///
+/// Folding them together would have meant teaching the path service a second
+/// kind of destination, and duplicating the repath and partial-route handling
+/// that took two rounds of bugs to get right.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct HarvestState {
+    pub stage: HarvestStage,
+    /// The cell being worked, once one has been chosen.
+    pub field: Option<Cell>,
+    /// Ore aboard.
+    pub load: u32,
+    /// Ticks until the next bite.
+    pub gather_delay: u32,
+}
+
+impl Default for HarvestState {
+    fn default() -> Self {
+        HarvestState {
+            stage: HarvestStage::Approaching,
+            field: None,
+            load: 0,
+            gather_delay: 0,
+        }
+    }
+}
+
+impl StateHash for HarvestState {
+    fn state_hash(&self, h: &mut StateHasher) {
+        h.write_u8(self.stage as u8);
+        match self.field {
+            Some(cell) => {
+                h.write_u8(1);
+                h.write(&cell);
+            }
+            None => h.write_u8(0),
+        }
+        h.write_u32(self.load);
+        h.write_u32(self.gather_delay);
+    }
+}
+
+/// Where a harvester is in its cycle.
+///
+/// Explicit rather than inferred from whether the load is full: "walking to a
+/// field" and "walking home" look identical from the load alone at the moment
+/// the first bite lands, and a harvester that guesses wrong turns round in the
+/// middle of the field.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum HarvestStage {
+    /// Walking to a chosen field.
+    Approaching,
+    /// Standing on ore, taking bites.
+    Gathering,
+    /// Walking to a refinery with a load.
+    Returning,
+}
+
 /// What a unit is currently trying to do.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Order {
@@ -87,6 +151,11 @@ pub struct Unit {
     /// Remaining health. Its maximum lives in the stat table.
     pub health: u32,
     pub order: Order,
+    /// The harvest cycle, for units that gather ore.
+    ///
+    /// `None` for everything else, so the harvester pass can skip them without
+    /// consulting the rules.
+    pub harvest: Option<crate::unit::HarvestState>,
     /// Targeting and reload state.
     ///
     /// Deliberately separate from [`Order`]: a unit shoots *while* moving.
@@ -104,6 +173,7 @@ impl Unit {
             facing: Angle::ZERO,
             health: max_health,
             order: Order::Idle,
+            harvest: None,
             combat: crate::combat::CombatState::default(),
         }
     }
@@ -133,6 +203,13 @@ impl StateHash for Unit {
         h.write(&self.pos);
         h.write_u16(self.facing.raw());
         h.write_u32(self.health);
+        match &self.harvest {
+            Some(state) => {
+                h.write_u8(1);
+                h.write(state);
+            }
+            None => h.write_u8(0),
+        }
         h.write(&self.combat);
         match &self.order {
             Order::Idle => h.write_u8(0),

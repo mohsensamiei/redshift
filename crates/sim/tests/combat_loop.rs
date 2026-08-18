@@ -36,6 +36,7 @@ fn rules() -> Rules {
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
             homing: false,
+            targets: vec![],
         },
         WeaponDef {
             id: "cannon".into(),
@@ -46,6 +47,7 @@ fn rules() -> Rules {
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
             homing: false,
+            targets: vec![],
         },
         WeaponDef {
             id: "mortar".into(),
@@ -57,6 +59,7 @@ fn rules() -> Rules {
             splash_radius: Hundredths(150),
             projectile_speed: Hundredths(800),
             homing: false,
+            targets: vec![],
         },
     ];
 
@@ -77,6 +80,7 @@ fn rules() -> Rules {
                     locomotor: Locomotor::Foot,
                     surfaces: None,
                     size: None,
+                    layer: None,
                 },
                 Trait::Vision {
                     range: Hundredths(900),

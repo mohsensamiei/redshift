@@ -242,7 +242,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 12 capabilities confirmed, 13 gaps.**
+**As of the last run: 16 capabilities confirmed, 12 gaps.**
 
 Confirmed working, exercised end to end rather than asserted:
 
@@ -256,6 +256,9 @@ Confirmed working, exercised end to end rather than asserted:
   still unlock things
 - A slow shot takes time to arrive, an instant weapon still hits on the tick it
   fires, and a ballistic shell misses a target that runs out from under it
+- A ground weapon ignores aircraft entirely rather than firing at them
+  uselessly, an anti-air gun hits aircraft and cannot touch ground vehicles,
+  and a weapon that says nothing about layers is still ground-only
 
 ## 10. What the engine cannot do
 

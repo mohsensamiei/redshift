@@ -25,6 +25,7 @@ fn rules() -> Rules {
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
         homing: false,
+        targets: vec![],
     }];
 
     let base = |id: &str, extra: Vec<Trait>| {
@@ -39,6 +40,7 @@ fn rules() -> Rules {
                 locomotor: Locomotor::Foot,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Vision {
                 range: Hundredths(800),

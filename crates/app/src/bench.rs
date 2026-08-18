@@ -186,6 +186,7 @@ fn bench_rules() -> Rules {
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
             homing: false,
+            targets: vec![],
         },
         WeaponDef {
             id: "cannon".into(),
@@ -196,6 +197,7 @@ fn bench_rules() -> Rules {
             splash_radius: Hundredths(40),
             projectile_speed: Hundredths(2000),
             homing: false,
+            targets: vec![],
         },
     ];
 
@@ -218,6 +220,7 @@ fn bench_rules() -> Rules {
                 locomotor: Locomotor::Tracked,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Armed {
                 weapon: weapon.into(),

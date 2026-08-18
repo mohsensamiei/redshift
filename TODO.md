@@ -161,7 +161,7 @@ and reasoning in docs/08-roster.md.
 **Medium — real mechanics with interactions**
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
-- [ ] **Air targeting** — nothing tells an air target from a ground one *(foundational)*
+- [x] **Air targeting** — units have a layer, weapons declare what they engage
 - [ ] Deploy — unit↔structure, and stance toggling
 - [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
@@ -187,8 +187,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Twelve capabilities
-confirmed, thirteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
+confirmed, twelve gaps, each an ignored test with its reason attached.
 
 ```sh
 cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore

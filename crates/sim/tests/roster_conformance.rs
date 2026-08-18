@@ -54,6 +54,7 @@ fn rifle() -> WeaponDef {
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
         homing: false,
+        targets: vec![],
     }
 }
 
@@ -70,6 +71,7 @@ fn unit(id: &str, category: &str, locomotor: Locomotor, extra: Vec<Trait>) -> En
             locomotor,
             surfaces: None,
             size: None,
+            layer: None,
         },
         Trait::Vision {
             range: Hundredths(600),
@@ -171,6 +173,7 @@ fn amphibious_infantry_crosses_water_with_no_engine_change() {
             locomotor: Locomotor::Foot,
             surfaces: Some(vec![Surface::Land, Surface::Water]),
             size: None,
+            layer: None,
         }],
     );
     // The override replaces the default Mobile, so drop the original.
@@ -239,6 +242,7 @@ fn a_unit_may_declare_its_own_size() {
                 locomotor: Locomotor::Foot,
                 surfaces: None,
                 size: Some(Hundredths(90)),
+                layer: None,
             },
             Trait::Vision {
                 range: Hundredths(400),
@@ -581,6 +585,7 @@ fn a_slow_projectile_takes_time_to_arrive() {
         // Two cells a second: slow enough to watch.
         projectile_speed: Hundredths(200),
         homing: false,
+        targets: vec![],
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -740,6 +745,7 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths(100),
         homing: false,
+        targets: vec![],
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -824,10 +830,141 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
     );
 }
 
+/// Builds a scenario with one shooter and one victim, four cells apart.
+fn duel(rules: Rules, shooter: &str, victim: &str) -> Sim {
+    let shooter_kind = rules
+        .kind_of(shooter)
+        .unwrap_or_else(|| panic!("no {shooter}"));
+    let victim_kind = rules
+        .kind_of(victim)
+        .unwrap_or_else(|| panic!("no {victim}"));
+    Sim::new(MatchSetup {
+        seed: 1,
+        map: Map::new(30, 30),
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind: shooter_kind,
+                pos: Cell::new(10, 15).centre(),
+            },
+            Spawn {
+                owner: PlayerId(1),
+                kind: victim_kind,
+                pos: Cell::new(13, 15).centre(),
+            },
+        ],
+        rules,
+    })
+}
+
+/// Rules with a ground gun, an anti-air gun, a tank and an aircraft.
+fn air_rules() -> Rules {
+    let weapon = |id: &str, targets: Vec<redshift_data::traits::Layer>| WeaponDef {
+        id: id.into(),
+        damage: 40,
+        warhead: "shot".into(),
+        reload: Ticks(8),
+        range: Hundredths(600),
+        splash_radius: Hundredths::ZERO,
+        projectile_speed: Hundredths::ZERO,
+        homing: false,
+        targets,
+    };
+
+    let armed = |id: &str, weapon: &str, locomotor: Locomotor| {
+        unit(
+            id,
+            "vehicle",
+            locomotor,
+            vec![Trait::Armed {
+                weapon: weapon.into(),
+                turret: true,
+                turret_rate: 3600,
+            }],
+        )
+    };
+
+    Rules::from_parts(
+        vec![
+            armed("tank", "cannon", Locomotor::Tracked),
+            armed("flak", "flak_gun", Locomotor::Tracked),
+            // An aircraft, which the locomotor puts in the air layer.
+            unit("plane", "aircraft", Locomotor::Air, vec![]),
+            unit("truck", "vehicle", Locomotor::Wheeled, vec![]),
+        ],
+        vec![
+            weapon("cannon", vec![]),
+            weapon("flak_gun", vec![redshift_data::traits::Layer::Air]),
+        ],
+        armour(),
+        vec![],
+    )
+    .expect("rules")
+}
+
+/// Runs a duel and reports whether the victim was hurt.
+fn victim_was_hit(sim: &mut Sim) -> bool {
+    let victim = sim.units().ids()[1];
+    for _ in 0..300 {
+        sim.tick(&[]);
+        if sim.units().get(victim).is_none_or(|u| u.health < 200) {
+            return true;
+        }
+    }
+    false
+}
+
 #[test]
-#[ignore = "gap: air targeting — nothing distinguishes an air target from a ground one"]
-fn an_anti_air_weapon_hits_aircraft_and_not_tanks() {
-    panic!("the armour table has an 'air' class and no unit is ever in it");
+fn a_ground_weapon_ignores_aircraft() {
+    // The bug this closes: without a targeting layer, a tank locks onto an
+    // aircraft and fires at it uselessly for the rest of the match while the
+    // enemy walks past.
+    let mut sim = duel(air_rules(), "tank", "plane");
+    assert!(!victim_was_hit(&mut sim), "a tank shot down an aircraft");
+
+    let tank = sim.units().ids()[0];
+    assert!(
+        sim.units().get(tank).unwrap().combat.target.is_none(),
+        "the tank locked onto a target it cannot engage"
+    );
+}
+
+#[test]
+fn an_anti_air_weapon_hits_aircraft() {
+    let mut sim = duel(air_rules(), "flak", "plane");
+    assert!(
+        victim_was_hit(&mut sim),
+        "an anti-air gun could not hit an aircraft"
+    );
+}
+
+#[test]
+fn an_anti_air_weapon_ignores_ground_targets() {
+    // The other half. A flak gun that could also shoot tanks would be strictly
+    // better than a tank gun rather than a trade.
+    let mut sim = duel(air_rules(), "flak", "truck");
+    assert!(
+        !victim_was_hit(&mut sim),
+        "an anti-air gun shot a ground vehicle"
+    );
+}
+
+#[test]
+fn a_ground_weapon_still_hits_ground_targets() {
+    // The default has to be ground-only, or every existing rules file changes
+    // meaning silently.
+    let mut sim = duel(air_rules(), "tank", "truck");
+    assert!(victim_was_hit(&mut sim), "a tank could not shoot a truck");
 }
 
 #[test]

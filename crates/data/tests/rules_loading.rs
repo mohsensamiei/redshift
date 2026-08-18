@@ -367,6 +367,7 @@ fn a_weapon_without_an_armour_row_is_refused() {
             splash_radius: Hundredths::ZERO,
             projectile_speed: Hundredths::ZERO,
             homing: false,
+            targets: vec![],
         }],
         minimal_armour(),
         Vec::new(),
@@ -484,6 +485,7 @@ fn locomotors_survive_a_roundtrip() {
             locomotor,
             surfaces: None,
             size: None,
+            layer: None,
         };
         let text = ron::to_string(&t).unwrap();
         assert_eq!(ron::from_str::<Trait>(&text).unwrap(), t);

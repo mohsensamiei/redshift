@@ -18,6 +18,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{Hundredths, Percent, Ticks};
 
+/// Which layer a thing occupies for the purpose of being shot at.
+///
+/// Separate from its surfaces, because they answer different questions.
+/// Surfaces are about where a unit may *go*; the layer is about what can
+/// *reach* it. A hovercraft crosses water and is still shot at like anything
+/// else on the ground.
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
+)]
+pub enum Layer {
+    #[default]
+    Ground,
+    Air,
+}
+
 /// A surface a unit may occupy.
 ///
 /// Declared per unit rather than inferred from its locomotor. See
@@ -81,6 +96,10 @@ pub enum Trait {
         /// locomotor.
         #[serde(default)]
         size: Option<Hundredths>,
+        /// Which layer this occupies for targeting. Defaults from the
+        /// locomotor: flying things are in the air, everything else is not.
+        #[serde(default)]
+        layer: Option<Layer>,
     },
 
     /// Carries a weapon.
@@ -247,6 +266,14 @@ impl Locomotor {
 
     /// The radius a unit of this style takes up, in hundredths of a cell, when
     /// it does not say.
+    /// The layer a unit of this style occupies when it does not say.
+    pub fn default_layer(self) -> Layer {
+        match self {
+            Locomotor::Air => Layer::Air,
+            _ => Layer::Ground,
+        }
+    }
+
     pub fn default_size(self) -> Hundredths {
         match self {
             Locomotor::Foot => Hundredths(16),
@@ -331,6 +358,7 @@ mod tests {
                 locomotor: Locomotor::Tracked,
                 surfaces: None,
                 size: None,
+                layer: None,
             }
             .references()
             .is_empty()
@@ -352,6 +380,7 @@ mod tests {
                 locomotor: Locomotor::Tracked,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Armed {
                 weapon: "120mm".into(),
@@ -380,6 +409,7 @@ mod tests {
             locomotor: Locomotor::Tracked,
             surfaces: None,
             size: None,
+            layer: None,
         };
         let text = ron::to_string(&t).unwrap();
         assert!(

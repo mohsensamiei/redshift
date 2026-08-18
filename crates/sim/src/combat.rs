@@ -23,7 +23,7 @@
 use serde::{Deserialize, Serialize};
 
 use redshift_data::rules::{EntityKind, Rules, WeaponDef};
-use redshift_data::traits::Trait;
+use redshift_data::traits::{Layer, Trait};
 use redshift_data::value::Percent;
 
 use crate::arena::EntityId;
@@ -48,6 +48,8 @@ pub struct WeaponStats {
     pub splash_radius: Fx,
     /// Cells the shot travels per tick. Zero means it lands instantly.
     pub projectile_speed: Fx,
+    /// Layers this weapon can engage.
+    pub targets: LayerMask,
     /// Whether the shot follows its target.
     ///
     /// A missile hits what it was aimed at; a shell flies to where the target
@@ -57,6 +59,41 @@ pub struct WeaponStats {
     pub turret: bool,
     /// Binary angle units the turret traverses per tick.
     pub turret_rate: u16,
+}
+
+/// The set of layers a weapon can engage.
+///
+/// A bitmask for the same reason [`crate::map::SurfaceMask`] is: it is read on
+/// every targeting decision and has to be `Copy`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct LayerMask(u8);
+
+impl LayerMask {
+    pub const GROUND: LayerMask = LayerMask(1);
+    pub const AIR: LayerMask = LayerMask(2);
+    pub const BOTH: LayerMask = LayerMask(3);
+
+    const fn bit(layer: Layer) -> u8 {
+        match layer {
+            Layer::Ground => 1,
+            Layer::Air => 2,
+        }
+    }
+
+    pub fn from_layers(layers: &[Layer]) -> LayerMask {
+        LayerMask(layers.iter().fold(0, |acc, l| acc | Self::bit(*l)))
+    }
+
+    #[inline]
+    pub fn engages(self, layer: Layer) -> bool {
+        self.0 & Self::bit(layer) != 0
+    }
+
+    #[inline]
+    pub fn raw(self) -> u8 {
+        self.0
+    }
 }
 
 /// A warhead, interned to an index at load so the hot path compares integers
@@ -213,6 +250,13 @@ pub fn weapon_of(
             weapon.projectile_speed.to_fx_raw() / crate::TICKS_PER_SECOND as i32,
         ),
         homing: weapon.homing,
+        targets: if weapon.targets.is_empty() {
+            // Ground only. The default almost every weapon wants, and the one
+            // that keeps every existing rules file working unchanged.
+            LayerMask::GROUND
+        } else {
+            LayerMask::from_layers(&weapon.targets)
+        },
         turret,
         turret_rate: crate::stats::degrees_per_second_to_tick(turret_rate),
     })
@@ -231,7 +275,15 @@ pub fn choose_target(
     units: &crate::arena::Arena<Unit>,
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
 ) -> Option<EntityId> {
-    choose_target_where(attacker, attacker_unit, weapon, units, alliance, &|_| true)
+    choose_target_where(
+        attacker,
+        attacker_unit,
+        weapon,
+        units,
+        alliance,
+        &|_| true,
+        &|_| Layer::Ground,
+    )
 }
 
 /// As [`choose_target`], but only considering targets `can_see` accepts.
@@ -248,6 +300,7 @@ pub fn choose_target_where(
     units: &crate::arena::Arena<Unit>,
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
     can_see: &dyn Fn(&Unit) -> bool,
+    layer_of: &dyn Fn(&Unit) -> Layer,
 ) -> Option<EntityId> {
     let mut best: Option<(EntityId, FxWide)> = None;
 
@@ -259,6 +312,13 @@ pub fn choose_target_where(
             continue;
         }
         if !can_see(other) {
+            continue;
+        }
+        // A weapon that cannot reach this layer does not acquire the target at
+        // all. Leaving it out only of the damage table would let a tank lock
+        // onto an aircraft and fire at it uselessly for the rest of the match,
+        // while ignoring the enemy walking past.
+        if !weapon.targets.engages(layer_of(other)) {
             continue;
         }
         let dx = other.pos.x - attacker_unit.pos.x;
@@ -281,11 +341,15 @@ pub fn target_is_valid(
     weapon: &WeaponStats,
     units: &crate::arena::Arena<Unit>,
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
+    layer_of: &dyn Fn(&Unit) -> Layer,
 ) -> bool {
     let Some(other) = units.get(target) else {
         return false;
     };
     if !other.is_alive() || alliance(attacker_unit.owner, other.owner) {
+        return false;
+    }
+    if !weapon.targets.engages(layer_of(other)) {
         return false;
     }
     let dx = other.pos.x - attacker_unit.pos.x;
@@ -394,6 +458,7 @@ impl StateHash for CombatTable {
                     h.write_i32(w.splash_radius.raw());
                     h.write_i32(w.projectile_speed.raw());
                     h.write_bool(w.homing);
+                    h.write_u8(w.targets.raw());
                     h.write_bool(w.turret);
                     h.write_u16(w.turret_rate);
                 }
@@ -439,6 +504,7 @@ mod tests {
                 splash_radius: Hundredths::ZERO,
                 projectile_speed: Hundredths::ZERO,
                 homing: false,
+                targets: vec![],
             },
             WeaponDef {
                 id: "cannon".into(),
@@ -449,6 +515,7 @@ mod tests {
                 splash_radius: Hundredths(30),
                 projectile_speed: Hundredths(2000),
                 homing: false,
+                targets: vec![],
             },
         ];
 
@@ -469,6 +536,7 @@ mod tests {
                         locomotor: Locomotor::Foot,
                         surfaces: None,
                         size: None,
+                        layer: None,
                     },
                     Trait::Vision {
                         range: Hundredths(800),
@@ -496,6 +564,7 @@ mod tests {
                         locomotor: Locomotor::Tracked,
                         surfaces: None,
                         size: None,
+                        layer: None,
                     },
                     Trait::Vision {
                         range: Hundredths(800),
@@ -753,7 +822,8 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile
+            &all_hostile,
+            &|_| Layer::Ground,
         ));
 
         // Out of range.
@@ -763,7 +833,8 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile
+            &all_hostile,
+            &|_| Layer::Ground,
         ));
 
         // Dead.
@@ -774,7 +845,8 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile
+            &all_hostile,
+            &|_| Layer::Ground,
         ));
 
         // Gone entirely — a stale handle must not resolve to whatever now
@@ -785,7 +857,8 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile
+            &all_hostile,
+            &|_| Layer::Ground,
         ));
     }
 

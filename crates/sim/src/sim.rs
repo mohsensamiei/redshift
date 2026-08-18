@@ -73,6 +73,7 @@ pub fn test_rules() -> Rules {
                 locomotor: Locomotor::Tracked,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Vision {
                 range: Hundredths(500),
@@ -1082,10 +1083,17 @@ impl Sim {
             // simulation would be working from different answers about what is
             // there.
             let visible = |other: &Unit| self.can_see(unit.owner, other);
+            let layer_of = |other: &Unit| self.stats.get(other.owner, other.kind).layer;
 
             let keep = unit.combat.target.filter(|t| {
-                combat::target_is_valid(unit, *t, &weapon, &self.units, &Self::are_allied)
-                    && self.units.get(*t).is_some_and(&visible)
+                combat::target_is_valid(
+                    unit,
+                    *t,
+                    &weapon,
+                    &self.units,
+                    &Self::are_allied,
+                    &layer_of,
+                ) && self.units.get(*t).is_some_and(&visible)
             });
             let target = keep.or_else(|| {
                 combat::choose_target_where(
@@ -1095,6 +1103,7 @@ impl Sim {
                     &self.units,
                     &Self::are_allied,
                     &visible,
+                    &layer_of,
                 )
             });
 

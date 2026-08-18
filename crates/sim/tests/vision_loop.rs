@@ -33,6 +33,7 @@ fn rules() -> Rules {
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
         homing: false,
+        targets: vec![],
     }];
 
     let unit = |id: &str, vision: i32| EntityDef {
@@ -51,6 +52,7 @@ fn rules() -> Rules {
                 locomotor: Locomotor::Foot,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Vision {
                 range: Hundredths(vision),

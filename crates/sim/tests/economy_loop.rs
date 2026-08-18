@@ -39,6 +39,7 @@ fn rules() -> Rules {
                     locomotor: Locomotor::Wheeled,
                     surfaces: None,
                     size: None,
+                    layer: None,
                 },
                 Trait::Harvester {
                     capacity: 100,

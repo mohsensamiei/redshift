@@ -68,6 +68,18 @@ pub struct WeaponDef {
     /// Cells the damage spreads over. Zero for a single target.
     #[serde(default)]
     pub splash_radius: crate::value::Hundredths,
+    /// Which layers this weapon can engage.
+    ///
+    /// Empty means ground only, which is what almost every weapon wants and
+    /// keeps ordinary rules files short. An anti-air gun lists `[Air]` and
+    /// cannot touch a tank; something that lists both can do either.
+    ///
+    /// This is *targeting*, not damage. The armour table already decides how
+    /// much a hit hurts; this decides whether the shot is taken at all. Both
+    /// are needed: without this a tank acquires an aircraft and fires at it
+    /// uselessly forever.
+    #[serde(default)]
+    pub targets: Vec<crate::traits::Layer>,
     /// Whether the shot follows its target once fired.
     ///
     /// A missile hits what it was aimed at; a shell flies to where the target

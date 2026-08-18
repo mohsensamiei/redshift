@@ -20,7 +20,7 @@
 //! somewhere else.
 
 use redshift_data::rules::{EntityKind, Rules};
-use redshift_data::traits::{Locomotor, Trait};
+use redshift_data::traits::{Layer, Locomotor, Trait};
 use redshift_data::value::{Hundredths, Percent};
 
 use crate::TICKS_PER_SECOND;
@@ -47,6 +47,8 @@ pub struct UnitStats {
     /// Surfaces this unit may cross. The authority on where it can go — the
     /// locomotor only supplied the default.
     pub movement: SurfaceMask,
+    /// Which layer this occupies for targeting — what can reach it.
+    pub layer: Layer,
     /// Vision radius in cells.
     pub vision: Fx,
     /// Tie-break when units overlap under the pointer.
@@ -102,6 +104,7 @@ impl Default for UnitStats {
             turn_rate: 0,
             locomotor: Locomotor::default(),
             movement: SurfaceMask::NONE,
+            layer: Layer::Ground,
             vision: Fx::ZERO,
             selection_priority: 0,
             cost: 0,
@@ -132,6 +135,7 @@ impl StateHash for UnitStats {
         h.write_u16(self.turn_rate);
         h.write_u8(self.locomotor as u8);
         h.write_u8(self.movement.raw());
+        h.write_u8(self.layer as u8);
         h.write_i32(self.vision.raw());
         h.write_u32(self.cost);
         h.write_u32(self.build_time);
@@ -234,6 +238,7 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 locomotor,
                 surfaces,
                 size,
+                layer,
             } => {
                 stats.speed = cells_per_tick(*speed);
                 stats.turn_rate = degrees_per_second_to_tick(*turn_rate);
@@ -243,6 +248,7 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.movement = SurfaceMask::from_surfaces(
                     surfaces.as_deref().unwrap_or(locomotor.default_surfaces()),
                 );
+                stats.layer = layer.unwrap_or(locomotor.default_layer());
                 stats.radius = Fx::from_raw(size.unwrap_or(locomotor.default_size()).to_fx_raw());
             }
             Trait::Vision { range } => stats.vision = Fx::from_raw(range.to_fx_raw()),
@@ -379,6 +385,7 @@ mod tests {
                     locomotor: Locomotor::Tracked,
                     surfaces: None,
                     size: None,
+                    layer: None,
                 },
                 Trait::Vision {
                     range: Hundredths(600),

@@ -26,6 +26,7 @@ fn rules() -> Rules {
         splash_radius: Hundredths::ZERO,
         projectile_speed: Hundredths::ZERO,
         homing: false,
+        targets: vec![],
     }];
     let soldier = EntityDef {
         id: "soldier".into(),
@@ -43,6 +44,7 @@ fn rules() -> Rules {
                 locomotor: Locomotor::Foot,
                 surfaces: None,
                 size: None,
+                layer: None,
             },
             Trait::Vision {
                 range: Hundredths(700),

@@ -565,6 +565,70 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
+#[ignore = "gap: units have unlimited ammunition and never rearm"]
+fn a_unit_runs_out_of_ammunition_and_returns_to_rearm() {
+    // Found by cross-checking a working reimplementation's trait list. Assumed
+    // to be an aircraft rule; it is a general one, and it is the mechanism that
+    // makes an aircraft a sortie rather than a flying tank.
+    panic!("weapons have a reload timer and no ammunition count");
+}
+
+#[test]
+#[ignore = "gap: a destroyed vehicle releases nothing"]
+fn a_destroyed_vehicle_ejects_its_crew() {
+    // Survivors change the value of every vehicle kill: destroying a transport
+    // full of infantry is not the same as destroying an empty one.
+    panic!("destruction removes the unit and leaves nothing behind");
+}
+
+#[test]
+#[ignore = "gap: no rally points — new units stop beside the factory"]
+fn newly_built_units_walk_to_a_rally_point() {
+    panic!("a produced unit is placed next to its factory and left there");
+}
+
+#[test]
+#[ignore = "gap: structures cannot be sold"]
+fn a_structure_can_be_sold_for_a_refund() {
+    // And for the Cloning Vats, selling units is a deliberate way of turning
+    // spare infantry into cash.
+    panic!("no sell command; a structure can only be destroyed");
+}
+
+#[test]
+#[ignore = "gap: ore is finite — it does not regrow"]
+fn an_ore_field_regrows_from_its_source() {
+    // The widest-reaching of the gaps found by cross-check. Redshift's economy
+    // assumes a fixed quantity on the map; a renewable one changes how long a
+    // match runs and whether holding a contested field is worth it.
+    panic!("ore is placed once and only ever decreases");
+}
+
+#[test]
+#[ignore = "gap: no persistent terrain effects — radiation, fire, contamination"]
+fn irradiated_ground_damages_what_stands_on_it() {
+    // The Desolator leaves ground that hurts. Terrain that has state and acts
+    // on units, which the map has no concept of.
+    panic!("terrain is static and never damages anything");
+}
+
+#[test]
+#[ignore = "gap: no idle behaviour — a unit with nothing to do does nothing at all"]
+fn an_idle_civilian_wanders() {
+    // What makes a town read as alive rather than as a set of props. It is
+    // deliberately not an AI: a loop of aimless movement, and nothing more.
+    panic!("an idle unit stands perfectly still forever");
+}
+
+#[test]
+#[ignore = "gap: a match cannot detect that nobody can win"]
+fn a_stalemate_is_detected() {
+    // Two players with no production and no way to reach each other should not
+    // leave the match running until someone quits.
+    panic!("there are no victory or stalemate conditions at all");
+}
+
+#[test]
 #[ignore = "gap: a structure's strength cannot depend on its neighbours"]
 fn prism_towers_chain_to_strengthen_each_other() {
     // Researched: adjacent Prism Towers combine beams, and the result is

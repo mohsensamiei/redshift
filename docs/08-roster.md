@@ -436,6 +436,45 @@ The upgrades are worth noting: they are **permanent per-unit modifiers applied
 in an area**, which is a third shape again beside "damage now" and "a standing
 modifier on a player".
 
+## 8b. Cross-check against a working reimplementation
+
+The repositories mentioned at the start of this project were checked. The
+finding is worth recording because it is not what was expected:
+
+**They cannot supply the numbers, because they do not have them.** The one
+usable reference — [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2),
+GPL-3.0 — has a `src/data/` directory that is entirely *file format parsers*:
+MIX, SHP, VXL, INI, PAL. It reads the player's own copy of the original at
+runtime. That is the "bring your own files" model this project deliberately
+rejected in [adr/0004-original-assets-only.md](adr/0004-original-assets-only.md),
+and it means there is no table of balance values to consult.
+
+The other repository is built on a proprietary engine and is not usable as a
+reference at all.
+
+What the working implementation *could* give is a **table of contents**: the
+names of the traits it needed. Reading the list of capabilities a shipped
+reimplementation required is ordinary research; copying its code would make
+this project a derivative of someone else's reimplementation rather than a
+clean-room one.
+
+That cross-check found **eight mechanics this document had missed entirely**:
+
+| Mechanic | Why it matters |
+|---|---|
+| **Ammunition and reloading** | Units carry finite shots and must return to rearm. Assumed to be an aircraft-only rule; it is a general one |
+| **Crew ejection** | A destroyed vehicle releases surviving infantry. Changes the value of every vehicle kill |
+| **Rally points** | Where newly built units go. Redshift drops them beside the factory and stops |
+| **Selling structures** | A refund, and for the Cloning Vats a way of converting units to cash |
+| **Ore regrowth** | Ore spreads from a source over time, so a field is renewable rather than finite |
+| **Radiation as map state** | The Desolator leaves ground contaminated. Terrain that damages what stands on it |
+| **Idle actions** | The aimless animations that make civilians read as alive |
+| **Stalemate detection** | The match has to be able to decide nobody can win |
+
+Ore regrowth is the one with the widest reach: Redshift's economy assumes a
+fixed quantity of ore on the map, and a renewable one changes how long a match
+runs and whether a contested field is worth holding.
+
 ## 9. The audit is executable
 
 This document used to end in a hand-written list of gaps, which is exactly the
@@ -457,11 +496,11 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 16 capabilities confirmed, 31 gaps.**
+**As of the last run: 16 capabilities confirmed, 39 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
-Nineteen of those thirty-one were invisible until the mechanics were looked up
-rather than recalled.
+Twenty-seven of those thirty-nine were invisible until the mechanics were
+researched rather than recalled.
 
 Confirmed working, exercised end to end rather than asserted:
 

@@ -194,11 +194,11 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, thirty-one gaps, each an ignored test with its reason attached.
+confirmed, thirty-nine gaps, each an ignored test with its reason attached.
 
-The count went up three times while researching the original properly:
-nineteen gaps were invisible until the mechanics were looked up rather than
-recalled.
+The count went from twelve to thirty-nine while researching the original
+properly. Twenty-seven gaps were invisible until the mechanics were looked up
+rather than recalled.
 
 ```sh
 cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore

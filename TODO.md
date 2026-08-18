@@ -81,11 +81,11 @@ against a hostile simulated link.
 - [x] Ordered command queue — sorted by (tick, player, sequence)
 - [x] Turn scheduling with input delay `D`; RTT negotiation at match start
 - [x] Wire format with framing, size limit, and foreign-traffic rejection
-- [ ] UDP transport: sockets, redundant resend of the last 3 ticks
+- [x] UDP transport: sockets, redundant resend of the last 3 ticks
 - [ ] "Waiting for player" stall handling after ~500 ms
-- [ ] LAN discovery: broadcast announce on UDP 47654, client listener
-- [ ] In-game LAN match list
-- [ ] Lobby: slots, colours, ready state, protocol version check
+- [x] LAN discovery: broadcast announce on UDP 47654, client listener
+- [ ] In-game LAN match list — *engine side done; needs UI*
+- [x] Lobby: slots, ready state, protocol and rules-hash checks
 - [x] Rules hash exchanged and verified in the handshake
 - [x] State hash exchange every 20 ticks
 - [ ] Desync halt with full dumps from both peers

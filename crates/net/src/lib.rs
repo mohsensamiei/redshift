@@ -26,8 +26,14 @@
 //!
 //! See `docs/03-networking.md`.
 
+pub mod discovery;
+pub mod lobby;
 pub mod lockstep;
 pub mod protocol;
+pub mod transport;
 
+pub use discovery::{Announcer, DiscoveredMatch, Discovery};
+pub use lobby::{HostLobby, LobbyEvent};
 pub use lockstep::{DesyncReport, TurnScheduler, TurnStatus, input_delay_for_rtt};
 pub use protocol::{PROTOCOL_VERSION, Packet, decode, encode};
+pub use transport::Transport;

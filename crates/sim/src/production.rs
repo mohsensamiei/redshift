@@ -87,6 +87,13 @@ impl StateHash for ProductionItem {
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct ProductionQueue {
     items: Vec<ProductionItem>,
+    /// A finished structure waiting for the player to choose a site.
+    ///
+    /// Buildings are not delivered where they were built. The original made
+    /// this a two-step act — build it, then place it — and that is most of what
+    /// base layout *is* as a decision. Spawning a structure next to its
+    /// construction yard would take that decision away entirely.
+    pub ready: Option<EntityKind>,
     /// Whether the finished item has nowhere to go.
     ///
     /// Distinct from [`ProductionQueue::starved`]: one is fixed by earning
@@ -164,6 +171,13 @@ impl ProductionQueue {
     /// place — a queue that could reach into the treasury would be a second
     /// place credits are created.
     pub fn tick(&mut self, available: u32) -> ProductionStep {
+        // A structure waiting to be placed holds the queue. The original built
+        // one structure at a time, and letting the next start would leave the
+        // player with several finished buildings and no way to tell them apart.
+        if self.ready.is_some() {
+            return ProductionStep::default();
+        }
+
         let Some(item) = self.items.first_mut() else {
             self.starved = false;
             return ProductionStep::default();
@@ -221,6 +235,13 @@ impl StateHash for ProductionQueue {
         }
         h.write_bool(self.starved);
         h.write_bool(self.blocked);
+        match self.ready {
+            Some(kind) => {
+                h.write_u8(1);
+                h.write_u16(kind.0);
+            }
+            None => h.write_u8(0),
+        }
     }
 }
 

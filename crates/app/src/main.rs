@@ -75,7 +75,7 @@ fn main() {
     // at a scheduled tick, path found, units moved, renderer following — which
     // is the part unit tests cannot cover because it spans the engine boundary.
     if flag("--demo") {
-        app.add_systems(Update, demo_order);
+        app.add_systems(Update, (demo_order, demo_build));
     }
 
     // `--screenshot <path>` renders a few seconds of play, writes a frame, and
@@ -109,6 +109,51 @@ fn main() {
 }
 
 /// Orders every local unit across the map, once, a second in.
+/// Drives the build loop in demo mode: queue a power plant, then site it.
+///
+/// Exists to prove the whole chain end to end on screen — queue, pay, wait,
+/// place, and the power reading changing as a result. The headless tests cover
+/// each link; this is the one that shows them joined up.
+fn demo_build(mut session: ResMut<Session>, mut frames: Local<u32>, mut queued: Local<bool>) {
+    *frames += 1;
+    let local = session.local_player();
+
+    if !*queued && *frames > 120 {
+        let Some(kind) = session.sim().rules().kind_of("power_plant") else {
+            return;
+        };
+        if let Some(building) = session.sim().producer_for(local, kind) {
+            session.issue(redshift_sim::command::CommandKind::Produce { building, kind });
+            *queued = true;
+        }
+        return;
+    }
+
+    // Once it is ready, put it somewhere legal near the yard.
+    if let Some((producer, kind)) = session.sim().ready_to_place(local) {
+        let footprint = session.sim().stats().get(local, kind).footprint;
+        let origin = session
+            .sim()
+            .units()
+            .get(producer)
+            .map(|u| u.cell())
+            .unwrap_or(redshift_sim::map::Cell::new(0, 0));
+
+        let spot = (2..8)
+            .flat_map(|r| (-r..=r).map(move |d| (r, d)))
+            .find_map(|(r, d)| {
+                let cell = redshift_sim::map::Cell::new(origin.x + r, origin.y + d);
+                session
+                    .sim()
+                    .can_build_at(local, cell, footprint)
+                    .then_some(cell)
+            });
+        if let Some(at) = spot {
+            session.issue(redshift_sim::command::CommandKind::PlaceBuilding { producer, at });
+        }
+    }
+}
+
 fn demo_order(mut session: ResMut<Session>, mut frames: Local<u32>, mut issued: Local<bool>) {
     *frames += 1;
     if *issued || *frames < 60 {
@@ -157,6 +202,7 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
     let infantry = kind("gi");
     let harvester = kind("harvester");
     let refinery = kind("refinery");
+    let construction_yard = kind("construction_yard");
 
     let mut spawns = Vec::new();
     // Close enough that a demo run reaches contact, far enough that the walk
@@ -181,6 +227,13 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
         // A refinery and two harvesters each, so the economy runs from the
         // first tick. Placement is mirrored so neither side starts closer to
         // its ore than the other.
+        // A construction yard, so the player has somewhere to build from and the
+        // placement rules have something to anchor a build area to.
+        spawns.push(Spawn {
+            owner,
+            kind: construction_yard,
+            pos: Cell::new(base_x - dx * 9, base_y - dy * 6).centre(),
+        });
         spawns.push(Spawn {
             owner,
             kind: refinery,

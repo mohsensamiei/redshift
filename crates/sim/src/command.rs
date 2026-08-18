@@ -42,6 +42,13 @@ pub enum CommandKind {
     },
     /// Remove a queued item by its position in the queue.
     CancelProduction { building: EntityId, index: u8 },
+    /// Site a structure that has finished building.
+    PlaceBuilding {
+        /// The building that produced it — usually the construction yard.
+        producer: EntityId,
+        /// Where its footprint should start.
+        at: Cell,
+    },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -103,6 +110,12 @@ impl StateHash for Command {
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
                 h.write_u16(kind.0);
+            }
+            CommandKind::PlaceBuilding { producer, at } => {
+                h.write_u8(4);
+                h.write_u32(producer.index());
+                h.write_u32(producer.generation());
+                h.write(at);
             }
             CommandKind::CancelProduction { building, index } => {
                 h.write_u8(3);

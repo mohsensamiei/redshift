@@ -127,7 +127,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [ ] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [ ] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits
-- [x] Construction: build queue, footprints, prerequisites — *placement by the player still to come*
+- [x] Construction: build queue, footprints, prerequisites, placement
 - [x] Power grid and low-power effects — *slowdown ratio is a placeholder, see below*
 - [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
 - [ ] Veterancy
@@ -197,6 +197,8 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 
 ## Open questions
 
+- [ ] **Build radius.** `sim::BUILD_RADIUS` is 8 cells, chosen by feel. The
+      constraint is faithful; the distance is not verified against the original.
 - [ ] **Low-power slowdown ratio.** `power::LOW_POWER_DIVISOR` is set to 4 by
       feel, not verified against the original. The mechanism is faithful; the
       number is not. Needs checking against how the original actually paced

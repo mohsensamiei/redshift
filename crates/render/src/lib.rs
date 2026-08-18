@@ -19,6 +19,7 @@ use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
+pub mod build;
 pub mod camera;
 pub mod health;
 pub mod input;
@@ -127,6 +128,12 @@ impl Plugin for RedshiftRenderPlugin {
                 (world::sync_units, world::interpolate_units).chain(),
                 (input::sync_selection_rings, input::move_selection_rings).chain(),
                 (health::sync_health_bars, health::update_health_bars).chain(),
+                (
+                    build::handle_build_hotkeys,
+                    build::update_placement_preview,
+                    build::handle_placement_click,
+                )
+                    .chain(),
                 camera::update_camera,
                 (
                     overlay::toggle_overlay,
@@ -207,6 +214,9 @@ fn setup(
 
     let health_assets = health::build_health_assets(&mut meshes, &mut materials);
     commands.insert_resource(health_assets);
+
+    let placement_assets = build::build_placement_assets(&mut meshes, &mut materials);
+    commands.insert_resource(placement_assets);
 
     world::spawn_lighting(&mut commands);
     camera::spawn_camera(&mut commands, &rig);

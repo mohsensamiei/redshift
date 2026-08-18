@@ -201,6 +201,35 @@ const UNLOAD_RANGE: Fx = Fx::from_frac(250, 100);
 /// without being able to skip the early economy.
 const STARTING_CREDITS: u32 = 5_000;
 
+/// Builds a unit with whatever state its kind implies.
+///
+/// Shared by match setup and runtime spawning. They used to be separate, and
+/// diverged exactly as you would expect: a building placed by the player did
+/// not claim its ground, so units walked straight through it while a building
+/// that started the match blocked correctly.
+fn new_unit(owner: PlayerId, kind: EntityKind, pos: WorldPos, stats: UnitStats) -> Unit {
+    let mut unit = Unit::new(owner, kind, pos, stats.max_health);
+    // A harvester begins its cycle the moment it exists. Waiting for an order
+    // would mean telling each one to start working, which the original never
+    // did.
+    if stats.harvest_capacity.is_some() {
+        unit.harvest = Some(crate::unit::HarvestState::default());
+    }
+    unit
+}
+
+/// Claims or releases the ground under a building.
+///
+/// A no-op for anything a single cell in size, since units are kept apart by
+/// their radius rather than by occupancy.
+fn claim_footprint(map: &mut Map, centre: Cell, footprint: (u8, u8), claim: bool) {
+    if footprint == (1, 1) {
+        return;
+    }
+    let origin = footprint_origin(centre, footprint);
+    map.set_blocked(origin, footprint.0, footprint.1, claim);
+}
+
 /// The top-left cell of a footprint centred on `centre`.
 ///
 /// A building's position is its centre, but its footprint is laid out from a
@@ -216,6 +245,14 @@ pub fn footprint_origin(centre: Cell, footprint: (u8, u8)) -> Cell {
 
 /// How far from a factory a new unit will look for somewhere to stand.
 const EXIT_SEARCH_RADIUS: i32 = 5;
+
+/// How far from an existing structure a player may build, in cells.
+///
+/// The constraint that makes base layout a decision: expanding means building
+/// outward step by step rather than dropping a barracks wherever it would be
+/// most annoying. Not verified against the original's exact figure — flagged
+/// in TODO.md alongside the low-power ratio.
+const BUILD_RADIUS: i32 = 8;
 
 /// How far around a refinery a harvester will look for somewhere to pull up.
 ///
@@ -287,29 +324,13 @@ impl Sim {
         let mut units = Arena::with_capacity(setup.spawns.len());
         for spawn in &setup.spawns {
             let spawn_stats = stats.get(spawn.owner, spawn.kind);
-            let mut unit = Unit::new(
+            let unit = new_unit(
                 spawn.owner,
                 spawn.kind,
                 map.clamp_pos(spawn.pos),
-                spawn_stats.max_health,
+                spawn_stats,
             );
-            // Harvesters begin their cycle the moment they exist. Waiting for
-            // an order would mean telling each one to start working, which the
-            // original never did.
-            if spawn_stats.harvest_capacity.is_some() {
-                unit.harvest = Some(crate::unit::HarvestState::default());
-            }
-            // A building's footprint is claimed the moment it exists, so
-            // pathfinding never routes a unit through one.
-            if spawn_stats.footprint != (1, 1) {
-                let origin = footprint_origin(unit.cell(), spawn_stats.footprint);
-                map.set_blocked(
-                    origin,
-                    spawn_stats.footprint.0,
-                    spawn_stats.footprint.1,
-                    true,
-                );
-            }
+            claim_footprint(&mut map, unit.cell(), spawn_stats.footprint, true);
             units.insert(unit);
         }
         let workspace = PathWorkspace::new(map.cell_count());
@@ -382,13 +403,8 @@ impl Sim {
     /// through production, which is a command.
     pub fn spawn_unit(&mut self, owner: PlayerId, kind: EntityKind, pos: WorldPos) -> EntityId {
         let stats = self.stats.get(owner, kind);
-        let mut unit = Unit::new(owner, kind, self.map.clamp_pos(pos), stats.max_health);
-        // A harvester begins its cycle the moment it exists. Waiting for an
-        // order would mean the player had to tell each one to start working,
-        // which the original never did.
-        if stats.harvest_capacity.is_some() {
-            unit.harvest = Some(crate::unit::HarvestState::default());
-        }
+        let unit = new_unit(owner, kind, self.map.clamp_pos(pos), stats);
+        claim_footprint(&mut self.map, unit.cell(), stats.footprint, true);
         self.units.insert(unit)
     }
 
@@ -521,7 +537,23 @@ impl Sim {
             return;
         };
         let origin = unit.cell();
-        let locomotor = self.stats.get(owner, kind).locomotor;
+        let produced = self.stats.get(owner, kind);
+
+        // A structure is not delivered anywhere: it waits for the player to
+        // choose a site. Placing it automatically would remove base layout as a
+        // decision, which is a large part of what the genre is.
+        if !produced.mobile {
+            if let Some(queue) = self
+                .units
+                .get_mut(building)
+                .and_then(|u| u.production.as_mut())
+            {
+                queue.ready = Some(kind);
+            }
+            return;
+        }
+
+        let locomotor = produced.locomotor;
 
         let spot = self.free_cell_near(origin, locomotor, EXIT_SEARCH_RADIUS);
 
@@ -1069,9 +1101,7 @@ impl Sim {
             })
             .collect();
         for (centre, footprint) in released {
-            let origin = footprint_origin(centre, footprint);
-            self.map
-                .set_blocked(origin, footprint.0, footprint.1, false);
+            claim_footprint(&mut self.map, centre, footprint, false);
         }
 
         self.units.retain(|_, unit| unit.is_alive());
@@ -1099,6 +1129,9 @@ impl Sim {
                 }
                 CommandKind::CancelProduction { building, index } => {
                     self.order_cancel_production(command.player, *building, *index as usize);
+                }
+                CommandKind::PlaceBuilding { producer, at } => {
+                    self.order_place_building(command.player, *producer, *at);
                 }
             }
         }
@@ -1150,6 +1183,109 @@ impl Sim {
         if let Some(refund) = refund {
             self.treasury.deposit(player, refund);
         }
+    }
+
+    /// Sites a structure that has finished building.
+    ///
+    /// Every condition is checked here, not in the interface. A modified client
+    /// could send anything, and — more to the point — every peer must reach the
+    /// same answer about whether a building appeared, or their worlds diverge
+    /// on the next tick.
+    fn order_place_building(&mut self, player: PlayerId, producer: EntityId, at: Cell) {
+        if !self.owned_by(producer, player) {
+            return;
+        }
+        let Some(kind) = self
+            .units
+            .get(producer)
+            .and_then(|u| u.production.as_ref())
+            .and_then(|q| q.ready)
+        else {
+            return;
+        };
+
+        let footprint = self.stats.get(player, kind).footprint;
+        if !self.can_build_at(player, at, footprint) {
+            return;
+        }
+
+        // The stored position is the centre, but placement is given as the
+        // footprint's corner, so the two have to be reconciled in exactly the
+        // way `footprint_origin` reverses.
+        let centre = Cell::new(
+            at.x + (footprint.0 as i32 - 1) / 2,
+            at.y + (footprint.1 as i32 - 1) / 2,
+        );
+        self.spawn_unit(player, kind, centre.centre());
+
+        if let Some(queue) = self
+            .units
+            .get_mut(producer)
+            .and_then(|u| u.production.as_mut())
+        {
+            queue.ready = None;
+        }
+    }
+
+    /// Whether a player may put a building of this size here.
+    ///
+    /// Two conditions. The ground has to be clear — that is
+    /// [`Map::can_place`]. And the site has to be near something the player
+    /// already owns, which is what stops a player dropping a barracks in the
+    /// enemy's base and is most of what makes expanding a decision rather than
+    /// a formality.
+    pub fn can_build_at(&self, player: PlayerId, at: Cell, footprint: (u8, u8)) -> bool {
+        if !self.map.can_place(at, footprint.0, footprint.1) {
+            return false;
+        }
+        self.within_build_radius(player, at, footprint)
+    }
+
+    /// Whether a site is close enough to one of the player's existing buildings.
+    fn within_build_radius(&self, player: PlayerId, at: Cell, footprint: (u8, u8)) -> bool {
+        // Measured from the nearest corner of the proposed footprint, so a
+        // large building is not penalised for being large.
+        self.units.iter().any(|(_, unit)| {
+            if unit.owner != player || !unit.is_alive() {
+                return false;
+            }
+            let stats = self.stats.get(unit.owner, unit.kind);
+            // Only structures anchor a build area. A tank parked in the enemy
+            // base must not become a foothold.
+            if stats.mobile {
+                return false;
+            }
+            let theirs = unit.cell();
+            let nearest_x = at.x.max(theirs.x).min(at.x + footprint.0 as i32 - 1);
+            let nearest_y = at.y.max(theirs.y).min(at.y + footprint.1 as i32 - 1);
+            (theirs.x - nearest_x)
+                .abs()
+                .max((theirs.y - nearest_y).abs())
+                <= BUILD_RADIUS
+        })
+    }
+
+    /// The structure a player has finished and not yet placed, if any.
+    pub fn ready_to_place(&self, player: PlayerId) -> Option<(EntityId, EntityKind)> {
+        self.units.iter().find_map(|(id, unit)| {
+            if unit.owner != player {
+                return None;
+            }
+            unit.production.as_ref()?.ready.map(|kind| (id, kind))
+        })
+    }
+
+    /// A building of this player's that can produce `kind`.
+    ///
+    /// Exposed because the alternative is the interface deciding for itself
+    /// which building makes what — a second copy of a rule that lives in the
+    /// data, and one that would drift the moment a factory's categories
+    /// changed. Ties break on the lowest entity id.
+    pub fn producer_for(&self, player: PlayerId, kind: EntityKind) -> Option<EntityId> {
+        self.units.iter().find_map(|(id, unit)| {
+            (unit.owner == player && unit.is_alive() && self.can_produce(unit.kind, kind))
+                .then_some(id)
+        })
     }
 
     /// Whether a producer of `producer_kind` makes things of `kind`.

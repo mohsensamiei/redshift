@@ -45,6 +45,7 @@ Requires a recent stable Rust toolchain (1.95+).
 | [docs/05-data-and-modding.md](docs/05-data-and-modding.md) | Data-driven units, buildings, factions |
 | [docs/06-assets.md](docs/06-assets.md) | Art pipeline and asset production |
 | [docs/07-roadmap.md](docs/07-roadmap.md) | Phases, milestones, exit criteria |
+| [docs/08-roster.md](docs/08-roster.md) | The original's roster, and what the engine cannot yet express |
 | [docs/adr/](docs/adr/) | Architecture Decision Records — why each choice was made |
 
 Contributors should start with [CONTRIBUTING.md](CONTRIBUTING.md).

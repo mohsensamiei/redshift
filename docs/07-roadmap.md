@@ -134,6 +134,22 @@ test from.
 
 ---
 
+### The roster audit
+
+[08-roster.md](08-roster.md) lists the original's roster and audits the trait
+catalogue against it. The finding worth repeating here: the catalogue covers the
+*shape* of a match — moving, shooting, paying, building, seeing — and does not
+yet cover most of what makes the original distinctive.
+
+Ten of those gaps are engine capability rather than content, which makes them
+Phase 3 work that this plan did not account for: capture, repair, walls, map
+reveal, economy modifiers, deploy, real transports, placed charges, projectiles
+and air targeting.
+
+Six more are each their own subsystem — aircraft, naval, superweapons, mind
+control, teleportation and disguise — and need a decision about where they
+belong before they need a schedule.
+
 ## Phase 4 — Art and feel
 
 *Goal: it stops looking like a prototype and starts looking like the game you remember.*

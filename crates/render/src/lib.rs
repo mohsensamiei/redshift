@@ -27,6 +27,17 @@ pub mod world;
 
 pub use session::Session;
 
+/// Where and how large the window should open.
+///
+/// Insert before running to override the default. Exists so two clients can be
+/// placed side by side on one screen, which is how a networked match is watched
+/// without two machines.
+#[derive(Resource, Clone, Copy)]
+pub struct WindowPlacement {
+    pub position: Option<IVec2>,
+    pub size: Option<UVec2>,
+}
+
 /// Captures a screenshot after a set number of frames, then exits.
 ///
 /// Insert this resource before running to take an automated screenshot. Used
@@ -120,6 +131,7 @@ impl Plugin for RedshiftRenderPlugin {
                     overlay::count_triangles,
                     overlay::update_overlay,
                 ),
+                apply_window_placement,
                 auto_screenshot,
             )
                 .chain(),
@@ -128,6 +140,31 @@ impl Plugin for RedshiftRenderPlugin {
 }
 
 /// Builds the scene once the session exists.
+/// Applies a requested window position and size once the window exists.
+fn apply_window_placement(
+    placement: Option<Res<WindowPlacement>>,
+    mut windows: Query<&mut Window>,
+    mut done: Local<bool>,
+) {
+    if *done {
+        return;
+    }
+    let Some(placement) = placement else {
+        *done = true;
+        return;
+    };
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    if let Some(position) = placement.position {
+        window.position = WindowPosition::At(position);
+    }
+    if let Some(size) = placement.size {
+        window.resolution = WindowResolution::new(size.x, size.y);
+    }
+    *done = true;
+}
+
 fn setup(
     mut commands: Commands,
     session: Res<Session>,
@@ -173,7 +210,7 @@ fn starting_focus(session: &Session) -> Option<Vec2> {
     let mut sum = Vec2::ZERO;
     let mut count = 0;
     for (_, unit) in session.sim().view().units() {
-        if unit.owner != session.local_player {
+        if unit.owner != session.local_player() {
             continue;
         }
         sum += Vec2::new(world::fx_to_f32(unit.pos.x), world::fx_to_f32(unit.pos.y));

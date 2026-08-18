@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 redshift-sim = { workspace = true }
+redshift-net = { workspace = true }
 
 # Only the features we actually use. The default set drags in audio backends,
 # gltf, gizmos and more, all of which cost compile time and binary size we have

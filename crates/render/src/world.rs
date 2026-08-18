@@ -277,7 +277,7 @@ pub fn sync_units(
 /// This is presentation only — it uses floating point freely and never feeds
 /// back into the simulation.
 pub fn interpolate_units(session: Res<Session>, mut views: Query<(&UnitView, &mut Transform)>) {
-    let t = session.interpolation;
+    let t = session.interpolation();
     for (view, mut transform) in &mut views {
         let Some(unit) = session.sim().view().unit(view.0) else {
             continue;

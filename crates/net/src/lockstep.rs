@@ -108,9 +108,17 @@ pub struct TurnScheduler {
     outbox: Vec<Command>,
     next_sequence: u16,
     desync: Option<DesyncReport>,
-    /// Consecutive polls spent waiting. Drives the "waiting for player"
-    /// indicator without needing a clock — which the simulation may not have.
+    /// Consecutive polls spent waiting.
     stalled_polls: u32,
+    /// The most recent tick at which a peer's hash matched our own.
+    ///
+    /// The only positive evidence of agreement there is. "No desync reported"
+    /// is not the same thing — it is equally consistent with no hashes having
+    /// been compared at all, which is exactly what a silently broken checkpoint
+    /// path looks like.
+    last_verified: Option<(Tick, u64)>,
+    /// Hash comparisons that agreed.
+    pub comparisons_made: u32,
 }
 
 impl TurnScheduler {
@@ -154,6 +162,8 @@ impl TurnScheduler {
             next_sequence: 0,
             desync: None,
             stalled_polls: 0,
+            last_verified: None,
+            comparisons_made: 0,
         }
     }
 
@@ -260,7 +270,23 @@ impl TurnScheduler {
                 remote_player: player,
                 remote_hash,
             });
+            return;
         }
+        self.comparisons_made += 1;
+        if self.last_verified.is_none_or(|(seen, _)| tick > seen) {
+            self.last_verified = Some((tick, local_hash));
+        }
+    }
+
+    /// The most recent tick a peer independently confirmed, and the hash both
+    /// sides agreed on.
+    ///
+    /// The only positive evidence of agreement there is. "No desync reported"
+    /// is not the same thing — it is equally consistent with no hashes having
+    /// been compared at all, which is exactly what a silently broken checkpoint
+    /// path looks like.
+    pub fn last_verified(&self) -> Option<(Tick, u64)> {
+        self.last_verified
     }
 
     /// Whether this tick should be hash-checked.

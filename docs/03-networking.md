@@ -131,6 +131,48 @@ Both are Phase 2 work, and both are straightforward given the above:
 - A **reconnecting player** receives a state snapshot plus the commands since that snapshot, then
   catches up by simulating at maximum speed.
 
+## What building it actually taught us
+
+Five bugs surfaced while implementing this, every one of which would have
+presented as a network fault rather than as what it was. They are recorded
+because the pattern is the point: in lockstep, scheduling mistakes and
+networking mistakes are indistinguishable from the outside.
+
+### The match hung at the starting line
+
+Nothing issued at tick 0 can execute before tick `D`. So the first `D` ticks sat
+waiting on commands that, by construction, could never arrive. The opening ticks
+are now pre-seeded with empty command sets — every peer does it identically at
+construction, so it costs no agreement.
+
+### Turn numbers skipped
+
+The outgoing turn number was derived from execution progress, which jumps
+several ticks whenever a backlog clears. **A turn nobody sends is a tick nobody
+can run**, so the match hung a few ticks in. Turn numbers now increment strictly
+by one, throttled to stay within an input delay of execution so a peer behind a
+silent partner cannot run away.
+
+### Checkpoints were skipped
+
+State hashes were recomputed when a packet was composed, rather than captured
+when the tick executed. A peer running several ticks between packets skipped
+checkpoints entirely — and **a checkpoint never sent is never compared**, so
+desync detection was silently inert.
+
+### "No desync" is not "in sync"
+
+The absence of a complaint is equally consistent with no hash ever having been
+compared. The overlay now reports the most recent tick a peer *confirmed*, and
+the hash both sides agreed on, so a broken checkpoint path is visible rather
+than looking like a healthy match.
+
+### The stall notice was measured in polls
+
+Polling happens once per frame, not once per tick. A ten-poll threshold meant
+half a second on a 60 Hz display and 83 ms on a 120 Hz one, which made the
+"waiting for player" notice flicker constantly. It is measured in real time now.
+
 ## Security posture
 
 Lockstep with no server authority means a modified client can cheat by revealing the fog of war

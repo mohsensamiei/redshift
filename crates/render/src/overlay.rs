@@ -154,8 +154,8 @@ pub fn update_overlay(
     out.push_str(&format!(
         "{:<14}{:>8.2} ms {}\n",
         "sim tick",
-        session.last_tick_ms,
-        verdict(session.last_tick_ms, budget::SIM_TICK_MS)
+        session.last_tick_ms(),
+        verdict(session.last_tick_ms(), budget::SIM_TICK_MS)
     ));
     out.push_str(&format!(
         "{:<14}{:>8}\n",
@@ -178,7 +178,51 @@ pub fn update_overlay(
         view.pending_paths()
     ));
     out.push_str(&format!("{:<14}{:>8}\n", "sim tick #", view.tick()));
-    if session.paused {
+
+    // Network state. Shown even in single-player, because "solo" is a match
+    // with one peer and seeing that stated keeps the two paths from drifting
+    // apart in anyone's mental model.
+    out.push('\n');
+    if session.is_networked() {
+        out.push_str(&format!("{:<14}{:>8}\n", "mode", "network"));
+        out.push_str(&format!("{:<14}{:>8}\n", "peers", session.peer_count()));
+        out.push_str(&format!(
+            "{:<14}{:>8}\n",
+            "input delay",
+            session.input_delay()
+        ));
+        if session.waiting_on.is_empty() {
+            out.push_str(&format!("{:<14}{:>8}\n", "sync", "in step"));
+        } else {
+            let names: Vec<String> = session
+                .waiting_on
+                .iter()
+                .map(|p| format!("P{}", p.0))
+                .collect();
+            out.push_str(&format!("{:<14}{:>8}\n", "waiting on", names.join(",")));
+        }
+    } else {
+        out.push_str(&format!("{:<14}{:>8}\n", "mode", "solo"));
+    }
+
+    if let Some(report) = &session.halted {
+        out.push_str(&format!(
+            "\n!! DESYNC at tick {}\n   local  {:#018x}\n   peer   {:#018x}\n",
+            report.tick, report.local_hash, report.remote_hash
+        ));
+        if let Some(path) = &session.dump_path {
+            out.push_str(&format!("   dump {}\n", path.display()));
+        }
+    } else if session.show_stall_notice {
+        let names: Vec<String> = session
+            .waiting_on
+            .iter()
+            .map(|p| format!("P{}", p.0))
+            .collect();
+        out.push_str(&format!("\n-- WAITING FOR {} --", names.join(", ")));
+    }
+
+    if session.paused() {
         out.push_str("\n-- PAUSED (space) --");
     }
 

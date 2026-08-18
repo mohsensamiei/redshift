@@ -126,7 +126,7 @@ pub fn handle_selection(
             let min = a.min(b);
             let max = a.max(b);
             for (id, unit) in session.sim().view().units() {
-                if unit.owner != session.local_player {
+                if unit.owner != session.local_player() {
                     continue;
                 }
                 let pos = Vec2::new(fx_to_f32(unit.pos.x), fx_to_f32(unit.pos.y));
@@ -143,7 +143,7 @@ pub fn handle_selection(
             // order and feel arbitrary.
             let mut best: Option<(EntityId, f32)> = None;
             for (id, unit) in session.sim().view().units() {
-                if unit.owner != session.local_player {
+                if unit.owner != session.local_player() {
                     continue;
                 }
                 let pos = Vec2::new(fx_to_f32(unit.pos.x), fx_to_f32(unit.pos.y));
@@ -214,7 +214,16 @@ pub fn handle_hotkeys(
         });
     }
     if keys.just_pressed(KeyCode::Space) {
-        session.paused = !session.paused;
+        session.toggle_pause();
+    }
+    // F5 writes the match so far. A replay is the seed plus the command log —
+    // a few kilobytes — so saving one mid-match costs nothing and is the single
+    // most useful thing to attach to a bug report.
+    if keys.just_pressed(KeyCode::F5) {
+        match session.save_replay() {
+            Ok(path) => info!("replay saved to {}", path.display()),
+            Err(e) => error!("could not save the replay: {e}"),
+        }
     }
 }
 

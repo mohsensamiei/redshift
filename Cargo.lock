@@ -3650,6 +3650,7 @@ name = "redshift-app"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "redshift-net",
  "redshift-render",
  "redshift-sim",
 ]
@@ -3664,6 +3665,7 @@ version = "0.0.1"
 dependencies = [
  "bincode",
  "redshift-sim",
+ "ron",
  "serde",
 ]
 
@@ -3672,6 +3674,7 @@ name = "redshift-render"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "redshift-net",
  "redshift-sim",
 ]
 

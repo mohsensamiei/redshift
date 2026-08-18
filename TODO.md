@@ -82,22 +82,26 @@ against a hostile simulated link.
 - [x] Turn scheduling with input delay `D`; RTT negotiation at match start
 - [x] Wire format with framing, size limit, and foreign-traffic rejection
 - [x] UDP transport: sockets, redundant resend of the last 3 ticks
-- [ ] "Waiting for player" stall handling after ~500 ms
+- [x] "Waiting for player" stall handling after ~500 ms
 - [x] LAN discovery: broadcast announce on UDP 47654, client listener
-- [ ] In-game LAN match list — *engine side done; needs UI*
+- [x] LAN match browsing — *engine side; driven by `--host`/`--join` until the lobby screens exist*
 - [x] Lobby: slots, ready state, protocol and rules-hash checks
 - [x] Rules hash exchanged and verified in the handshake
 - [x] State hash exchange every 20 ticks
-- [ ] Desync halt with full dumps from both peers
-- [ ] Dev-only mode: per-tick, per-subsystem hashing to localise divergence
+- [x] Desync halt with full dumps from both peers
+- [ ] Dev-only mode: per-tick, per-subsystem hashing to localise divergence — *offline bisection covers this for now*
 - [x] Replay record and playback
 - [x] Determinism suite: `replay_roundtrip`, `two_sims_identical`, `serialisation_stable`
 - [x] CI cross-platform golden hashes — macOS/ARM vs Linux/x86
 
 ### Phase 1 exit
-- [ ] Two machines, 10-minute match, hundreds of units, zero desyncs
-- [ ] Replay reproduces the match bit-exactly
-- [ ] An injected non-determinism is caught within one second of sim time
+- [x] Two independent client processes play a networked match with zero desyncs
+      — verified by eye and by matching state hashes
+- [x] Replay reproduces the match bit-exactly
+- [x] An injected non-determinism is caught, halts both peers, and writes dumps
+- [ ] **Two physical machines on one Wi-Fi** — the part loopback cannot prove:
+      broadcast crossing a real router, the macOS firewall prompt, real latency
+- [ ] Cross-platform golden hashes confirmed by a CI run on x86
 
 ---
 

@@ -22,8 +22,10 @@ and so that anyone joining later can understand *why* the code looks the way it 
 | [0003](0003-deterministic-lockstep.md) | Deterministic lockstep networking | Accepted |
 | [0004](0004-original-assets-only.md) | Original assets only | Accepted |
 | [0005](0005-faithful-remaster-scope.md) | Faithful remaster, not a redesign | Accepted |
+| [0006](0006-capability-is-data-not-category.md) | Capability belongs to the unit, never to its category | Accepted |
 
 ## The load-bearing ones
 
-If you read only two: **0003** constrains the entire codebase (it is why floats are banned in the
-simulation), and **0005** is what keeps the scope finite.
+If you read only three: **0003** constrains the entire codebase (it is why floats are banned in
+the simulation), **0005** is what keeps the scope finite, and **0006** is why a unit's abilities
+live in its rules file rather than in a `match` on what kind of unit it is.

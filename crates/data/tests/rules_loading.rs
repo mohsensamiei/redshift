@@ -481,6 +481,8 @@ fn locomotors_survive_a_roundtrip() {
             speed: Hundredths(300),
             turn_rate: 90,
             locomotor,
+            surfaces: None,
+            size: None,
         };
         let text = ron::to_string(&t).unwrap();
         assert_eq!(ron::from_str::<Trait>(&text).unwrap(), t);

@@ -32,7 +32,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use crate::map::{Cell, Locomotor, Map, TerrainRules};
+use crate::map::{Cell, Map, SurfaceMask};
 
 /// Cost of an orthogonal step.
 pub const COST_STRAIGHT: u32 = 10;
@@ -175,7 +175,7 @@ pub fn find_path(
     workspace: &mut PathWorkspace,
     start: Cell,
     goal: Cell,
-    locomotor: Locomotor,
+    movement: SurfaceMask,
     node_budget: u32,
 ) -> PathResult {
     workspace.last_expansions = 0;
@@ -186,7 +186,7 @@ pub fn find_path(
     if start == goal {
         return PathResult::Found(Vec::new());
     }
-    if !map.is_passable(start, locomotor) {
+    if !map.is_passable(start, movement) {
         // A unit standing somewhere it cannot legally be — pushed there by a
         // later collision pass, or spawned badly. Refusing here rather than
         // searching from an invalid cell keeps the failure visible.
@@ -240,10 +240,10 @@ pub fn find_path(
 
         let cell = map.cell_at(node.cell);
         for next in cell.neighbours() {
-            if !map.is_passable(next, locomotor) {
+            if !map.is_passable(next, movement) {
                 continue;
             }
-            if !map.allows_diagonal(cell, next, locomotor) {
+            if !map.allows_diagonal(cell, next, movement) {
                 continue;
             }
             let Some(next_idx) = map.index(next) else {
@@ -256,7 +256,7 @@ pub fn find_path(
             } else {
                 COST_STRAIGHT
             };
-            let terrain_pct = locomotor.cost_percent(map.terrain(next));
+            let terrain_pct = 100;
             let step = step.saturating_mul(terrain_pct) / 100;
             let tentative = current_g + step;
 
@@ -361,7 +361,7 @@ mod tests {
             &mut workspace,
             Cell::new(1, 3),
             Cell::new(10, 3),
-            Locomotor::Ship,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Water]),
             10_000,
         );
         let route = match ship {
@@ -383,7 +383,7 @@ mod tests {
             &mut workspace,
             Cell::new(1, 3),
             Cell::new(10, 3),
-            Locomotor::Tracked,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             10_000,
         );
         assert!(
@@ -402,7 +402,11 @@ mod tests {
             &mut workspace,
             Cell::new(1, 1),
             Cell::new(10, 6),
-            Locomotor::Air,
+            SurfaceMask::from_surfaces(&[
+                crate::map::Surface::Land,
+                crate::map::Surface::Water,
+                crate::map::Surface::Height,
+            ]),
             10_000,
         );
         let route = match air {
@@ -439,7 +443,7 @@ mod tests {
             &mut workspace,
             Cell::new(1, 4),
             Cell::new(10, 4),
-            Locomotor::Tracked,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             10_000,
         ) {
             PathResult::Found(cells) => cells,
@@ -464,7 +468,7 @@ mod tests {
             &mut workspace,
             Cell::new(2, 2),
             Cell::new(5, 8),
-            Locomotor::Ship,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Water]),
             10_000,
         );
         assert!(
@@ -485,7 +489,7 @@ mod tests {
             &mut ws,
             Cell::new(from.0, from.1),
             Cell::new(to.0, to.1),
-            Locomotor::Foot,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             DEFAULT_NODE_BUDGET,
         )
     }
@@ -497,7 +501,7 @@ mod tests {
         let mut prev = start;
         for (i, &c) in cells.iter().enumerate() {
             assert!(
-                map.is_passable(c, Locomotor::Foot),
+                map.is_passable(c, SurfaceMask::from_surfaces(&[crate::map::Surface::Land])),
                 "step {i} enters impassable {c:?}"
             );
             assert_eq!(
@@ -506,7 +510,11 @@ mod tests {
                 "step {i} is not a single step: {prev:?} -> {c:?}"
             );
             assert!(
-                map.allows_diagonal(prev, c, Locomotor::Foot),
+                map.allows_diagonal(
+                    prev,
+                    c,
+                    SurfaceMask::from_surfaces(&[crate::map::Surface::Land])
+                ),
                 "step {i} cuts a corner: {prev:?} -> {c:?}"
             );
             prev = c;
@@ -616,7 +624,7 @@ mod tests {
             &mut ws,
             Cell::new(2, 8),
             Cell::new(14, 8),
-            Locomotor::Foot,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             DEFAULT_NODE_BUDGET,
         );
         assert_eq!(ground, PathResult::Unreachable, "the wall spans the map");
@@ -626,7 +634,11 @@ mod tests {
             &mut ws,
             Cell::new(2, 8),
             Cell::new(14, 8),
-            Locomotor::Air,
+            SurfaceMask::from_surfaces(&[
+                crate::map::Surface::Land,
+                crate::map::Surface::Water,
+                crate::map::Surface::Height,
+            ]),
             DEFAULT_NODE_BUDGET,
         );
         assert!(air.is_complete());
@@ -663,7 +675,7 @@ mod tests {
                 &mut fresh,
                 Cell::new(from.0, from.1),
                 Cell::new(to.0, to.1),
-                Locomotor::Foot,
+                SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
                 DEFAULT_NODE_BUDGET,
             ));
         }
@@ -679,7 +691,7 @@ mod tests {
                     &mut shared,
                     Cell::new(from.0, from.1),
                     Cell::new(to.0, to.1),
-                    Locomotor::Foot,
+                    SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
                     DEFAULT_NODE_BUDGET,
                 );
                 assert_eq!(got, reference[i], "shared workspace diverged on query {i}");
@@ -701,7 +713,7 @@ mod tests {
             &mut ws,
             Cell::new(0, 0),
             Cell::new(7, 7),
-            Locomotor::Foot,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             DEFAULT_NODE_BUDGET,
         );
         assert!(
@@ -719,7 +731,7 @@ mod tests {
             &mut ws,
             Cell::new(1, 1),
             Cell::new(62, 62),
-            Locomotor::Foot,
+            SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
             20,
         );
 
@@ -755,7 +767,7 @@ mod tests {
                 &mut ws,
                 Cell::new(1, 1),
                 Cell::new(46, 46),
-                Locomotor::Foot,
+                SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
                 500,
             );
             counts.push(ws.last_expansions());
@@ -782,7 +794,14 @@ mod tests {
         let mut budget = 40u32;
 
         for hop in 0..100 {
-            match find_path(&map, &mut ws, at, goal, Locomotor::Foot, budget) {
+            match find_path(
+                &map,
+                &mut ws,
+                at,
+                goal,
+                SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
+                budget,
+            ) {
                 PathResult::Found(cells) => {
                     assert_walkable(&map, at, &cells);
                     assert_eq!(*cells.last().unwrap(), goal);
@@ -824,7 +843,7 @@ mod tests {
                 &mut ws,
                 Cell::new(11, 11),
                 Cell::new(60, 60),
-                Locomotor::Foot,
+                SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
                 DEFAULT_NODE_BUDGET,
             )
             .is_complete(),
@@ -837,7 +856,7 @@ mod tests {
                 &mut ws,
                 Cell::new(11, 11),
                 Cell::new(60, 60),
-                Locomotor::Foot,
+                SurfaceMask::from_surfaces(&[crate::map::Surface::Land]),
                 budget,
             );
             assert_ne!(

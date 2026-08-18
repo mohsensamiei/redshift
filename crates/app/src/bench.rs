@@ -214,6 +214,8 @@ fn bench_rules() -> Rules {
                 speed: Hundredths(400),
                 turn_rate: 360,
                 locomotor: Locomotor::Tracked,
+                surfaces: None,
+                size: None,
             },
             Trait::Armed {
                 weapon: weapon.into(),
@@ -264,7 +266,10 @@ fn setup() -> MatchSetup {
                 break;
             }
             let cell = Cell::new(x, y);
-            if !map.is_passable(cell, Locomotor::Tracked) {
+            if !map.is_passable(
+                cell,
+                redshift_sim::map::SurfaceMask::from_surfaces(&[redshift_sim::map::Surface::Land]),
+            ) {
                 continue;
             }
             spawns.push(Spawn {

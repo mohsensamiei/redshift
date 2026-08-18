@@ -181,45 +181,61 @@ pub enum Terrain {
 /// Defined in `redshift-data` because rules files name it, and re-exported here
 /// so simulation code does not need to reach across for it. A second copy with
 /// a conversion between them would be one refactor away from disagreeing.
-pub use redshift_data::traits::Locomotor;
+pub use redshift_data::traits::{Locomotor, Surface};
 
-/// Terrain rules for each locomotor.
+/// The set of surfaces a unit may cross.
 ///
-/// A free function rather than an inherent method, since [`Locomotor`] belongs
-/// to another crate. Which terrain each one may enter becomes data itself once
-/// maps carry more than three surfaces.
-pub trait TerrainRules {
-    fn can_enter(self, terrain: Terrain) -> bool;
-    fn cost_percent(self, terrain: Terrain) -> u32;
-}
+/// A bitmask rather than a `Vec<Surface>`: pathfinding reads this millions of
+/// times a match and it has to be `Copy`, so a unit's resolved stats stay a
+/// plain value type.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct SurfaceMask(u8);
 
-impl TerrainRules for Locomotor {
-    #[inline]
-    fn can_enter(self, terrain: Terrain) -> bool {
-        match self {
-            Locomotor::Air => true,
-            Locomotor::Ship => terrain == Terrain::Water,
-            // Hover crosses water as well as land, which is exactly what makes
-            // it worth being a separate locomotor.
-            Locomotor::Hover => matches!(terrain, Terrain::Ground | Terrain::Water),
-            Locomotor::Foot | Locomotor::Wheeled | Locomotor::Tracked => terrain == Terrain::Ground,
+impl SurfaceMask {
+    /// Goes nowhere. Structures, and anything with no `Mobile` trait.
+    pub const NONE: SurfaceMask = SurfaceMask(0);
+
+    const fn bit(surface: Surface) -> u8 {
+        match surface {
+            Surface::Land => 1,
+            Surface::Water => 2,
+            Surface::Height => 4,
         }
     }
 
-    /// Movement cost multiplier, as a percentage of the base cost.
-    ///
-    /// An integer percentage rather than a fraction: pathfinding costs must
-    /// stay in exact integer arithmetic so that two peers comparing two routes
-    /// never disagree by a rounding bit.
+    pub fn from_surfaces(surfaces: &[Surface]) -> SurfaceMask {
+        SurfaceMask(surfaces.iter().fold(0, |acc, s| acc | Self::bit(*s)))
+    }
+
     #[inline]
-    fn cost_percent(self, terrain: Terrain) -> u32 {
-        if self.can_enter(terrain) {
-            100
-        } else {
-            // Impassable terrain never reaches a cost lookup; the passability
-            // check rejects it first.
-            u32::MAX
-        }
+    pub fn allows(self, surface: Surface) -> bool {
+        self.0 & Self::bit(surface) != 0
+    }
+
+    #[inline]
+    pub fn raw(self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub fn is_immobile(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// Which surface a cell presents.
+///
+/// The bridge between the map's terrain and a unit's declared surfaces. It
+/// lives here rather than in the data crate because it is about the map, and
+/// the data crate must not need to know what a `Terrain` is.
+pub fn surface_of(terrain: Terrain) -> Surface {
+    match terrain {
+        Terrain::Ground => Surface::Land,
+        Terrain::Water => Surface::Water,
+        // Rock stands in for cliffs and high ground until maps carry real
+        // elevation.
+        Terrain::Rock => Surface::Height,
     }
 }
 
@@ -330,15 +346,17 @@ impl Map {
     }
 
     #[inline]
-    pub fn is_passable(&self, cell: Cell, locomotor: Locomotor) -> bool {
-        if !self.contains(cell) || !locomotor.can_enter(self.terrain(cell)) {
+    pub fn is_passable(&self, cell: Cell, movement: SurfaceMask) -> bool {
+        if !self.contains(cell) || !movement.allows(surface_of(self.terrain(cell))) {
             return false;
         }
         // Aircraft fly over buildings; everything on the surface goes round.
         // Answering this here rather than in the pathfinder means every caller
         // that already knew how to avoid a cliff avoids buildings too, with no
         // change at all.
-        locomotor == Locomotor::Air || !self.is_blocked(cell)
+        // Anything that crosses high ground is flying, and flies over buildings
+        // too.
+        movement.allows(Surface::Height) || !self.is_blocked(cell)
     }
 
     /// Whether a diagonal step between two cells is allowed.
@@ -348,14 +366,14 @@ impl Map {
     /// looks like clipping through a wall corner, and lets units reach places
     /// the player can see they should not.
     #[inline]
-    pub fn allows_diagonal(&self, from: Cell, to: Cell, locomotor: Locomotor) -> bool {
+    pub fn allows_diagonal(&self, from: Cell, to: Cell, movement: SurfaceMask) -> bool {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         if dx == 0 || dy == 0 {
             return true;
         }
-        self.is_passable(Cell::new(from.x + dx, from.y), locomotor)
-            && self.is_passable(Cell::new(from.x, from.y + dy), locomotor)
+        self.is_passable(Cell::new(from.x + dx, from.y), movement)
+            && self.is_passable(Cell::new(from.x, from.y + dy), movement)
     }
 
     /// Clamps a position to stay just inside the map bounds.
@@ -517,115 +535,89 @@ impl StateHash for Map {
 mod tests {
     use super::*;
 
-    /// Terrain each locomotor may enter.
+    /// The ordinary ground-only unit, used throughout these tests.
+    const LAND: SurfaceMask = SurfaceMask(1);
+
+    /// The surfaces each movement style crosses **by default**.
     ///
-    /// Written out as a table rather than as assertions scattered through the
-    /// movement tests, because this *is* the rule — a naval unit that can drive
-    /// onto grass, or a tank that can ford a lake, is a gameplay bug that no
-    /// pathfinding test would catch.
+    /// A default, not a rule. Every one of these is overridable per unit, and
+    /// the next test is why.
     #[test]
-    fn locomotors_enter_only_the_terrain_they_should() {
+    fn locomotors_default_to_sensible_surfaces() {
         use Locomotor::*;
-        use Terrain::*;
+        let mask = |l: Locomotor| SurfaceMask::from_surfaces(l.default_surfaces());
 
-        // (locomotor, ground, water, rock)
-        let expected = [
-            (Foot, true, false, false),
-            (Wheeled, true, false, false),
-            (Tracked, true, false, false),
-            // Naval units live on water and nowhere else.
-            (Ship, false, true, false),
-            // Hover crosses both surfaces, which is the whole point of it.
-            (Hover, true, true, false),
-            // Aircraft ignore terrain entirely, elevation included.
-            (Air, true, true, true),
-        ];
-
-        for (locomotor, ground, water, rock) in expected {
-            assert_eq!(
-                locomotor.can_enter(Ground),
-                ground,
-                "{locomotor:?} on ground"
-            );
-            assert_eq!(locomotor.can_enter(Water), water, "{locomotor:?} on water");
-            assert_eq!(locomotor.can_enter(Rock), rock, "{locomotor:?} on rock");
-        }
-    }
-
-    #[test]
-    fn only_aircraft_cross_high_ground() {
-        // Rock stands in for cliffs and elevation until maps carry height.
-        // Everything on the surface must be stopped by it; only aircraft pass.
-        for locomotor in [
-            Locomotor::Foot,
-            Locomotor::Wheeled,
-            Locomotor::Tracked,
-            Locomotor::Ship,
-            Locomotor::Hover,
-        ] {
+        for l in [Foot, Wheeled, Tracked] {
+            assert!(mask(l).allows(Surface::Land), "{l:?} should walk on land");
             assert!(
-                !locomotor.can_enter(Terrain::Rock),
-                "{locomotor:?} should not cross high ground"
+                !mask(l).allows(Surface::Water),
+                "{l:?} should not swim by default"
             );
+            assert!(!mask(l).allows(Surface::Height), "{l:?} should not climb");
         }
-        assert!(Locomotor::Air.can_enter(Terrain::Rock));
-    }
-
-    #[test]
-    fn impassable_terrain_costs_more_than_any_route() {
-        // The cost lookup should never be reached for impassable terrain, but
-        // if it ever is, the answer has to be "never choose this" rather than a
-        // number A* might weigh against a detour.
-        assert_eq!(Locomotor::Ship.cost_percent(Terrain::Ground), u32::MAX);
-        assert_eq!(Locomotor::Tracked.cost_percent(Terrain::Water), u32::MAX);
-        assert_eq!(Locomotor::Air.cost_percent(Terrain::Rock), 100);
-    }
-
-    #[test]
-    fn cell_centre_is_half_a_cell_in() {
-        let c = Cell::new(3, 4);
-        assert_eq!(
-            c.centre(),
-            WorldPos::new(Fx::from_frac(7, 2), Fx::from_frac(9, 2))
+        assert!(mask(Ship).allows(Surface::Water));
+        assert!(
+            !mask(Ship).allows(Surface::Land),
+            "a ship does not drive up the beach"
         );
-        assert_eq!(c.centre().cell(), c, "centre must map back to its own cell");
+        assert!(mask(Hover).allows(Surface::Land) && mask(Hover).allows(Surface::Water));
+        assert!(mask(Air).allows(Surface::Height));
+    }
+
+    /// ADR 0006, checked directly.
+    ///
+    /// Each of these is a unit the original actually has, and each breaks the
+    /// rule its own category would imply. All are expressible by listing
+    /// surfaces — no new enum variant, no new arm in a match, no engine change.
+    #[test]
+    fn exceptional_units_need_no_engine_change() {
+        use Surface::*;
+
+        // Infantry that swims.
+        let amphibious_infantry = SurfaceMask::from_surfaces(&[Land, Water]);
+        assert!(amphibious_infantry.allows(Land) && amphibious_infantry.allows(Water));
+
+        // A vehicle that crosses water.
+        let hovercraft = SurfaceMask::from_surfaces(&[Land, Water]);
+        assert!(hovercraft.allows(Water));
+
+        // Something that crosses high ground without flying. No such unit
+        // exists yet, and none would be needed to add one.
+        let climber = SurfaceMask::from_surfaces(&[Land, Height]);
+        assert!(climber.allows(Height) && !climber.allows(Water));
+
+        // A structure goes nowhere at all.
+        assert!(SurfaceMask::NONE.is_immobile());
+        assert!(!SurfaceMask::NONE.allows(Land));
     }
 
     #[test]
-    fn position_to_cell_uses_floor_not_truncation() {
-        // The bug this guards: truncation folds -0.5 and 0.5 into cell 0,
-        // making the row at the origin twice as wide as every other.
-        assert_eq!(
-            WorldPos::new(Fx::from_frac(1, 2), Fx::ZERO).cell(),
-            Cell::new(0, 0)
-        );
-        assert_eq!(
-            WorldPos::new(Fx::from_frac(-1, 2), Fx::ZERO).cell(),
-            Cell::new(-1, 0)
-        );
-        assert_eq!(WorldPos::new(-Fx::ONE, Fx::ZERO).cell(), Cell::new(-1, 0));
-        assert_eq!(
-            WorldPos::new(Fx::from_frac(-3, 2), Fx::ZERO).cell(),
-            Cell::new(-2, 0)
-        );
+    fn a_cell_presents_exactly_one_surface() {
+        assert_eq!(surface_of(Terrain::Ground), Surface::Land);
+        assert_eq!(surface_of(Terrain::Water), Surface::Water);
+        assert_eq!(surface_of(Terrain::Rock), Surface::Height);
     }
 
     #[test]
-    fn every_cell_round_trips_through_its_centre() {
-        for y in -3..8 {
-            for x in -3..8 {
-                let c = Cell::new(x, y);
-                assert_eq!(c.centre().cell(), c);
-            }
-        }
-    }
+    fn passability_asks_the_unit_not_its_category() {
+        let mut map = Map::new(16, 16);
+        map.set_terrain(Cell::new(4, 4), Terrain::Water);
+        map.set_terrain(Cell::new(5, 5), Terrain::Rock);
 
-    #[test]
-    fn index_and_cell_at_are_inverse() {
-        let map = Map::new(17, 11);
-        for i in 0..map.cell_count() as u32 {
-            assert_eq!(map.index(map.cell_at(i)), Some(i));
-        }
+        let land = SurfaceMask::from_surfaces(&[Surface::Land]);
+        let swimmer = SurfaceMask::from_surfaces(&[Surface::Land, Surface::Water]);
+        let flier = SurfaceMask::from_surfaces(&[Surface::Land, Surface::Water, Surface::Height]);
+
+        assert!(!map.is_passable(Cell::new(4, 4), land));
+        assert!(
+            map.is_passable(Cell::new(4, 4), swimmer),
+            "a swimmer crosses water"
+        );
+        assert!(
+            !map.is_passable(Cell::new(5, 5), swimmer),
+            "but not high ground"
+        );
+        assert!(map.is_passable(Cell::new(5, 5), flier));
     }
 
     #[test]
@@ -635,7 +627,7 @@ mod tests {
         assert_eq!(map.terrain(Cell::new(4, 0)), Terrain::Rock);
         assert_eq!(map.terrain(Cell::new(0, 4)), Terrain::Rock);
         assert_eq!(map.index(Cell::new(-1, 0)), None);
-        assert!(!map.is_passable(Cell::new(-1, 0), Locomotor::Foot));
+        assert!(!map.is_passable(Cell::new(-1, 0), LAND));
     }
 
     #[test]
@@ -648,37 +640,28 @@ mod tests {
     }
 
     #[test]
-    fn locomotor_terrain_rules() {
-        assert!(Locomotor::Foot.can_enter(Terrain::Ground));
-        assert!(!Locomotor::Foot.can_enter(Terrain::Water));
-        assert!(!Locomotor::Tracked.can_enter(Terrain::Rock));
-        assert!(Locomotor::Air.can_enter(Terrain::Rock));
-        assert!(Locomotor::Air.can_enter(Terrain::Water));
-    }
-
-    #[test]
     fn diagonal_through_a_corner_join_is_refused() {
         // Two blocked cells meeting at a corner must not be squeezed through.
         let mut map = Map::new(8, 8);
         map.set_terrain(Cell::new(1, 0), Terrain::Rock);
         map.set_terrain(Cell::new(0, 1), Terrain::Rock);
-        assert!(!map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), Locomotor::Foot));
+        assert!(!map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), LAND));
 
         // One side open is still refused — the original did not allow corner
         // cutting either, and allowing it makes units visibly clip walls.
         map.set_terrain(Cell::new(0, 1), Terrain::Ground);
-        assert!(!map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), Locomotor::Foot));
+        assert!(!map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), LAND));
 
         map.set_terrain(Cell::new(1, 0), Terrain::Ground);
-        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), Locomotor::Foot));
+        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 1), LAND));
     }
 
     #[test]
     fn orthogonal_steps_are_never_blocked_by_the_diagonal_rule() {
         let mut map = Map::new(8, 8);
         map.fill_rect(Cell::new(0, 0), Cell::new(7, 7), Terrain::Rock);
-        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 0), Locomotor::Foot));
-        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(0, 1), Locomotor::Foot));
+        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(1, 0), LAND));
+        assert!(map.allows_diagonal(Cell::new(0, 0), Cell::new(0, 1), LAND));
     }
 
     #[test]

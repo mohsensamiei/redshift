@@ -37,6 +37,8 @@ fn rules() -> Rules {
                     speed: Hundredths(500),
                     turn_rate: 720,
                     locomotor: Locomotor::Wheeled,
+                    surfaces: None,
+                    size: None,
                 },
                 Trait::Harvester {
                     capacity: 100,

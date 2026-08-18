@@ -48,6 +48,8 @@ fn rules() -> Rules {
                 speed: Hundredths(300),
                 turn_rate: 3600,
                 locomotor: Locomotor::Foot,
+                surfaces: None,
+                size: None,
             },
             Trait::Vision {
                 range: Hundredths(vision),

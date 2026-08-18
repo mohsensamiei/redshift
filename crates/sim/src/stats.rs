@@ -27,6 +27,7 @@ use crate::TICKS_PER_SECOND;
 use crate::command::PlayerId;
 use crate::fx::Fx;
 use crate::hash::{StateHash, StateHasher};
+use crate::map::SurfaceMask;
 
 /// A full turn in binary angle units.
 const FULL_TURN: i64 = 65_536;
@@ -43,6 +44,9 @@ pub struct UnitStats {
     /// Binary angle units turned per tick.
     pub turn_rate: u16,
     pub locomotor: Locomotor,
+    /// Surfaces this unit may cross. The authority on where it can go — the
+    /// locomotor only supplied the default.
+    pub movement: SurfaceMask,
     /// Vision radius in cells.
     pub vision: Fx,
     /// Tie-break when units overlap under the pointer.
@@ -97,6 +101,7 @@ impl Default for UnitStats {
             speed: Fx::ZERO,
             turn_rate: 0,
             locomotor: Locomotor::default(),
+            movement: SurfaceMask::NONE,
             vision: Fx::ZERO,
             selection_priority: 0,
             cost: 0,
@@ -126,6 +131,7 @@ impl StateHash for UnitStats {
         h.write_i32(self.speed.raw());
         h.write_u16(self.turn_rate);
         h.write_u8(self.locomotor as u8);
+        h.write_u8(self.movement.raw());
         h.write_i32(self.vision.raw());
         h.write_u32(self.cost);
         h.write_u32(self.build_time);
@@ -213,19 +219,9 @@ impl StateHash for StatTable {
 fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitStats {
     let def = rules.entity(kind);
 
-    // Physical size. A structure states its footprint; everything else is
-    // sized by what it is. These match the renderer's placeholder proportions,
-    // so what the player sees is what the simulation enforces.
-    let radius = match def.category.as_str() {
-        "infantry" => Fx::from_frac(16, 100),
-        "vehicle" => Fx::from_frac(39, 100),
-        "aircraft" => Fx::from_frac(35, 100),
-        "ship" => Fx::from_frac(60, 100),
-        "structure" => Fx::from_frac(90, 100),
-        _ => Fx::from_frac(30, 100),
-    };
+    // Physical size and passability both come from the unit now, not from its
+    // category. See docs/adr/0006-capability-is-data-not-category.md.
     let mut stats = UnitStats {
-        radius,
         ..UnitStats::default()
     };
 
@@ -236,11 +232,18 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 speed,
                 turn_rate,
                 locomotor,
+                surfaces,
+                size,
             } => {
                 stats.speed = cells_per_tick(*speed);
                 stats.turn_rate = degrees_per_second_to_tick(*turn_rate);
                 stats.locomotor = *locomotor;
                 stats.mobile = true;
+                // The unit's own list wins; the locomotor is only a default.
+                stats.movement = SurfaceMask::from_surfaces(
+                    surfaces.as_deref().unwrap_or(locomotor.default_surfaces()),
+                );
+                stats.radius = Fx::from_raw(size.unwrap_or(locomotor.default_size()).to_fx_raw());
             }
             Trait::Vision { range } => stats.vision = Fx::from_raw(range.to_fx_raw()),
             Trait::Selectable { priority } => stats.selection_priority = *priority,
@@ -374,6 +377,8 @@ mod tests {
                     speed: Hundredths(450),
                     turn_rate: 90,
                     locomotor: Locomotor::Tracked,
+                    surfaces: None,
+                    size: None,
                 },
                 Trait::Vision {
                     range: Hundredths(600),

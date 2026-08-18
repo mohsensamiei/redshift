@@ -15,7 +15,7 @@ use crate::command::{Command, CommandKind, PlayerId};
 use crate::economy::{self, Treasury};
 use crate::fx::{Angle, Fx};
 use crate::hash::StateHasher;
-use crate::map::{Cell, Locomotor, Map, WorldPos};
+use crate::map::{Cell, Locomotor, Map, SurfaceMask, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::power::PowerGrid;
 use crate::production::{ProductionItem, ProductionQueue};
@@ -70,6 +70,8 @@ pub fn test_rules() -> Rules {
                 speed: Hundredths(300),
                 turn_rate: 330,
                 locomotor: Locomotor::Tracked,
+                surfaces: None,
+                size: None,
             },
             Trait::Vision {
                 range: Hundredths(500),
@@ -652,9 +654,9 @@ impl Sim {
             return;
         }
 
-        let locomotor = produced.locomotor;
+        let movement = produced.movement;
 
-        let spot = self.free_cell_near(origin, locomotor, EXIT_SEARCH_RADIUS);
+        let spot = self.free_cell_near(origin, movement, EXIT_SEARCH_RADIUS);
 
         match spot {
             Some(cell) => {
@@ -681,11 +683,11 @@ impl Sim {
     /// unload, a freshly built unit driving out — has to aim beside it rather
     /// than at it, or pathfinding correctly reports no route and the unit
     /// simply gives up.
-    fn free_cell_near(&self, origin: Cell, locomotor: Locomotor, radius: i32) -> Option<Cell> {
+    fn free_cell_near(&self, origin: Cell, movement: SurfaceMask, radius: i32) -> Option<Cell> {
         (0..=radius).find_map(|r| {
             ring_offsets(r).into_iter().find_map(|(dx, dy)| {
                 let cell = Cell::new(origin.x + dx, origin.y + dy);
-                self.map.is_passable(cell, locomotor).then_some(cell)
+                self.map.is_passable(cell, movement).then_some(cell)
             })
         })
     }
@@ -806,7 +808,7 @@ impl Sim {
                         // impassable, so aiming at the centre would correctly
                         // find no route and the harvester would give up.
                         if let Some(approach) =
-                            self.free_cell_near(target_cell, stats.locomotor, UNLOAD_APPROACH)
+                            self.free_cell_near(target_cell, stats.movement, UNLOAD_APPROACH)
                         {
                             self.order_move(owner, id, approach);
                         }
@@ -857,12 +859,12 @@ impl Sim {
         if let Some(refinery) = refinery
             && let Some(cell) = self.units.get(refinery).map(|u| u.cell())
         {
-            let locomotor = self
+            let movement = self
                 .units
                 .get(id)
-                .map(|u| self.stats.get(u.owner, u.kind).locomotor)
+                .map(|u| self.stats.get(u.owner, u.kind).movement)
                 .unwrap_or_default();
-            if let Some(approach) = self.free_cell_near(cell, locomotor, UNLOAD_APPROACH) {
+            if let Some(approach) = self.free_cell_near(cell, movement, UNLOAD_APPROACH) {
                 self.order_move(owner, id, approach);
             }
         }
@@ -1013,7 +1015,7 @@ impl Sim {
             // into a lake, or through a cliff.
             let stats = self.stats.get(unit.owner, unit.kind);
             let target_cell = moved.cell();
-            if self.map.is_passable(target_cell, stats.locomotor) {
+            if self.map.is_passable(target_cell, stats.movement) {
                 unit.pos = self.map.clamp_pos(moved);
             }
         }
@@ -1677,14 +1679,14 @@ impl Sim {
 
         let mut taken: Vec<Cell> = Vec::with_capacity(ordered.len());
         for id in ordered {
-            let locomotor = self
+            let movement = self
                 .units
                 .get(id)
-                .map(|u| self.stats.get(u.owner, u.kind).locomotor)
+                .map(|u| self.stats.get(u.owner, u.kind).movement)
                 .unwrap_or_default();
 
             let spot = self
-                .nearest_free_cell(target, locomotor, &taken)
+                .nearest_free_cell(target, movement, &taken)
                 .unwrap_or(target);
             taken.push(spot);
             self.order_move(player, id, spot);
@@ -1698,13 +1700,13 @@ impl Sim {
     fn nearest_free_cell(
         &self,
         target: Cell,
-        locomotor: Locomotor,
+        movement: SurfaceMask,
         taken: &[Cell],
     ) -> Option<Cell> {
         for radius in 0..=FORMATION_MAX_RADIUS {
             for (dx, dy) in ring_offsets(radius) {
                 let cell = Cell::new(target.x + dx, target.y + dy);
-                if !self.map.is_passable(cell, locomotor) {
+                if !self.map.is_passable(cell, movement) {
                     continue;
                 }
                 if taken.contains(&cell) {
@@ -1748,7 +1750,7 @@ impl Sim {
 
             let start = unit.cell();
             let goal = travel.destination;
-            let locomotor = self.stats.get(unit.owner, unit.kind).locomotor;
+            let movement = self.stats.get(unit.owner, unit.kind).movement;
             let budget = travel.retry_budget.min(TICK_PATH_BUDGET - spent);
 
             let result = path::find_path(
@@ -1756,7 +1758,7 @@ impl Sim {
                 &mut self.workspace,
                 start,
                 goal,
-                locomotor,
+                movement,
                 budget,
             );
             spent += self.workspace.last_expansions();

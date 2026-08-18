@@ -66,20 +66,21 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when veterancy and cloak landed. Units carry a kill count and a
-/// time-since-fired, and the world carries a detection layer. Determinism was
-/// confirmed first across every behaviour suite.
+/// Re-recorded when passability moved out of the locomotor enum and into the
+/// unit's own declared surfaces. Unit stats carry a surface mask now, so the
+/// hash covers different bytes. Determinism was confirmed first across every
+/// behaviour suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x5b3bd4360a6ec7eb),
-    (50, 0x9d8d7819b7166e2d),
-    (100, 0x64ee0b6c89c2e42e),
-    (200, 0xc8730a3f03b70fac),
-    (400, 0x6557994d6b2ba0f9),
+    (10, 0x769809b7f088dcae),
+    (50, 0x8b43ca43b3e401fe),
+    (100, 0xa39a5c8e03ce11ed),
+    (200, 0xafe93585545188ff),
+    (400, 0x25a5edb12874e3e0),
 ];
 
 #[test]

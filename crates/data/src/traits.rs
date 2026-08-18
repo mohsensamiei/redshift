@@ -18,6 +18,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{Hundredths, Percent, Ticks};
 
+/// A surface a unit may occupy.
+///
+/// Declared per unit rather than inferred from its locomotor. See
+/// `docs/adr/0006-capability-is-data-not-category.md`: the original is full of
+/// units that break their category's rule, and each of those must be a line of
+/// data rather than an arm in a match.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+pub enum Surface {
+    /// Open, level ground.
+    Land,
+    /// Water deep enough to float on.
+    Water,
+    /// High ground. Only flight crosses it.
+    Height,
+}
+
 /// How a thing traverses terrain. Mirrors the original's "locomotor" concept.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Locomotor {
@@ -50,7 +66,21 @@ pub enum Trait {
         speed: Hundredths,
         /// Degrees per second.
         turn_rate: u32,
+        /// Movement style: what it looks like, whether it crushes, how it
+        /// turns. Also supplies the default surfaces when none are given.
         locomotor: Locomotor,
+        /// Surfaces this unit may cross.
+        ///
+        /// Omitted means "whatever this locomotor usually crosses", which keeps
+        /// ordinary units short. Stated means exactly this list, which is how
+        /// an amphibious rifleman or a hovercraft is expressed without touching
+        /// the engine.
+        #[serde(default)]
+        surfaces: Option<Vec<Surface>>,
+        /// Physical radius in hundredths of a cell. Defaults from the
+        /// locomotor.
+        #[serde(default)]
+        size: Option<Hundredths>,
     },
 
     /// Carries a weapon.
@@ -200,6 +230,34 @@ impl Trait {
     }
 }
 
+impl Locomotor {
+    /// The surfaces a unit of this style crosses when it does not say.
+    ///
+    /// A *default*, not a rule: any unit may override it. That distinction is
+    /// the whole of ADR 0006 — a category-based default is usually right, which
+    /// is exactly what makes it dangerous to bake in.
+    pub fn default_surfaces(self) -> &'static [Surface] {
+        match self {
+            Locomotor::Foot | Locomotor::Wheeled | Locomotor::Tracked => &[Surface::Land],
+            Locomotor::Hover => &[Surface::Land, Surface::Water],
+            Locomotor::Ship => &[Surface::Water],
+            Locomotor::Air => &[Surface::Land, Surface::Water, Surface::Height],
+        }
+    }
+
+    /// The radius a unit of this style takes up, in hundredths of a cell, when
+    /// it does not say.
+    pub fn default_size(self) -> Hundredths {
+        match self {
+            Locomotor::Foot => Hundredths(16),
+            Locomotor::Wheeled | Locomotor::Tracked => Hundredths(39),
+            Locomotor::Hover => Hundredths(35),
+            Locomotor::Air => Hundredths(35),
+            Locomotor::Ship => Hundredths(60),
+        }
+    }
+}
+
 /// Trait names that may appear at most once on an entity.
 ///
 /// Two `Health` traits is a data error, not an interesting combination, and the
@@ -271,6 +329,8 @@ mod tests {
                 speed: Hundredths(450),
                 turn_rate: 90,
                 locomotor: Locomotor::Tracked,
+                surfaces: None,
+                size: None,
             }
             .references()
             .is_empty()
@@ -290,6 +350,8 @@ mod tests {
                 speed: Hundredths(450),
                 turn_rate: 90,
                 locomotor: Locomotor::Tracked,
+                surfaces: None,
+                size: None,
             },
             Trait::Armed {
                 weapon: "120mm".into(),
@@ -316,6 +378,8 @@ mod tests {
             speed: Hundredths(450),
             turn_rate: 90,
             locomotor: Locomotor::Tracked,
+            surfaces: None,
+            size: None,
         };
         let text = ron::to_string(&t).unwrap();
         assert!(

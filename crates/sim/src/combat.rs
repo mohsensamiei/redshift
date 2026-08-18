@@ -451,6 +451,8 @@ mod tests {
                         speed: Hundredths(200),
                         turn_rate: 360,
                         locomotor: Locomotor::Foot,
+                        surfaces: None,
+                        size: None,
                     },
                     Trait::Vision {
                         range: Hundredths(800),
@@ -476,6 +478,8 @@ mod tests {
                         speed: Hundredths(450),
                         turn_rate: 90,
                         locomotor: Locomotor::Tracked,
+                        surfaces: None,
+                        size: None,
                     },
                     Trait::Vision {
                         range: Hundredths(800),

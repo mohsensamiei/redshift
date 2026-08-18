@@ -69,9 +69,27 @@ aids, not commitments.
 
 ---
 
-## Phase 2 — Internet play
+## Phase 2 — Internet play — **deferred**
 
 *Goal: two players on different networks play, with no port forwarding.*
+
+**Deferred after Phase 1, by decision.** Internet play cannot be meaningfully
+tested without a second network and a hosted server, and building infrastructure
+that cannot be exercised is how untested code accumulates.
+
+The deferral is cheap, which is why it is safe:
+
+- The relay is deliberately a packet switch with no game state, so there is no
+  design work waiting on it.
+- `MatchSession` already takes peer addresses as configuration. Pointing them at
+  a relay instead of at a peer is a change of address, not of architecture.
+- Nothing in Phase 3 depends on it.
+
+What is genuinely postponed with it: reconnection and spectators, neither of
+which Phase 3 needs.
+
+**Revisit when** there is somewhere to host a server and a second network to
+test from.
 
 - `redshift-server`: lobby service (create/list/join matches)
 - Relay service: forward command packets between a match's peers
@@ -91,6 +109,8 @@ aids, not commitments.
 ---
 
 ## Phase 3 — Core gameplay
+
+*Now the current phase, taken up directly after Phase 1.*
 
 *Goal: a genuinely playable 1v1 skirmish — with placeholder art throughout.*
 
@@ -176,7 +196,7 @@ aids, not commitments.
 |---|---|---|
 | 0 | Foundation — cubes moving on a deterministic sim | 3–5 weeks |
 | 1 | Determinism and LAN multiplayer | 4–6 weeks |
-| 2 | Internet play via relay | 3–4 weeks |
+| 2 | Internet play via relay | 3–4 weeks — *deferred* |
 | 3 | Core gameplay, placeholder art | 3–5 months |
 | 4 | Art, audio, feel | 4–8 months |
 | 5 | Full rosters and the new country | 2–4 months |

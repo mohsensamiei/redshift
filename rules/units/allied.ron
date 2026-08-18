@@ -1,0 +1,69 @@
+// Allied units.
+//
+// Every entry is a list of traits — no unit has a type of its own. Adding a
+// unit means adding an entry here; it does not mean touching Rust.
+(
+    entities: [
+        (
+            id: "gi",
+            name_key: "unit.gi",
+            side: "allied",
+            category: "infantry",
+            traits: [
+                Health(max: 125, armour: "none"),
+                Mobile(speed: 200, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "rifle", turret: false, turret_rate: 0),
+                Vision(range: 500),
+                Crushable(class: "infantry"),
+                Selectable(priority: 1),
+                Buildable(
+                    cost: 200,
+                    build_time: 20,
+                    prerequisites: ["barracks"],
+                    produced_by: "barracks",
+                ),
+            ],
+        ),
+        (
+            id: "grizzly_tank",
+            name_key: "unit.grizzly_tank",
+            side: "allied",
+            category: "vehicle",
+            traits: [
+                Health(max: 300, armour: "heavy"),
+                Mobile(speed: 500, turn_rate: 90, locomotor: Tracked),
+                Armed(weapon: "120mm", turret: true, turret_rate: 120),
+                Vision(range: 600),
+                Crushes(classes: ["infantry"]),
+                Veterancy(kills_for_veteran: 3, kills_for_elite: 9),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 700,
+                    build_time: 45,
+                    prerequisites: ["war_factory"],
+                    produced_by: "war_factory",
+                ),
+            ],
+        ),
+        (
+            id: "harvester",
+            name_key: "unit.harvester",
+            side: "allied",
+            category: "vehicle",
+            traits: [
+                Health(max: 600, armour: "heavy"),
+                Mobile(speed: 350, turn_rate: 70, locomotor: Tracked),
+                Vision(range: 400),
+                Harvester(capacity: 20, gather_rate: 50),
+                Crushes(classes: ["infantry"]),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 1400,
+                    build_time: 60,
+                    prerequisites: ["refinery"],
+                    produced_by: "war_factory",
+                ),
+            ],
+        ),
+    ],
+)

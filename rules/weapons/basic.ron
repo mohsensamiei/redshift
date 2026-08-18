@@ -1,0 +1,39 @@
+// Weapons. Range is in hundredths of a cell; reload is in simulation ticks
+// (20 per second). See crates/data/src/value.rs for why neither is a decimal.
+(
+    weapons: [
+        (
+            id: "rifle",
+            damage: 15,
+            warhead: "small_arms",
+            reload: 12,
+            range: 400,
+        ),
+        (
+            id: "120mm",
+            damage: 60,
+            warhead: "ap_shell",
+            reload: 40,
+            range: 550,
+            splash_radius: 30,
+            projectile_speed: 2000,
+        ),
+        (
+            id: "artillery",
+            damage: 90,
+            warhead: "explosive",
+            reload: 90,
+            range: 1100,
+            splash_radius: 150,
+            projectile_speed: 800,
+        ),
+        (
+            id: "aa_gun",
+            damage: 30,
+            warhead: "flak",
+            reload: 15,
+            range: 700,
+            projectile_speed: 3000,
+        ),
+    ],
+)

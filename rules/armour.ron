@@ -1,0 +1,33 @@
+// Armour classes and the damage table between them.
+//
+// This lookup is what makes rock-paper-scissors counterplay work, and keeping
+// it as data means balance is edited rather than recompiled.
+//
+// Values are percentages of the weapon's base damage. A pairing left out of the
+// table means full damage — the forgiving default, because immunity by
+// omission would be invisible until a match hinged on it.
+//
+// Illustrative for now. Phase 3 tunes these against the original's behaviour.
+(
+    armour: (
+        classes: ["none", "light", "heavy", "concrete", "air"],
+        table: {
+            // Rifles and machine guns: deadly to people, useless against armour.
+            "small_arms": {
+                "none": 100, "light": 45, "heavy": 8, "concrete": 4, "air": 0,
+            },
+            // Armour-piercing shells: the reverse.
+            "ap_shell": {
+                "none": 35, "light": 90, "heavy": 100, "concrete": 55, "air": 0,
+            },
+            // High explosive: broad, best against structures.
+            "explosive": {
+                "none": 85, "light": 75, "heavy": 50, "concrete": 100, "air": 0,
+            },
+            // Anti-air only.
+            "flak": {
+                "none": 40, "light": 25, "heavy": 5, "concrete": 2, "air": 100,
+            },
+        },
+    ),
+)

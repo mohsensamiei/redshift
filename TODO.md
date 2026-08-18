@@ -4,10 +4,13 @@ Live task list. Keep this current — check items off as they land, and add work
 discovered. Phase definitions, estimates and exit criteria live in
 [docs/07-roadmap.md](docs/07-roadmap.md).
 
-**Current phase: 1 — Determinism and LAN**
-**Next milestone:** two machines on the same Wi-Fi discovering each other and playing.
-Phase 0 is complete; the lockstep scheduler and wire format are done and tested
-against a hostile simulated link.
+**Current phase: 3 — Core gameplay**
+**Next milestone:** rules as data — units, buildings and weapons defined in files,
+with a hash both peers verify at the handshake.
+
+Phase 1 is complete: two client processes play in lockstep, confirmed by eye and
+by matching state hashes, and CI confirms the simulation produces identical
+hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ---
 
@@ -105,7 +108,7 @@ against a hostile simulated link.
 
 ---
 
-## Phase 2 — Internet play
+## Phase 2 — Internet play — deferred, see docs/07-roadmap.md
 
 - [ ] `redshift-server`: lobby service (create / list / join)
 - [ ] Relay service forwarding command packets, holding no game state

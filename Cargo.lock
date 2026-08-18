@@ -3658,6 +3658,10 @@ dependencies = [
 [[package]]
 name = "redshift-data"
 version = "0.0.1"
+dependencies = [
+ "ron",
+ "serde",
+]
 
 [[package]]
 name = "redshift-net"

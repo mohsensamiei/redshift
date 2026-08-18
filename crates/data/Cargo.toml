@@ -7,3 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+serde = { workspace = true }
+ron = { workspace = true }
+
+[lints.clippy]
+# This crate is a dependency of redshift-sim, so the same rule applies: rules
+# values feed the simulation directly, and a float among them would desync a
+# match exactly as surely as one written in the sim itself.
+float_arithmetic = "deny"
+float_cmp = "deny"
+lossy_float_literal = "deny"

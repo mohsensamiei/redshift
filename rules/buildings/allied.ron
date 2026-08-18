@@ -1,0 +1,106 @@
+// Allied structures.
+//
+// A structure differs from a unit only in the traits it carries — a Footprint,
+// no Mobile, usually a PowerDraw. There is no separate building type.
+(
+    entities: [
+        (
+            id: "construction_yard",
+            name_key: "building.construction_yard",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 1000, armour: "concrete"),
+                Footprint(width: 3, height: 3),
+                Vision(range: 500),
+                Produces(categories: ["structure"]),
+                Capturable,
+                Selectable(priority: 5),
+            ],
+        ),
+        (
+            id: "power_plant",
+            name_key: "building.power_plant",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 400, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 300),
+                PowerSupply(output: 100),
+                Explodes(warhead: "explosive", damage: 120),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 300,
+                    build_time: 30,
+                    prerequisites: ["construction_yard"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
+            id: "barracks",
+            name_key: "building.barracks",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 500, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 300),
+                PowerDraw(amount: 20),
+                Produces(categories: ["infantry"]),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 500,
+                    build_time: 35,
+                    prerequisites: ["power_plant"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
+            id: "refinery",
+            name_key: "building.refinery",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 900, armour: "concrete"),
+                Footprint(width: 3, height: 2),
+                Vision(range: 350),
+                PowerDraw(amount: 30),
+                Refinery(value_per_unit: 25),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 2000,
+                    build_time: 60,
+                    prerequisites: ["power_plant"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
+            id: "war_factory",
+            name_key: "building.war_factory",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 1000, armour: "concrete"),
+                Footprint(width: 3, height: 3),
+                Vision(range: 350),
+                PowerDraw(amount: 50),
+                Produces(categories: ["vehicle"]),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 2000,
+                    build_time: 70,
+                    prerequisites: ["refinery"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+    ],
+)

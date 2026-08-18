@@ -1,0 +1,34 @@
+// Countries.
+//
+// A country is a small overlay on a side's shared roster — one unique unit or
+// structure, one passive advantage, and an identity. This mirrors how the
+// original handled countries, and keeps the work per country to roughly one
+// model plus a few lines of data.
+//
+// The new country the project wants goes here, and nowhere else.
+(
+    factions: [
+        (
+            id: "america",
+            name_key: "faction.america",
+            side: "allied",
+            colour: (60, 110, 220),
+            unique_units: [],
+            modifiers: [
+                BuildSpeed(category: "structure", multiplier: 110),
+            ],
+            voice_set: "allied_a",
+        ),
+        (
+            id: "korea",
+            name_key: "faction.korea",
+            side: "allied",
+            colour: (70, 180, 190),
+            unique_units: [],
+            modifiers: [
+                UnitCost(unit: "gi", multiplier: 90),
+            ],
+            voice_set: "allied_b",
+        ),
+    ],
+)

@@ -212,6 +212,16 @@ impl Rules {
     /// the same reason the simulation avoids `DefaultHasher`: the value must be
     /// identical across Rust versions, or peers on different toolchains would
     /// refuse each other over rules they actually agree on.
+    /// How many weapons are defined.
+    pub fn weapon_count(&self) -> usize {
+        self.weapons.len()
+    }
+
+    /// How many countries are defined.
+    pub fn faction_count(&self) -> usize {
+        self.factions.len()
+    }
+
     pub fn hash(&self) -> u64 {
         const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
         const PRIME: u64 = 0x0000_0100_0000_01b3;

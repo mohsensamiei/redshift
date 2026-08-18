@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use redshift_data::rules::{EntityKind, Rules};
+
 use crate::arena::{Arena, EntityId};
 use crate::command::{Command, CommandKind, PlayerId};
 use crate::fx::Fx;
@@ -14,6 +16,7 @@ use crate::hash::StateHasher;
 use crate::map::{Cell, Map, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::rng::SimRng;
+use crate::stats::{StatTable, UnitStats};
 use crate::unit::{ARRIVAL_TOLERANCE, MOVE_ALIGNMENT, Order, Unit};
 use crate::{TICKS_PER_SECOND, Tick};
 
@@ -26,13 +29,110 @@ use crate::{TICKS_PER_SECOND, Tick};
 /// happened to divide.
 pub const TICK_PATH_BUDGET: u32 = 20_000;
 
+/// Minimal rules for tests and scenarios: one generic mobile unit.
+///
+/// Real matches load rules from `rules/`. This exists so a test about
+/// pathfinding or netcode does not have to define a whole game first — and so
+/// that when such a test fails, it is failing about the thing it is named
+/// after.
+pub fn test_rules() -> Rules {
+    use redshift_data::rules::EntityDef;
+    use redshift_data::traits::{Locomotor, Trait};
+    use redshift_data::value::Hundredths;
+
+    let armour: redshift_data::rules::ArmourTable =
+        ron::from_str(r#"( classes: ["none"], table: { "generic": { "none": 100 } } )"#)
+            .expect("the built-in test armour table should parse");
+
+    let unit = EntityDef {
+        id: "test_unit".into(),
+        name_key: "unit.test".into(),
+        side: None,
+        category: "vehicle".into(),
+        traits: vec![
+            Trait::Health {
+                max: 100,
+                armour: "none".into(),
+            },
+            Trait::Mobile {
+                // Three cells a second, and a full turn in about a second —
+                // the same feel the hard-coded placeholder unit had, so tests
+                // written against it keep their timings.
+                speed: Hundredths(300),
+                turn_rate: 330,
+                locomotor: Locomotor::Tracked,
+            },
+            Trait::Vision {
+                range: Hundredths(500),
+            },
+            Trait::Selectable { priority: 1 },
+        ],
+    };
+    Rules::from_parts(vec![unit], Vec::new(), armour, Vec::new())
+        .expect("the built-in test rules should validate")
+}
+
+/// The kind every [`test_rules`] spawn uses.
+pub const TEST_KIND: EntityKind = EntityKind(0);
+
+/// A player in the match.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerSetup {
+    pub id: PlayerId,
+    /// Which country, if any. `None` simply means no modifiers apply.
+    pub faction: Option<String>,
+}
+
+/// One starting unit.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Spawn {
+    pub owner: PlayerId,
+    pub kind: EntityKind,
+    pub pos: WorldPos,
+}
+
+impl MatchSetup {
+    /// A setup using [`test_rules`], with spawns given as `(owner, position)`.
+    ///
+    /// For tests and scenarios that care about movement or networking rather
+    /// than about content.
+    pub fn for_test(seed: u64, map: Map, spawns: Vec<(PlayerId, WorldPos)>) -> MatchSetup {
+        let mut players: Vec<PlayerId> = spawns.iter().map(|(owner, _)| *owner).collect();
+        players.sort();
+        players.dedup();
+        MatchSetup {
+            seed,
+            map,
+            rules: test_rules(),
+            players: players
+                .into_iter()
+                .map(|id| PlayerSetup { id, faction: None })
+                .collect(),
+            spawns: spawns
+                .into_iter()
+                .map(|(owner, pos)| Spawn {
+                    owner,
+                    kind: TEST_KIND,
+                    pos,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// How a match starts.
+///
+/// Carries the rules rather than referring to them. Every peer must simulate
+/// against byte-identical rules, and owning them makes a saved match
+/// self-contained — a replay from six months ago still describes the game it
+/// was recorded from.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchSetup {
     pub seed: u64,
     pub map: Map,
-    /// Starting units, as `(owner, position)`.
-    pub spawns: Vec<(PlayerId, WorldPos)>,
+    pub rules: Rules,
+    pub players: Vec<PlayerSetup>,
+    pub spawns: Vec<Spawn>,
 }
 
 /// The simulated world.
@@ -49,6 +149,14 @@ pub struct Sim {
     /// cache, not game state.
     #[serde(skip, default = "empty_workspace")]
     workspace: PathWorkspace,
+    rules: Rules,
+    /// Stats resolved once per player and kind, so nothing recomputes them.
+    ///
+    /// Serialised rather than skipped: a loaded match must be able to move its
+    /// units, and skipping this would leave every unit with default stats —
+    /// stationary, and with no indication why.
+    stats: StatTable,
+    players: Vec<PlayerSetup>,
 }
 
 fn empty_workspace() -> PathWorkspace {
@@ -57,9 +165,32 @@ fn empty_workspace() -> PathWorkspace {
 
 impl Sim {
     pub fn new(setup: MatchSetup) -> Sim {
+        let factions: Vec<Option<String>> = {
+            // Indexed by player id, so a table lookup is an array read. Players
+            // need not be contiguous, so the vector is sized to the highest id.
+            let highest = setup
+                .players
+                .iter()
+                .map(|p| p.id.0 as usize)
+                .max()
+                .unwrap_or(0);
+            let mut out = vec![None; highest + 1];
+            for player in &setup.players {
+                out[player.id.0 as usize] = player.faction.clone();
+            }
+            out
+        };
+        let stats = StatTable::resolve(&setup.rules, &factions);
+
         let mut units = Arena::with_capacity(setup.spawns.len());
-        for (owner, pos) in &setup.spawns {
-            units.insert(Unit::new(*owner, setup.map.clamp_pos(*pos)));
+        for spawn in &setup.spawns {
+            let max_health = stats.get(spawn.owner, spawn.kind).max_health;
+            units.insert(Unit::new(
+                spawn.owner,
+                spawn.kind,
+                setup.map.clamp_pos(spawn.pos),
+                max_health,
+            ));
         }
         let workspace = PathWorkspace::new(setup.map.cell_count());
         Sim {
@@ -69,7 +200,27 @@ impl Sim {
             rng: SimRng::new(setup.seed),
             path_queue: Vec::new(),
             workspace,
+            rules: setup.rules,
+            stats,
+            players: setup.players,
         }
+    }
+
+    pub fn rules(&self) -> &Rules {
+        &self.rules
+    }
+
+    pub fn players(&self) -> &[PlayerSetup] {
+        &self.players
+    }
+
+    /// The resolved stats for a unit, as its owner fields it.
+    pub fn stats_of(&self, unit: &Unit) -> UnitStats {
+        self.stats.get(unit.owner, unit.kind)
+    }
+
+    pub fn stats(&self) -> &StatTable {
+        &self.stats
     }
 
     #[inline]
@@ -100,8 +251,10 @@ impl Sim {
 
     /// Spawns a unit. Test and scenario setup only — in a match, units arrive
     /// through production, which is a command.
-    pub fn spawn_unit(&mut self, owner: PlayerId, pos: WorldPos) -> EntityId {
-        self.units.insert(Unit::new(owner, self.map.clamp_pos(pos)))
+    pub fn spawn_unit(&mut self, owner: PlayerId, kind: EntityKind, pos: WorldPos) -> EntityId {
+        let max_health = self.stats.get(owner, kind).max_health;
+        self.units
+            .insert(Unit::new(owner, kind, self.map.clamp_pos(pos), max_health))
     }
 
     /// Advances the world by exactly one tick.
@@ -212,7 +365,7 @@ impl Sim {
 
             let start = unit.cell();
             let goal = *destination;
-            let locomotor = unit.locomotor;
+            let locomotor = self.stats.get(unit.owner, unit.kind).locomotor;
             let budget = (*retry_budget).min(TICK_PATH_BUDGET - spent);
 
             let result = path::find_path(
@@ -276,7 +429,19 @@ impl Sim {
     fn move_units(&mut self) {
         let mut arrived = Vec::new();
 
-        for (id, unit) in self.units.iter_mut() {
+        // Collected first so the stat table can be read while units are being
+        // mutated. The table never changes during a match, so this is a borrow
+        // concern rather than a semantic one.
+        // Destructured so the arena and the stat table are borrowed
+        // separately. Collecting the stats into a parallel vector first would
+        // also satisfy the borrow checker, but it allocates every tick and —
+        // worse — the two sequences could fall out of step, silently giving a
+        // unit another unit's speed.
+        let Sim { units, stats, .. } = self;
+
+        for (id, unit) in units.iter_mut() {
+            let unit_stats = stats.get(unit.owner, unit.kind);
+
             let Order::Move { path, .. } = &mut unit.order else {
                 continue;
             };
@@ -294,14 +459,14 @@ impl Sim {
             // Turn first, drive second. A unit that moves while badly
             // misaligned looks like it is sliding rather than steering.
             if let Some(heading) = unit.pos.heading_to(target) {
-                unit.facing = unit.facing.rotate_toward(heading, unit.turn_rate);
+                unit.facing = unit.facing.rotate_toward(heading, unit_stats.turn_rate);
                 if unit.facing.delta(heading).unsigned_abs() > MOVE_ALIGNMENT as u32 {
                     continue;
                 }
             }
 
             let remaining = unit.pos.dist(target);
-            if remaining <= unit.speed.max(ARRIVAL_TOLERANCE) {
+            if remaining <= unit_stats.speed.max(ARRIVAL_TOLERANCE) {
                 // Snap to the waypoint rather than overshooting and correcting
                 // next tick, which would read as jitter.
                 unit.pos = target;
@@ -310,7 +475,7 @@ impl Sim {
                     arrived.push(id);
                 }
             } else {
-                let step = unit.pos.step(unit.facing, unit.speed);
+                let step = unit.pos.step(unit.facing, unit_stats.speed);
                 unit.pos = step;
             }
         }
@@ -365,6 +530,12 @@ impl Sim {
         h.write_u32(self.tick);
         h.write_u64(self.rng.state());
         h.write(&self.map);
+        // Rules are part of the world. Two peers with different unit stats have
+        // already diverged, whatever their unit positions say — folding the
+        // hash in here catches that on the very first comparison rather than
+        // whenever the difference happens to matter.
+        h.write_u64(self.rules.hash());
+        h.write(&self.stats);
 
         // Slot order, including empty slots, so that two peers whose arenas
         // differ only in which slots are free still register as divergent —

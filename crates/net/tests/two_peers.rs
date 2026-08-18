@@ -42,11 +42,7 @@ fn match_setup() -> MatchSetup {
         spawns.push((PlayerId(0), Cell::new(2 + i % 3, 2 + i / 3).centre()));
         spawns.push((PlayerId(1), Cell::new(37 - i % 3, 37 - i / 3).centre()));
     }
-    MatchSetup {
-        seed: MATCH_SEED,
-        map,
-        spawns,
-    }
+    MatchSetup::for_test(MATCH_SEED, map, spawns)
 }
 
 /// A deterministic, unpleasant network.
@@ -338,7 +334,11 @@ fn a_diverging_peer_is_caught_within_a_second() {
 
     // Give b an extra unit. Its simulation is now a different game, but every
     // command it exchanges is still perfectly valid.
-    b.sim.spawn_unit(PlayerId(1), Cell::new(20, 20).centre());
+    b.sim.spawn_unit(
+        PlayerId(1),
+        redshift_sim::sim::TEST_KIND,
+        Cell::new(20, 20).centre(),
+    );
 
     let mut detected_at = None;
     for step in 0..200u32 {

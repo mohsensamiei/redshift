@@ -144,9 +144,5 @@ fn setup() -> MatchSetup {
             y = 2;
         }
     }
-    MatchSetup {
-        seed: 0xBE0C_0DE0_0000_0001,
-        map,
-        spawns,
-    }
+    MatchSetup::for_test(0xBE0C_0DE0_0000_0001, map, spawns)
 }

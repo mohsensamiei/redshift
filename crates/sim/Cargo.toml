@@ -11,6 +11,13 @@ repository.workspace = true
 # hashing, or threads is disqualified. See CONTRIBUTING.md.
 [dependencies]
 serde = { workspace = true }
+# Rules are data. The simulation reads unit and weapon definitions from here
+# rather than carrying them in code — see docs/05-data-and-modding.md. The
+# crate is held to the same no-float rule, since its values feed straight in.
+redshift-data = { workspace = true }
+# `MatchSetup::for_test` builds its rules from a RON literal, so this is needed
+# by the library and not only by tests.
+ron = { workspace = true }
 
 [dev-dependencies]
 ron = { workspace = true }

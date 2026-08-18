@@ -14,7 +14,7 @@ use redshift_net::transport::Transport;
 use redshift_sim::EntityId;
 use redshift_sim::command::{CommandKind, PlayerId};
 use redshift_sim::map::{Cell, Map, Terrain};
-use redshift_sim::sim::MatchSetup;
+use redshift_sim::sim::{MatchSetup, Spawn, TEST_KIND};
 
 const SEED: u64 = 0xC0DE_1234_5678_9ABC;
 
@@ -26,11 +26,7 @@ fn setup() -> MatchSetup {
         spawns.push((PlayerId(0), Cell::new(2 + i % 3, 2 + i / 3).centre()));
         spawns.push((PlayerId(1), Cell::new(29 - i % 3, 29 - i / 3).centre()));
     }
-    MatchSetup {
-        seed: SEED,
-        map,
-        spawns,
-    }
+    MatchSetup::for_test(SEED, map, spawns)
 }
 
 fn local(port: u16) -> SocketAddr {
@@ -191,9 +187,11 @@ fn a_divergence_halts_both_peers_and_writes_dumps() {
     // That is precisely why this class of bug is invisible without hash
     // comparison: nothing about the traffic looks wrong.
     let mut divergent = setup();
-    divergent
-        .spawns
-        .push((PlayerId(1), Cell::new(16, 16).centre()));
+    divergent.spawns.push(Spawn {
+        owner: PlayerId(1),
+        kind: TEST_KIND,
+        pos: Cell::new(16, 16).centre(),
+    });
     let (mut a, mut b) = networked_pair_with(setup(), divergent);
 
     let dumps = std::env::temp_dir().join("redshift-desync-test");
@@ -243,9 +241,11 @@ fn diverging_replays_are_bisected_to_the_first_bad_tick() {
     }
 
     let mut altered = setup();
-    altered
-        .spawns
-        .push((PlayerId(0), Cell::new(20, 20).centre()));
+    altered.spawns.push(Spawn {
+        owner: PlayerId(0),
+        kind: TEST_KIND,
+        pos: Cell::new(20, 20).centre(),
+    });
 
     let a = replay_hashes(setup(), good.replay());
     let b = replay_hashes(altered, good.replay());

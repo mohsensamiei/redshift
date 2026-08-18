@@ -7,9 +7,10 @@ use bevy::prelude::*;
 use redshift_net::MatchSession;
 use redshift_render::RedshiftRenderPlugin;
 use redshift_render::session::Session;
+use redshift_sim::Rules;
 use redshift_sim::command::PlayerId;
 use redshift_sim::map::{Cell, Map, Terrain};
-use redshift_sim::sim::MatchSetup;
+use redshift_sim::sim::{MatchSetup, PlayerSetup, Spawn};
 
 mod bench;
 mod netplay;
@@ -139,13 +140,76 @@ fn demo_order(mut session: ResMut<Session>, mut frames: Local<u32>, mut issued: 
 /// Takes the seed rather than choosing one: in a network match the host picks
 /// it, and every peer must build a bit-identical starting world.
 fn skirmish_setup(seed: u64) -> MatchSetup {
+    let rules = load_rules();
+    let map = skirmish_map();
+
+    // Kinds are looked up by name once, here, rather than deep in the spawn
+    // loop: a typo should stop the match starting with a clear message, not
+    // produce an army of whatever kind happened to be at index zero.
+    let kind = |id: &str| {
+        rules
+            .kind_of(id)
+            .unwrap_or_else(|| panic!("rules/ has no entity named {id:?}"))
+    };
+    let tank = kind("grizzly_tank");
+    let infantry = kind("gi");
+    let harvester = kind("harvester");
+
+    let mut spawns = Vec::new();
+    for (owner, base_x, base_y, dx, dy) in
+        [(PlayerId(0), 3, 3, 1, 1), (PlayerId(1), 41, 41, -1, -1)]
+    {
+        for i in 0..6i32 {
+            spawns.push(Spawn {
+                owner,
+                kind: tank,
+                pos: Cell::new(base_x + dx * (i % 3), base_y + dy * (i / 3)).centre(),
+            });
+        }
+        for i in 0..4i32 {
+            spawns.push(Spawn {
+                owner,
+                kind: infantry,
+                pos: Cell::new(base_x + dx * (i % 2 + 3), base_y + dy * (i / 2)).centre(),
+            });
+        }
+        spawns.push(Spawn {
+            owner,
+            kind: harvester,
+            pos: Cell::new(base_x + dx * 5, base_y + dy * 2).centre(),
+        });
+    }
+
+    MatchSetup {
+        seed,
+        map,
+        rules,
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: Some("america".into()),
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: Some("korea".into()),
+            },
+        ],
+        spawns,
+    }
+}
+
+/// The placeholder skirmish map, until maps become data.
+///
+/// Laid out so pathfinding has something to do: two walls with staggered
+/// openings, and water between the starting positions, so a straight line is
+/// never the answer.
+fn skirmish_map() -> Map {
     let mut map = Map::new(48, 48);
 
-    // Walls with staggered openings, so a straight line is never the answer.
     map.fill_rect(Cell::new(16, 0), Cell::new(16, 30), Terrain::Rock);
     map.fill_rect(Cell::new(32, 18), Cell::new(32, 47), Terrain::Rock);
 
-    // Water: impassable to everything on the ground, and a clear visual break.
+    // Water is impassable to everything on the ground, and a clear visual break.
     map.fill_rect(Cell::new(4, 38), Cell::new(14, 41), Terrain::Water);
     map.fill_rect(Cell::new(36, 4), Cell::new(44, 8), Terrain::Water);
 
@@ -162,14 +226,49 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
     ] {
         map.set_terrain(Cell::new(x, y), Terrain::Rock);
     }
+    map
+}
 
-    let mut spawns = Vec::new();
-    for i in 0..12i32 {
-        spawns.push((PlayerId(0), Cell::new(3 + i % 4, 3 + i / 4).centre()));
+/// Loads the shipped rules.
+///
+/// Searched relative to the working directory, then to the crate, so the game
+/// runs both from a checkout and from `cargo run` in a subdirectory. A missing
+/// or invalid rules tree is fatal and says why — starting a match with default
+/// values would look like a physics bug rather than a missing file.
+fn load_rules() -> Rules {
+    let candidates = [
+        std::path::PathBuf::from("rules"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rules"),
+    ];
+    for path in &candidates {
+        if !path.is_dir() {
+            continue;
+        }
+        match Rules::load_from(path) {
+            Ok(rules) => {
+                println!(
+                    "loaded {} entities, {} weapons, {} factions from {} (hash {:016x})",
+                    rules.entity_count(),
+                    rules.weapon_count(),
+                    rules.faction_count(),
+                    path.display(),
+                    rules.hash()
+                );
+                return rules;
+            }
+            Err(e) => {
+                eprintln!("rules in {} are invalid:\n  {e}", path.display());
+                std::process::exit(1);
+            }
+        }
     }
-    for i in 0..12i32 {
-        spawns.push((PlayerId(1), Cell::new(41 + i % 4, 41 + i / 4).centre()));
-    }
-
-    MatchSetup { seed, map, spawns }
+    eprintln!(
+        "could not find a rules/ directory. Looked in: {}",
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    std::process::exit(1);
 }

@@ -3690,6 +3690,7 @@ version = "0.0.1"
 name = "redshift-sim"
 version = "0.0.1"
 dependencies = [
+ "redshift-data",
  "ron",
  "serde",
 ]

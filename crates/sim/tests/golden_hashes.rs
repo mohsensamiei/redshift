@@ -34,11 +34,7 @@ fn scenario() -> MatchSetup {
         spawns.push((PlayerId(0), Cell::new(2 + i % 3, 2 + i / 3).centre()));
         spawns.push((PlayerId(1), Cell::new(37 - i % 3, 37 - i / 3).centre()));
     }
-    MatchSetup {
-        seed: 0x5EED_1234_ABCD_0001,
-        map,
-        spawns,
-    }
+    MatchSetup::for_test(0x5EED_1234_ABCD_0001, map, spawns)
 }
 
 fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
@@ -70,12 +66,17 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
+/// Re-recorded when units became data-driven: `Unit` lost the speed, turn rate
+/// and locomotor it used to carry — those now come from the rules — and gained
+/// a kind and a health value. The hash covers different bytes, so the numbers
+/// moved. Determinism itself was unaffected, which the determinism suite
+/// confirmed before these were replaced.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x296a3d28fbb1e75d),
-    (50, 0x85cc4712dcd0f375),
-    (100, 0xe44bcaae1b032bbb),
-    (200, 0x13e5de59a54cabc8),
-    (400, 0x079a033fa7720f45),
+    (10, 0x66b59093f28af366),
+    (50, 0x9a40b7227df0534d),
+    (100, 0x0f0433f872e69446),
+    (200, 0xbf7244da768d09ef),
+    (400, 0x22c2456ef75ec742),
 ];
 
 #[test]
@@ -106,6 +107,42 @@ fn state_hashes_match_the_recorded_values() {
         CHECKPOINTS.len(),
         "not every checkpoint was reached"
     );
+}
+
+/// Prints the current hashes in a form that can be pasted into `CHECKPOINTS`.
+///
+/// Ignored by default: it must never be the thing that makes CI pass. Run it
+/// deliberately, and only after establishing that a difference is *intended* —
+/// a state layout change, a new field in the hash, a rules change.
+///
+/// ```sh
+/// cargo test -p redshift-sim --test golden_hashes -- --ignored --nocapture
+/// ```
+///
+/// Before pasting, confirm the simulation is still deterministic:
+///
+/// ```sh
+/// cargo test -p redshift-sim --test determinism
+/// ```
+///
+/// If those pass and these numbers changed, the state changed shape. If those
+/// fail, the numbers are the least of the problem.
+#[test]
+#[ignore = "regenerates the recorded values; run deliberately"]
+fn regenerate_golden_hashes() {
+    let mut sim = Sim::new(scenario());
+    let ids: Vec<EntityId> = sim.units().ids();
+    let last_tick = CHECKPOINTS.last().unwrap().0;
+    let wanted: Vec<u32> = CHECKPOINTS.iter().map(|(t, _)| *t).collect();
+
+    println!("\nconst CHECKPOINTS: &[(u32, u64)] = &[");
+    for tick in 0..=last_tick {
+        sim.tick(&commands(tick, &ids));
+        if wanted.contains(&sim.tick_number()) {
+            println!("    ({}, 0x{:016x}),", sim.tick_number(), sim.state_hash());
+        }
+    }
+    println!("];\n");
 }
 
 /// Pins the arithmetic primitives directly, so a failure points at the cause

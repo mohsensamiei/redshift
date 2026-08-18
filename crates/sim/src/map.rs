@@ -178,24 +178,30 @@ pub enum Terrain {
 
 /// How a unit traverses terrain.
 ///
-/// Named after the original's concept of a "locomotor". Which terrain each one
-/// may enter is data in Phase 3; for now it is a small fixed table.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum Locomotor {
-    #[default]
-    Foot = 0,
-    Wheeled = 1,
-    Tracked = 2,
-    /// Ignores terrain entirely.
-    Air = 3,
+/// Defined in `redshift-data` because rules files name it, and re-exported here
+/// so simulation code does not need to reach across for it. A second copy with
+/// a conversion between them would be one refactor away from disagreeing.
+pub use redshift_data::traits::Locomotor;
+
+/// Terrain rules for each locomotor.
+///
+/// A free function rather than an inherent method, since [`Locomotor`] belongs
+/// to another crate. Which terrain each one may enter becomes data itself once
+/// maps carry more than three surfaces.
+pub trait TerrainRules {
+    fn can_enter(self, terrain: Terrain) -> bool;
+    fn cost_percent(self, terrain: Terrain) -> u32;
 }
 
-impl Locomotor {
+impl TerrainRules for Locomotor {
     #[inline]
-    pub fn can_enter(self, terrain: Terrain) -> bool {
+    fn can_enter(self, terrain: Terrain) -> bool {
         match self {
             Locomotor::Air => true,
+            Locomotor::Ship => terrain == Terrain::Water,
+            // Hover crosses water as well as land, which is exactly what makes
+            // it worth being a separate locomotor.
+            Locomotor::Hover => matches!(terrain, Terrain::Ground | Terrain::Water),
             Locomotor::Foot | Locomotor::Wheeled | Locomotor::Tracked => terrain == Terrain::Ground,
         }
     }
@@ -206,13 +212,13 @@ impl Locomotor {
     /// stay in exact integer arithmetic so that two peers comparing two routes
     /// never disagree by a rounding bit.
     #[inline]
-    pub fn cost_percent(self, terrain: Terrain) -> u32 {
-        match (self, terrain) {
-            (Locomotor::Air, _) => 100,
-            (_, Terrain::Ground) => 100,
+    fn cost_percent(self, terrain: Terrain) -> u32 {
+        if self.can_enter(terrain) {
+            100
+        } else {
             // Impassable terrain never reaches a cost lookup; the passability
             // check rejects it first.
-            _ => u32::MAX,
+            u32::MAX
         }
     }
 }

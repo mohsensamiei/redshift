@@ -35,6 +35,7 @@ pub mod map;
 pub mod path;
 pub mod rng;
 pub mod sim;
+pub mod stats;
 pub mod unit;
 
 mod trig_table;
@@ -45,6 +46,9 @@ pub use fx::{Angle, Fx, FxWide};
 pub use hash::{StateHash, StateHasher};
 pub use map::{Cell, Locomotor, Map, Terrain, WorldPos};
 pub use rng::SimRng;
+pub use stats::{StatTable, UnitStats};
+
+pub use redshift_data::rules::{EntityKind, Rules};
 pub use sim::{MatchSetup, Sim, WorldView};
 pub use unit::{Order, Unit};
 

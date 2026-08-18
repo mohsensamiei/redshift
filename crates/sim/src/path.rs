@@ -32,7 +32,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use crate::map::{Cell, Locomotor, Map};
+use crate::map::{Cell, Locomotor, Map, TerrainRules};
 
 /// Cost of an orthogonal step.
 pub const COST_STRAIGHT: u32 = 10;

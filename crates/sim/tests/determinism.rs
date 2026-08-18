@@ -29,11 +29,7 @@ fn setup(seed: u64) -> MatchSetup {
         spawns.push((PlayerId(0), Cell::new(2 + i % 4, 2 + i / 4).centre()));
         spawns.push((PlayerId(1), Cell::new(44 - i % 4, 44 - i / 4).centre()));
     }
-    MatchSetup {
-        seed,
-        map: test_map(),
-        spawns,
-    }
+    MatchSetup::for_test(seed, test_map(), spawns)
 }
 
 /// A scripted match: the same orders, issued at the same ticks, every run.
@@ -276,11 +272,11 @@ fn an_unreachable_order_is_abandoned_not_retried_forever() {
     map.fill_rect(Cell::new(20, 20), Cell::new(24, 24), Terrain::Rock);
     map.set_terrain(Cell::new(22, 22), Terrain::Ground);
 
-    let mut sim = Sim::new(MatchSetup {
-        seed: 5,
+    let mut sim = Sim::new(MatchSetup::for_test(
+        5,
         map,
-        spawns: vec![(PlayerId(0), Cell::new(2, 2).centre())],
-    });
+        vec![(PlayerId(0), Cell::new(2, 2).centre())],
+    ));
     let ids: Vec<EntityId> = sim.units().ids();
 
     sim.tick(&[Command::new(
@@ -413,11 +409,11 @@ fn a_completed_order_returns_the_unit_to_idle() {
     // returned to `Idle` sits in `Move` with an empty path forever. It looks
     // stationary, so the defect is invisible until something asks whether the
     // unit is busy — production queues, formation logic, the AI.
-    let mut sim = Sim::new(MatchSetup {
-        seed: 1,
-        map: Map::new(24, 24),
-        spawns: vec![(PlayerId(0), Cell::new(2, 2).centre())],
-    });
+    let mut sim = Sim::new(MatchSetup::for_test(
+        1,
+        Map::new(24, 24),
+        vec![(PlayerId(0), Cell::new(2, 2).centre())],
+    ));
     let ids: Vec<EntityId> = sim.units().ids();
     let goal = Cell::new(9, 9);
 

@@ -40,11 +40,7 @@ fn setup() -> MatchSetup {
         spawns.push((PlayerId(0), Cell::new(2 + i % 3, 2 + i / 3).centre()));
         spawns.push((PlayerId(1), Cell::new(29 - i % 3, 29 - i / 3).centre()));
     }
-    MatchSetup {
-        seed: SEED,
-        map,
-        spawns,
-    }
+    MatchSetup::for_test(SEED, map, spawns)
 }
 
 /// Pumps a closure until it reports success, or gives up.

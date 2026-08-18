@@ -19,6 +19,7 @@ The headless simulation underneath is done and tested.
 - [x] CI: build, test, clippy `-D warnings`, fmt check
 - [x] CI: no-float lint on `redshift-sim`
 - [x] CI: assert `redshift-sim` has no engine dependency in its tree
+- [x] `--screenshot <path>` for capturing a frame headlessly
 - [ ] Licence files — GPLv3 for code, CC BY-SA 4.0 for assets
 
 ### `redshift-sim` — foundations
@@ -40,23 +41,30 @@ The headless simulation underneath is done and tested.
 - [x] Per-tick node-expansion budget with carry-over — **never** a time budget
 - [x] Movement along a path with fixed-point positions and turn rates
 - [ ] Basic unit collision / avoidance — *deferred to Phase 3; units currently overlap*
+
+### Found while building the shell
+- [x] `--demo` flag issuing a scripted order, to exercise input → sim → render
+- [x] Tone mapping disabled; light levels recalibrated for an untonemapped pipeline
+- [x] Frame-time budget made refresh-rate aware (vsync makes it a pacing metric, not a load one)
+- [ ] Custom flat/cel material, replacing `StandardMaterial` configured to look flat — Phase 4
+- [ ] Blob shadow decals under units — Phase 4
 - [x] `Move` command applied through the command queue
 
 ### `redshift-render` — the shell
-- [ ] Bevy app, window, fixed dimetric camera
-- [ ] Camera pan (edge scroll, drag, keyboard) and clamped zoom
-- [ ] Flat grid terrain mesh
-- [ ] Placeholder cube units, instanced by type and team
-- [ ] Interpolation between the last two sim states
-- [ ] Click-select, box-select, selection decals
-- [ ] Right-click move order → `Command`
-- [ ] `F3` performance overlay: fps, frame time, sim tick ms, draw calls, triangles, memory
-- [ ] Vsync locked on; 30 fps cap when unfocused
+- [x] Bevy app, window, fixed dimetric camera
+- [x] Camera pan (edge scroll, drag, keyboard) and clamped zoom
+- [x] Flat grid terrain mesh
+- [x] Placeholder cube units, instanced by type and team
+- [x] Interpolation between the last two sim states
+- [x] Click-select, box-select, selection decals
+- [x] Right-click move order → `Command`
+- [x] `F3` performance overlay: fps, frame time, sim tick ms, draw calls, triangles, memory
+- [x] Vsync locked on; 30 fps cap when unfocused
 
 ### `redshift-app`
-- [ ] Wire sim + render + a local single-peer session
-- [ ] Argument parsing, including `--bench`
-- [ ] `--bench` scene asserting every budget ceiling, exiting non-zero on breach
+- [x] Wire sim + render + a local single-peer session
+- [x] Argument parsing, including `--bench`
+- [x] `--bench` scene asserting every budget ceiling, exiting non-zero on breach
 
 ### Phase 0 exit
 - [ ] Cubes path around obstacles to clicked destinations

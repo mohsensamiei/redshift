@@ -99,6 +99,43 @@ This is presentation-only and uses floats freely — it never feeds back into th
 the game would look like it runs at 20 fps; with it, motion is smooth while the simulation stays
 coarse and cheap.
 
+## Two things learned by actually running it
+
+Both were found by building the Phase 0 shell and looking at the result, and
+both are the kind of thing that is invisible in code review.
+
+### Tone mapping is off, deliberately
+
+The renderer sets `Tonemapping::None`. Tone mapping exists to compress
+high-dynamic-range lighting into display range; this scene is deliberately flat
+and low-dynamic-range, so there is nothing to compress and passing colours
+through unchanged means the art defines exactly what reaches the screen.
+
+It also has to be off for a practical reason: the default tone curve needs
+lookup textures that a trimmed feature set does not ship, and a tone mapping
+pass that fails takes the entire 3D pass with it — every surface renders as the
+fallback magenta. That failure looks like a material bug, which is a long way
+from where the actual problem is.
+
+**Consequence:** light intensities must be calibrated for an untonemapped
+pipeline. The usual illuminance figures assume the tone curve is present, and
+with it absent they clip every surface to white.
+
+### Frame time is not a measure of load
+
+Vsync is always on, so frame time settles at the display's refresh interval no
+matter how little work a frame does. On a 120 Hz panel an idle game reports
+8.33 ms — which against a fixed 60 Hz ceiling reads as a permanent breach.
+
+The overlay therefore compares frame time against the *observed* refresh
+interval plus a tolerance. What is being checked is that the game keeps up with
+the display, not that it hits an arbitrary millisecond count. A dropped frame
+doubles the interval and is still caught.
+
+The metric that actually measures our own cost is the simulation tick time,
+which is not vsync-bound. That is what `--bench` reports, and why `--bench`
+runs headless.
+
 ## What is deliberately not here
 
 To keep the budget and the look:

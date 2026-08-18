@@ -22,7 +22,7 @@ redshift-data = { path = "crates/data" }
 redshift-net = { path = "crates/net" }
 redshift-render = { path = "crates/render" }
 
-bevy = "0.19.1"
+bevy = { version = "0.19.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 ron = "0.12.2"
 bincode = "3.0.0"

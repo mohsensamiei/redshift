@@ -1,5 +1,6 @@
 [package]
 name = "redshift-render"
+description = "Bevy plugin: draws the simulation. Never mutates it."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,3 +8,35 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+redshift-sim = { workspace = true }
+
+# Only the features we actually use. The default set drags in audio backends,
+# gltf, gizmos and more, all of which cost compile time and binary size we have
+# no use for yet. See docs/04-rendering.md.
+bevy = { workspace = true, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_ui",
+    # UI rendering is a separate feature from the UI layout system in this
+    # Bevy version. Without it the overlay computes its layout and draws
+    # nothing — which looks exactly like the overlay being broken.
+    "bevy_ui_render",
+    "bevy_text",
+    "default_font",
+    # Lets the game capture its own framebuffer. On macOS an external
+    # screenshot tool only sees the desktop unless the terminal has been
+    # granted Screen Recording permission; capturing from inside the app has no
+    # such dependency, and is what CI would use for visual checks.
+    "png",
+    "bevy_image",
+    "multi_threaded",
+    # Diagnostics from the engine, so a shader or pipeline failure says so
+    # instead of silently painting the fallback magenta.
+    "bevy_log",
+    "x11",
+    "wayland",
+] }

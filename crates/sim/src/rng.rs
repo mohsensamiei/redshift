@@ -49,7 +49,9 @@ impl SimRng {
         // Run the state through one step so that adjacent seeds (0, 1, 2 …)
         // do not produce correlated opening sequences — match seeds are often
         // small integers in tests and lobbies.
-        let mut rng = SimRng { state: seed.wrapping_add(PCG_INC) };
+        let mut rng = SimRng {
+            state: seed.wrapping_add(PCG_INC),
+        };
         rng.next_u32();
         rng
     }
@@ -109,7 +111,10 @@ impl SimRng {
     /// If `denominator` is zero.
     #[inline]
     pub fn chance(&mut self, numerator: i32, denominator: i32) -> bool {
-        assert!(denominator > 0, "SimRng::chance needs a positive denominator");
+        assert!(
+            denominator > 0,
+            "SimRng::chance needs a positive denominator"
+        );
         self.next_range(0, denominator) < numerator
     }
 
@@ -253,7 +258,10 @@ mod tests {
             }
         }
         let expected = N / 4;
-        assert!((hits - expected).abs() < expected / 20, "got {hits}, expected ~{expected}");
+        assert!(
+            (hits - expected).abs() < expected / 20,
+            "got {hits}, expected ~{expected}"
+        );
     }
 
     #[test]
@@ -269,7 +277,10 @@ mod tests {
         let mut sorted = left.clone();
         sorted.sort();
         assert_eq!(sorted, (0..100).collect::<Vec<_>>());
-        assert_ne!(left, sorted, "a 100-element shuffle should reorder something");
+        assert_ne!(
+            left, sorted,
+            "a 100-element shuffle should reorder something"
+        );
     }
 
     #[test]

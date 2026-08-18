@@ -28,14 +28,25 @@
 //! See `docs/02-simulation.md` and `docs/adr/0003-deterministic-lockstep.md`.
 
 pub mod arena;
+pub mod command;
 pub mod fx;
+pub mod hash;
+pub mod map;
+pub mod path;
 pub mod rng;
+pub mod sim;
+pub mod unit;
 
 mod trig_table;
 
 pub use arena::{Arena, EntityId};
-pub use fx::{Angle, Fx};
+pub use command::{Command, CommandKind, PlayerId};
+pub use fx::{Angle, Fx, FxWide};
+pub use hash::{StateHash, StateHasher};
+pub use map::{Cell, Locomotor, Map, Terrain, WorldPos};
 pub use rng::SimRng;
+pub use sim::{MatchSetup, Sim, WorldView};
+pub use unit::{Order, Unit};
 
 /// Simulation ticks per second.
 ///
@@ -53,4 +64,3 @@ pub const TICK_MS: u32 = 1000 / TICKS_PER_SECOND;
 
 /// A tick number. Wraps after roughly six years of continuous play.
 pub type Tick = u32;
-

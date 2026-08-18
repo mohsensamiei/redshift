@@ -33,7 +33,7 @@ use core::ops::{Add, AddAssign, Div, Mul, Neg, Rem, Sub, SubAssign};
 
 use serde::{Deserialize, Serialize};
 
-use crate::trig_table::{SIN_TABLE, SIN_TABLE_LEN};
+use crate::trig_table::{ATAN_STEPS, ATAN_TABLE, SIN_TABLE, SIN_TABLE_LEN};
 
 /// Number of fractional bits in [`Fx`].
 pub const FRAC_BITS: u32 = 16;
@@ -440,6 +440,46 @@ impl Angle {
         }
     }
 
+    /// The direction of the vector `(dx, dy)`, with `0` pointing along `+x`
+    /// and angles increasing towards `+y`.
+    ///
+    /// This is the integer counterpart of `atan2`. It reduces the vector to the
+    /// first octant, looks the ratio up in the committed table, and rebuilds the
+    /// full angle from the signs — so there is no division by an irrational
+    /// constant anywhere, and every peer gets the same answer.
+    ///
+    /// A zero vector returns [`Angle::ZERO`]; callers that care must check for
+    /// it themselves, since no direction is meaningful there.
+    pub fn from_vector(dx: Fx, dy: Fx) -> Angle {
+        let x = dx.raw() as i64;
+        let y = dy.raw() as i64;
+        if x == 0 && y == 0 {
+            return Angle::ZERO;
+        }
+
+        let (ax, ay) = (x.abs(), y.abs());
+        // Ratio of the shorter component to the longer, so the lookup argument
+        // is always within [0, 1] and the table only needs one octant.
+        let (lo, hi) = if ay <= ax { (ay, ax) } else { (ax, ay) };
+        let idx = ((lo * ATAN_STEPS) / hi) as usize;
+        let base = ATAN_TABLE[idx] as u32;
+
+        // Fold the octant back out. `base` measures from the nearer axis.
+        let octant_angle = if ay <= ax {
+            base // measured from the x axis
+        } else {
+            16384 - base // measured from the y axis
+        };
+
+        let raw = match (x >= 0, y >= 0) {
+            (true, true) => octant_angle,
+            (false, true) => 32768 - octant_angle,
+            (false, false) => 32768 + octant_angle,
+            (true, false) => 65536 - octant_angle,
+        };
+        Angle::from_raw(raw as u16)
+    }
+
     /// Sine, from the committed lookup table.
     ///
     /// The low 4 bits of the angle are truncated — the table holds 4096 entries
@@ -617,8 +657,14 @@ mod tests {
         // In raw terms this is 9_830_400 * 13_107_200, which overflows i32 by
         // six orders of magnitude. This is the exact bug the i64 intermediate
         // exists to prevent — and the result still fits comfortably in Fx.
-        assert_eq!(Fx::from_int(150).mul(Fx::from_int(200)), Fx::from_int(30_000));
-        assert_eq!(Fx::from_int(-150).mul(Fx::from_int(200)), Fx::from_int(-30_000));
+        assert_eq!(
+            Fx::from_int(150).mul(Fx::from_int(200)),
+            Fx::from_int(30_000)
+        );
+        assert_eq!(
+            Fx::from_int(-150).mul(Fx::from_int(200)),
+            Fx::from_int(-30_000)
+        );
     }
 
     #[test]
@@ -712,7 +758,10 @@ mod tests {
         let mid = Fx::dist_sq(Fx::from_int(400), Fx::from_int(400));
         let far = Fx::dist_sq(Fx::from_int(800), Fx::from_int(800));
 
-        assert!(near < mid && mid < far, "ordering must survive at map scale");
+        assert!(
+            near < mid && mid < far,
+            "ordering must survive at map scale"
+        );
         assert!(near.narrow() == Fx::MAX, "these would all be equal in Fx");
         assert!(mid.narrow() == Fx::MAX);
 
@@ -753,7 +802,10 @@ mod tests {
     fn ordering_is_total() {
         let mut v = [Fx::from_int(3), Fx::from_int(-1), Fx::ZERO, Fx::from_int(2)];
         v.sort();
-        assert_eq!(v, [Fx::from_int(-1), Fx::ZERO, Fx::from_int(2), Fx::from_int(3)]);
+        assert_eq!(
+            v,
+            [Fx::from_int(-1), Fx::ZERO, Fx::from_int(2), Fx::from_int(3)]
+        );
     }
 
     #[test]
@@ -806,7 +858,10 @@ mod tests {
             let c = a.cos();
             let sum = s.mul(s) + c.mul(c);
             let err = (sum - Fx::ONE).abs();
-            assert!(err < Fx::from_frac(1, 1000), "sin²+cos² off by {err:?} at {i}°");
+            assert!(
+                err < Fx::from_frac(1, 1000),
+                "sin²+cos² off by {err:?} at {i}°"
+            );
         }
     }
 
@@ -826,6 +881,60 @@ mod tests {
         let stepped = a.rotate_toward(Angle::from_raw(100), 200);
         // Crossing zero must not need a special case.
         assert_eq!(stepped, Angle::from_raw(100));
+    }
+
+    #[test]
+    fn from_vector_hits_the_cardinals_and_diagonals() {
+        let one = Fx::ONE;
+        let z = Fx::ZERO;
+        assert_eq!(Angle::from_vector(one, z), Angle::ZERO);
+        assert_eq!(Angle::from_vector(z, one), Angle::QUARTER);
+        assert_eq!(Angle::from_vector(-one, z), Angle::HALF);
+        assert_eq!(Angle::from_vector(z, -one), Angle::from_raw(49152));
+
+        for (dx, dy, deg) in [(1, 1, 45), (-1, 1, 135), (-1, -1, 225), (1, -1, 315)] {
+            let a = Angle::from_vector(Fx::from_int(dx), Fx::from_int(dy));
+            assert_eq!(a.to_degrees(), deg, "({dx},{dy}) should be {deg}°");
+        }
+    }
+
+    #[test]
+    fn from_vector_is_scale_invariant() {
+        // Direction must not depend on magnitude — otherwise a unit's heading
+        // would change as it approached its target.
+        let base = Angle::from_vector(Fx::from_int(3), Fx::from_int(4));
+        for k in [1, 2, 5, 10, 100, 1000] {
+            let scaled = Angle::from_vector(Fx::from_int(3 * k), Fx::from_int(4 * k));
+            assert_eq!(scaled, base, "scale {k} changed the heading");
+        }
+    }
+
+    #[test]
+    fn from_vector_agrees_with_sin_cos() {
+        // Round trip: take an angle, build its unit vector from the sine table,
+        // and recover the angle. The two tables must be consistent with each
+        // other, since movement uses cos/sin and targeting uses from_vector.
+        for deg in 0..360 {
+            let a = Angle::from_degrees(deg);
+            let recovered = Angle::from_vector(a.cos(), a.sin());
+            let err = a.delta(recovered).abs();
+            assert!(err < 120, "at {deg}° the round trip was off by {err} units");
+        }
+    }
+
+    #[test]
+    fn from_vector_handles_the_zero_vector() {
+        assert_eq!(Angle::from_vector(Fx::ZERO, Fx::ZERO), Angle::ZERO);
+    }
+
+    #[test]
+    fn from_vector_never_panics_on_extremes() {
+        let vals = [Fx::MIN, -Fx::ONE, Fx::ZERO, Fx::EPSILON, Fx::ONE, Fx::MAX];
+        for &dx in &vals {
+            for &dy in &vals {
+                let _ = Angle::from_vector(dx, dy);
+            }
+        }
     }
 
     #[test]

@@ -36,7 +36,10 @@ pub struct EntityId {
 
 impl EntityId {
     /// A handle that never resolves. Useful as "no target".
-    pub const NONE: EntityId = EntityId { index: u32::MAX, generation: u32::MAX };
+    pub const NONE: EntityId = EntityId {
+        index: u32::MAX,
+        generation: u32::MAX,
+    };
 
     #[inline]
     pub const fn index(self) -> u32 {
@@ -74,11 +77,19 @@ impl<T> Default for Arena<T> {
 
 impl<T> Arena<T> {
     pub fn new() -> Arena<T> {
-        Arena { slots: Vec::new(), free: Vec::new(), len: 0 }
+        Arena {
+            slots: Vec::new(),
+            free: Vec::new(),
+            len: 0,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Arena<T> {
-        Arena { slots: Vec::with_capacity(cap), free: Vec::new(), len: 0 }
+        Arena {
+            slots: Vec::with_capacity(cap),
+            free: Vec::new(),
+            len: 0,
+        }
     }
 
     /// Number of live entities.
@@ -107,16 +118,28 @@ impl<T> Arena<T> {
         self.len += 1;
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
-            debug_assert!(slot.value.is_none(), "free list pointed at an occupied slot");
+            debug_assert!(
+                slot.value.is_none(),
+                "free list pointed at an occupied slot"
+            );
             slot.generation = slot.generation.wrapping_add(1);
             slot.value = Some(value);
-            EntityId { index, generation: slot.generation }
+            EntityId {
+                index,
+                generation: slot.generation,
+            }
         } else {
             let index = self.slots.len() as u32;
             // Generation starts at 1 so that a zeroed EntityId is not
             // accidentally valid.
-            self.slots.push(Slot { generation: 1, value: Some(value) });
-            EntityId { index, generation: 1 }
+            self.slots.push(Slot {
+                generation: 1,
+                value: Some(value),
+            });
+            EntityId {
+                index,
+                generation: 1,
+            }
         }
     }
 
@@ -162,9 +185,15 @@ impl<T> Arena<T> {
     /// this rather than collecting into some other container first.
     pub fn iter(&self) -> impl Iterator<Item = (EntityId, &T)> + '_ {
         self.slots.iter().enumerate().filter_map(|(i, slot)| {
-            slot.value
-                .as_ref()
-                .map(|v| (EntityId { index: i as u32, generation: slot.generation }, v))
+            slot.value.as_ref().map(|v| {
+                (
+                    EntityId {
+                        index: i as u32,
+                        generation: slot.generation,
+                    },
+                    v,
+                )
+            })
         })
     }
 
@@ -172,7 +201,15 @@ impl<T> Arena<T> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (EntityId, &mut T)> + '_ {
         self.slots.iter_mut().enumerate().filter_map(|(i, slot)| {
             let generation = slot.generation;
-            slot.value.as_mut().map(|v| (EntityId { index: i as u32, generation }, v))
+            slot.value.as_mut().map(|v| {
+                (
+                    EntityId {
+                        index: i as u32,
+                        generation,
+                    },
+                    v,
+                )
+            })
         })
     }
 
@@ -190,8 +227,13 @@ impl<T> Arena<T> {
     /// subsequent allocation — is deterministic.
     pub fn retain<F: FnMut(EntityId, &mut T) -> bool>(&mut self, mut keep: F) {
         for (i, slot) in self.slots.iter_mut().enumerate() {
-            let Some(value) = slot.value.as_mut() else { continue };
-            let id = EntityId { index: i as u32, generation: slot.generation };
+            let Some(value) = slot.value.as_mut() else {
+                continue;
+            };
+            let id = EntityId {
+                index: i as u32,
+                generation: slot.generation,
+            };
             if !keep(id, value) {
                 slot.value = None;
                 self.free.push(i as u32);
@@ -259,8 +301,15 @@ mod tests {
     fn zeroed_handle_never_resolves() {
         let mut arena: Arena<i32> = Arena::new();
         arena.insert(1);
-        let zeroed = EntityId { index: 0, generation: 0 };
-        assert_eq!(arena.get(zeroed), None, "generation starts at 1 for this reason");
+        let zeroed = EntityId {
+            index: 0,
+            generation: 0,
+        };
+        assert_eq!(
+            arena.get(zeroed),
+            None,
+            "generation starts at 1 for this reason"
+        );
     }
 
     #[test]
@@ -339,7 +388,11 @@ mod tests {
 
         assert_eq!(decoded.len(), arena.len());
         assert_eq!(decoded.get(c), Some(&3));
-        assert_eq!(decoded.get(a), None, "stale handles stay stale across a save");
+        assert_eq!(
+            decoded.get(a),
+            None,
+            "stale handles stay stale across a save"
+        );
         assert_eq!(
             decoded.iter().map(|(_, v)| *v).collect::<Vec<_>>(),
             arena.iter().map(|(_, v)| *v).collect::<Vec<_>>()

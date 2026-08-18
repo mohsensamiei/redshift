@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The invariants from CLAUDE.md, checked mechanically. These are cheap and
+  # fail fast, so they run before the heavier jobs.
+  invariants:
+    name: Hard invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: The simulation must not depend on any engine crate
+        run: |
+          if cargo tree -p redshift-sim --edges normal | grep -iE 'bevy|wgpu|winit'; then
+            echo "::error::redshift-sim gained an engine dependency. See docs/01-architecture.md"
+            exit 1
+          fi
+          echo "OK: no engine dependency"
+
+      - name: The simulation must not contain floating-point types
+        run: |
+          # The clippy lints catch float arithmetic and comparisons, but not a
+          # bare `f32` field or signature, which is just as fatal.
+          if grep -rnE '\b(f32|f64)\b' crates/sim/src --include='*.rs' \
+               | grep -v '^\S*:\s*//' | grep -v 'docs/' ; then
+            echo "::error::floating point found in redshift-sim. Use Fx. See docs/02-simulation.md"
+            exit 1
+          fi
+          echo "OK: no floating point"
+
+      - name: The simulation must build headless with no default features
+        run: cargo build -p redshift-sim --no-default-features
+
+      - name: The committed trig tables must match their generator
+        run: |
+          cp crates/sim/src/trig_table.rs /tmp/committed.rs
+          python3 tools/gen_trig.py
+          diff -u /tmp/committed.rs crates/sim/src/trig_table.rs || {
+            echo "::error::trig_table.rs is out of sync with tools/gen_trig.py"
+            exit 1
+          }
+          echo "OK: tables match"
+
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both architectures, deliberately: floating-point and
+        # ordering bugs that desync a match often show up on only one of them.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-targets
+      - name: Determinism suite
+        run: cargo test -p redshift-sim --test determinism
+
+  cross-platform-hashes:
+    name: Cross-platform state hashes
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The real safety net: the same scripted match must produce identical
+      # state hashes on x86 and ARM. This is the class of bug that is otherwise
+      # invisible until two players on different machines try to play.
+      - run: cargo test -p redshift-sim --test golden_hashes -- --nocapture
+
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings

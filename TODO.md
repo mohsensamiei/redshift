@@ -5,41 +5,42 @@ discovered. Phase definitions, estimates and exit criteria live in
 [docs/07-roadmap.md](docs/07-roadmap.md).
 
 **Current phase: 0 — Foundation**
-**Next milestone:** cubes moving on a grid, on a deterministic simulation, within budget.
+**Next milestone:** the Bevy shell — window, isometric camera, cubes on screen.
+The headless simulation underneath is done and tested.
 
 ---
 
 ## Phase 0 — Foundation
 
 ### Project setup
-- [ ] `git init`, `.gitignore`, Git LFS for `assets/`
-- [ ] Cargo workspace with the six crates from [docs/01-architecture.md](docs/01-architecture.md)
-- [ ] Pin Bevy 0.19.1; `rustfmt.toml`, `clippy.toml`
-- [ ] CI: build, test, clippy `-D warnings`, fmt check
-- [ ] CI: no-float lint on `redshift-sim`
-- [ ] CI: assert `redshift-sim` has no engine dependency in its tree
+- [x] `git init`, `.gitignore`, Git LFS for `assets/`
+- [x] Cargo workspace with the six crates from [docs/01-architecture.md](docs/01-architecture.md)
+- [x] Pin Bevy 0.19.1; `rustfmt.toml`, `clippy.toml`
+- [x] CI: build, test, clippy `-D warnings`, fmt check
+- [x] CI: no-float lint on `redshift-sim`
+- [x] CI: assert `redshift-sim` has no engine dependency in its tree
 - [ ] Licence files — GPLv3 for code, CC BY-SA 4.0 for assets
 
 ### `redshift-sim` — foundations
-- [ ] `Fx` fixed-point type: add, sub, mul, div via `i64` intermediates
-- [ ] `Fx::sqrt` — integer Newton iteration, fixed iteration count
-- [ ] Binary-angle trig tables (`u16` angle, full turn = 65536)
-- [ ] `Fx` test suite including overflow boundaries and negative values
-- [ ] Deny `From<f32>` on `Fx` — conversion is renderer-only
-- [ ] Seeded `SimRng` (PCG), with reproducibility tests
-- [ ] Entity arena: generational indices, deterministic free-list reuse
-- [ ] `Sim` skeleton with the public API from [docs/01-architecture.md](docs/01-architecture.md)
-- [ ] Fixed 20 Hz tick loop with the documented phase ordering
-- [ ] `WorldView` read-only accessor for renderers
-- [ ] `state_hash()` over all gameplay-relevant state
+- [x] `Fx` fixed-point type: add, sub, mul, div via `i64` intermediates
+- [x] `Fx::sqrt` — integer Newton iteration, fixed iteration count
+- [x] Binary-angle trig tables (`u16` angle, full turn = 65536)
+- [x] `Fx` test suite including overflow boundaries and negative values
+- [x] Deny `From<f32>` on `Fx` — conversion is renderer-only
+- [x] Seeded `SimRng` (PCG), with reproducibility tests
+- [x] Entity arena: generational indices, deterministic free-list reuse
+- [x] `Sim` skeleton with the public API from [docs/01-architecture.md](docs/01-architecture.md)
+- [x] Fixed 20 Hz tick loop with the documented phase ordering
+- [x] `WorldView` read-only accessor for renderers
+- [x] `state_hash()` over all gameplay-relevant state
 
 ### `redshift-sim` — movement
-- [ ] Tile grid map representation, passability
-- [ ] Grid A\* with deterministic tie-breaking (lowest `f`, then lowest cell index)
-- [ ] Per-tick node-expansion budget with carry-over — **never** a time budget
-- [ ] Movement along a path with fixed-point positions and turn rates
-- [ ] Basic unit collision / avoidance
-- [ ] `Move` command applied through the command queue
+- [x] Tile grid map representation, passability
+- [x] Grid A\* with deterministic tie-breaking (lowest `f`, then lowest cell index)
+- [x] Per-tick node-expansion budget with carry-over — **never** a time budget
+- [x] Movement along a path with fixed-point positions and turn rates
+- [ ] Basic unit collision / avoidance — *deferred to Phase 3; units currently overlap*
+- [x] `Move` command applied through the command queue
 
 ### `redshift-render` — the shell
 - [ ] Bevy app, window, fixed dimetric camera
@@ -67,8 +68,8 @@ discovered. Phase definitions, estimates and exit criteria live in
 
 ## Phase 1 — Determinism and LAN
 
-- [ ] `Command` enum and compact serialisation
-- [ ] Ordered command queue — sorted by (tick, player, sequence)
+- [x] `Command` enum and compact serialisation
+- [x] Ordered command queue — sorted by (tick, player, sequence)
 - [ ] Turn scheduling with input delay `D`; RTT negotiation at match start
 - [ ] UDP transport: sequence numbers, redundant resend of the last 3 ticks
 - [ ] "Waiting for player" stall handling after ~500 ms
@@ -80,8 +81,8 @@ discovered. Phase definitions, estimates and exit criteria live in
 - [ ] Desync halt with full dumps from both peers
 - [ ] Dev-only mode: per-tick, per-subsystem hashing to localise divergence
 - [ ] Replay record and playback
-- [ ] Determinism suite: `replay_roundtrip`, `two_sims_identical`, `serialisation_stable`
-- [ ] CI cross-platform golden hashes — macOS/ARM vs Linux/x86
+- [x] Determinism suite: `replay_roundtrip`, `two_sims_identical`, `serialisation_stable`
+- [x] CI cross-platform golden hashes — macOS/ARM vs Linux/x86
 
 ### Phase 1 exit
 - [ ] Two machines, 10-minute match, hundreds of units, zero desyncs

@@ -182,6 +182,20 @@ pub fn update_overlay(
         "ore left",
         session.sim().map().total_ore()
     ));
+
+    // Supply over draw, plus a word when it is short. A bare percentage does
+    // not tell a player whether to build a plant or stop building; two numbers
+    // and a warning do.
+    let power = session.sim().power();
+    let local = session.local_player();
+    out.push_str(&format!(
+        "{:<14}{:>8}\n",
+        "power",
+        format!("{}/{}", power.supply(local), power.draw(local))
+    ));
+    if !power.is_satisfied(local) {
+        out.push_str(&format!("{:<14}{:>8}\n", "", "LOW POWER"));
+    }
     out.push_str(&format!(
         "{:<14}{:>8}\n",
         "paths queued",

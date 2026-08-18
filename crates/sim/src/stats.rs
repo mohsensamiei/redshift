@@ -67,6 +67,10 @@ pub struct UnitStats {
     /// theirs; units are a single cell and are kept apart by their radius
     /// instead, since they move and a building does not.
     pub footprint: (u8, u8),
+    /// Power this supplies to its owner's grid.
+    pub power_supply: u32,
+    /// Power this draws. Anything with a draw stops working in a shortage.
+    pub power_draw: u32,
     /// Whether harvesters can unload here.
     pub is_refinery: bool,
     /// Physical radius, for keeping units out of each other.
@@ -94,6 +98,8 @@ impl Default for UnitStats {
             harvest_capacity: None,
             gather_rate: 0,
             is_refinery: false,
+            power_supply: 0,
+            power_draw: 0,
             // One cell, not zero. A zero footprint would make a thing occupy
             // nothing and stack invisibly with everything else.
             footprint: (1, 1),
@@ -117,6 +123,8 @@ impl StateHash for UnitStats {
         h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
         h.write_u32(self.gather_rate);
         h.write_bool(self.is_refinery);
+        h.write_u32(self.power_supply);
+        h.write_u32(self.power_draw);
         h.write_u8(self.footprint.0);
         h.write_u8(self.footprint.1);
     }
@@ -227,6 +235,8 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.gather_rate = gather_rate.0.max(0) as u32;
             }
             Trait::Refinery { .. } => stats.is_refinery = true,
+            Trait::PowerSupply { output } => stats.power_supply = *output,
+            Trait::PowerDraw { amount } => stats.power_draw = *amount,
             Trait::Footprint { width, height } => {
                 stats.footprint = ((*width).max(1), (*height).max(1))
             }

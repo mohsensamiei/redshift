@@ -128,7 +128,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [ ] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits
 - [x] Construction: build queue, footprints, prerequisites — *placement by the player still to come*
-- [ ] Power grid and low-power effects
+- [x] Power grid and low-power effects — *slowdown ratio is a placeholder, see below*
 - [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
 - [ ] Veterancy
 - [ ] Fog of war, shroud, vision and detector traits
@@ -196,6 +196,11 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 ---
 
 ## Open questions
+
+- [ ] **Low-power slowdown ratio.** `power::LOW_POWER_DIVISOR` is set to 4 by
+      feel, not verified against the original. The mechanism is faithful; the
+      number is not. Needs checking against how the original actually paced
+      production in a shortage.
 
 - [ ] Final project name (must avoid EA trademarks) — "Redshift" is provisional
 - [ ] Map size ceiling, and whether it affects the `Fx` range choice

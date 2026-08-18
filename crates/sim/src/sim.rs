@@ -17,6 +17,7 @@ use crate::fx::{Angle, Fx};
 use crate::hash::StateHasher;
 use crate::map::{Cell, Locomotor, Map, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
+use crate::power::PowerGrid;
 use crate::production::{ProductionItem, ProductionQueue};
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
@@ -244,6 +245,7 @@ pub struct Sim {
     /// stationary, and with no indication why.
     stats: StatTable,
     treasury: Treasury,
+    power: PowerGrid,
     /// Reused between ticks so separation does not allocate every frame.
     #[serde(skip)]
     separation_buckets: Vec<Vec<EntityId>>,
@@ -311,7 +313,7 @@ impl Sim {
             units.insert(unit);
         }
         let workspace = PathWorkspace::new(map.cell_count());
-        Sim {
+        let mut sim = Sim {
             tick: 0,
             map,
             units,
@@ -321,10 +323,16 @@ impl Sim {
             combat: CombatTable::build(&setup.rules),
             separation_buckets: Vec::new(),
             treasury: Treasury::new(factions.len(), STARTING_CREDITS),
+            power: PowerGrid::new(factions.len()),
             rules: setup.rules,
             stats,
             players: setup.players,
-        }
+        };
+        // Built before the world is handed out, not on the first tick. A base
+        // that reported no power until something ticked would show the player
+        // a blackout on the frame they started the match.
+        sim.recompute_power();
+        sim
     }
 
     pub fn rules(&self) -> &Rules {
@@ -406,8 +414,52 @@ impl Sim {
         let hits = self.acquire_and_fire();
         self.resolve_damage(&hits);
         self.remove_the_dead();
+        // After the deaths, so the grid describes the world as it stands at the
+        // end of the tick — which is the world anyone looking at it will see.
+        // Recomputing at the start instead left it a tick stale: a base whose
+        // only plant had just been destroyed still reported itself powered.
+        self.recompute_power();
 
         self.tick += 1;
+    }
+
+    // -- Power ---------------------------------------------------------------
+
+    /// Rebuilds the power grid from what is standing.
+    ///
+    /// From scratch every tick rather than maintained incrementally. Keeping a
+    /// running total would be faster and would have to be corrected on every
+    /// spawn, death, capture and sale — and a single missed correction leaves a
+    /// base permanently and invisibly wrong about its own power, which is close
+    /// to impossible to notice from a bug report.
+    fn recompute_power(&mut self) {
+        self.power.clear();
+        for (_, unit) in self.units.iter() {
+            if !unit.is_alive() {
+                continue;
+            }
+            let stats = self.stats.get(unit.owner, unit.kind);
+            if stats.power_supply > 0 {
+                self.power.add_supply(unit.owner, stats.power_supply);
+            }
+            if stats.power_draw > 0 {
+                self.power.add_draw(unit.owner, stats.power_draw);
+            }
+        }
+    }
+
+    /// The power grid, for the interface.
+    pub fn power(&self) -> &PowerGrid {
+        &self.power
+    }
+
+    /// Whether a unit is drawing power it is not getting.
+    ///
+    /// Anything that consumes power stops working in a shortage. Structures
+    /// that consume none — a wall, a refinery — carry on regardless, which is
+    /// what makes a power plant worth attacking rather than merely worth owning.
+    pub fn is_unpowered(&self, unit: &Unit) -> bool {
+        self.stats.get(unit.owner, unit.kind).power_draw > 0 && !self.power.is_satisfied(unit.owner)
     }
 
     // -- Production ----------------------------------------------------------
@@ -428,6 +480,16 @@ impl Sim {
                 continue;
             }
             let owner = unit.owner;
+
+            // A base short of power builds slowly rather than not at all. One
+            // that simply froze would end the match on the spot; one that slows
+            // gives the player a chance to notice and build a plant.
+            if !self.power.is_satisfied(owner)
+                && !self.tick.is_multiple_of(crate::power::LOW_POWER_DIVISOR)
+            {
+                continue;
+            }
+
             let available = self.treasury.credits(owner);
 
             let Some(queue) = self.units.get_mut(id).and_then(|u| u.production.as_mut()) else {
@@ -862,6 +924,11 @@ impl Sim {
             let Some(weapon) = self.combat.weapon(unit.kind).copied() else {
                 continue;
             };
+            // A defence with no power does not shoot. This is most of what
+            // makes cutting an enemy's power worth doing.
+            if self.is_unpowered(unit) {
+                continue;
+            }
 
             // Keep the current target if it is still worth shooting at, so a
             // unit does not flicker between two equally close enemies.

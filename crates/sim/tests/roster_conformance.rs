@@ -565,6 +565,63 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
+#[ignore = "gap: a structure's strength cannot depend on its neighbours"]
+fn prism_towers_chain_to_strengthen_each_other() {
+    // Researched: adjacent Prism Towers combine beams, and the result is
+    // proportionally stronger with each tower in the chain. Every stat in the
+    // engine is resolved per kind at match start; nothing can depend on what is
+    // standing next to it.
+    panic!("stats are per kind and fixed; there is no notion of a neighbour");
+}
+
+#[test]
+#[ignore = "gap: visibility is additive — nothing can hide ground from an opponent"]
+fn a_gap_generator_hides_a_base_from_the_enemy() {
+    // The Gap Generator does not reveal ground for its owner. It *hides* ground
+    // from everyone else, which Redshift's visibility model has no way to
+    // express: explored is cumulative and never taken away.
+    panic!("visibility only ever adds; explored ground cannot be un-explored");
+}
+
+#[test]
+#[ignore = "gap: no standing economy modifiers on a player"]
+fn an_ore_purifier_increases_the_value_of_every_load() {
+    // A quarter more credits from every delivery, for as long as the building
+    // stands. Same shape as the spy-in-a-barracks effect: a modifier that lives
+    // on the player rather than on a unit, and there is nowhere to put one.
+    panic!("credits are paid at a fixed rate with no per-player modifier");
+}
+
+#[test]
+#[ignore = "gap: garrison — a building fires with its own weapon, holds basic infantry only, and evicts below a third health"]
+fn a_garrisoned_building_fires_and_evicts_when_badly_damaged() {
+    // Researched and more specific than expected: capacity depends on the
+    // building's size, only basic infantry may enter, the building fires with a
+    // *predetermined* weapon rather than its occupants', and the garrison is
+    // forced out below 33% health rather than dying with it.
+    //
+    // The last rule matters: clearing a garrison means damaging it enough to
+    // evict, not destroying it.
+    panic!("structures cannot hold passengers at all");
+}
+
+#[test]
+#[ignore = "gap: high ground gives a range advantage, and is modelled as impassable rock"]
+fn a_unit_on_high_ground_outranges_one_below() {
+    // Modelling elevation as impassable terrain keeps the movement restriction
+    // and loses the part that affects a fight.
+    panic!("the map has no elevation, only a rock terrain that blocks everything");
+}
+
+#[test]
+#[ignore = "gap: bridges — destructible terrain, repaired through a hut beside them"]
+fn a_destroyed_bridge_is_repaired_by_an_engineer_at_its_hut() {
+    // Worth noting that this is *not* a new mechanic: the repair hut is entered
+    // like a tech building, so bridge repair is capture with a different effect.
+    panic!("no bridges, no destructible terrain, and no capture");
+}
+
+#[test]
 #[ignore = "gap: low power disables structures, it does not merely slow them"]
 fn a_radar_stops_working_when_power_runs_short() {
     // Researched: the original *switches off* radar towers and flak cannons in

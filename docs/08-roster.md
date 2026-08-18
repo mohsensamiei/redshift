@@ -23,10 +23,9 @@ superweapons and crates — are **researched against public documentation of the
 original**. Sources are listed at the end. Individual entries still marked ⚠️
 are ones the sources did not settle.
 
-Still outstanding: **section 1 (terrain)** is from memory, and the **Allied
-structure table** has not been read yet — the source rate-limited. Allied
-figures are assumed to mirror the Soviet ones, which is exactly the kind of
-assumption this document exists to stop.
+Every section is now researched. What remains unverified is marked ⚠️ inline —
+mostly exact figures the sources did not state, such as how far apart Prism
+Towers may be and still chain, or how many infantry a given building holds.
 
 Names are the original's, used to identify what is being described. They are
 not the names that ship — see
@@ -39,26 +38,29 @@ that are guesses are marked ⚠️.
 
 ## 1. Terrain and map features
 
-What a map is made of, beyond flat ground.
+Researched.
 
 | Feature | Behaviour | Engine |
 |---|---|---|
 | Ground | Buildable, drivable | ✅ |
 | Water | Naval only, unless amphibious | ✅ |
-| Cliffs / elevation | Blocks ground movement; **units on high ground see further and are harder to hit** ⚠️ | ❌ height is faked with rock |
+| Cliffs / elevation | Blocks ground movement, and **units on high ground have the advantage** — greater effective range | ❌ height is faked with impassable rock |
 | Ramps | The only way between elevations | ❌ |
-| Shore | Where transports load and unload | ❌ |
-| Bridges | Crossable, **destructible, and repairable by an engineer** | ❌ |
-| Ore / gems | Regrows from a source over time ⚠️; gems are worth more | ⚠️ no regrowth, no second kind |
-| Tunnels | Enterable at one end, exit at another ⚠️ | ❌ |
-| Trees, rocks | Block movement; trees burn ⚠️ | ⚠️ blocking only |
-| Roads | Cosmetic, or a speed bonus ⚠️ | ❌ |
+| Shore | Where amphibious transports load and unload | ❌ |
+| Bridges | Crossable, **destructible** — Crazy Ivan is the usual way — and **repaired by an engineer entering a separate repair hut beside them** | ❌ |
+| Ore | Gathered by faction-specific miners. **Can be destroyed** by force-firing on it with a weapon allowed to | ⚠️ ore ✅, destroying it ❌ |
+| Gems | Worth more per load than ore | ❌ second resource kind |
+| Trees, rocks | Block movement | ⚠️ blocking only |
 
-**The big one is elevation.** It is not decoration: it changes what can be
-walked, what can be seen, and what can be shot. Rock currently stands in for it
-and blocks everything, which is not the same rule at all.
+Two corrections to what this document previously guessed.
 
----
+**Bridges are repaired through a hut, not by touching the bridge.** The hut is
+a separate capturable-style structure beside the bridge, which makes bridge
+repair the same mechanic as capturing a tech building rather than a new one.
+
+**High ground gives a range advantage**, not merely a movement restriction.
+Modelling elevation as impassable rock — which is what Redshift does — loses the
+part that actually affects a fight.
 
 ## 2. Neutral and civilian things
 
@@ -83,9 +85,19 @@ no commands, and is hostile to nobody. Everything else follows from that.
 
 ### Occupiable structures
 
-Civilian buildings infantry can garrison, firing from windows. The building
-becomes a fortification that must be cleared rather than merely destroyed, and
-whoever is inside dies with it.
+Researched, and more specific than "infantry can garrison buildings":
+
+- **Only basic infantry** garrison. A GI or a Conscript can; a commando cannot.
+- **Capacity depends on the building's size**, so it is a property of the
+  building rather than a constant.
+- The occupied building **fires with its own predetermined weapon**, one for
+  each side — *not* the weapon of whoever is inside. This is the opposite of
+  how the IFV works, and worth not confusing.
+- The garrison can be **ordered out**, and is **forced out below 33% health**.
+
+That last rule is the interesting one: a garrisoned building is not a death
+trap, and clearing one means damaging it enough to evict rather than destroying
+it outright.
 
 ### Tech structures — captured by an engineer
 
@@ -94,10 +106,10 @@ flag, captured by walking an engineer in.
 
 | Structure | Effect | Game |
 |---|---|---|
-| **Oil Derrick** | A one-off payment on capture, then a steady trickle of income | RA2 |
-| **Hospital** | Heals friendly infantry that walk into it | RA2 |
-| **Airport** | Grants the paratrooper power | RA2 |
-| **Outpost** | Defends with an IFV missile launcher, *and* acts as a service depot | RA2 |
+| **Oil Derrick** | **$1000 immediately, then $20 per second** for as long as it is held | RA2 |
+| **Hospital** | Heals infantry the owner **orders to enter it** | RA2 |
+| **Airport** | Grants the **paradrop** support power | RA2 |
+| **Outpost** | **Repairs vehicles ordered into it**, and is armed with a modified Patriot launcher that hits **ground and air** | RA2 |
 | **Machine Shop** | All your vehicles self-repair, anywhere on the map | YR |
 | **Power Plant** | +200 power | YR |
 | **Hospital** (YR) | All your infantry self-heal anywhere, rather than having to enter | YR |
@@ -150,15 +162,17 @@ Nine, and the shipped remaster has exactly these — see
 
 | Side | Country | Unique |
 |---|---|---|
-| Allied | America | Paratroopers, as a recurring power |
-| Allied | Korea | A fast strike aircraft |
-| Allied | France | A very long-ranged fixed gun |
-| Allied | Germany | A tank destroyer, strong against armour only |
-| Allied | Great Britain | A sniper that kills infantry outright |
-| Soviet | Russia | A tank with a Tesla weapon |
-| Soviet | Iraq | A unit that irradiates ground, denying it |
-| Soviet | Libya | A truck that detonates |
-| Soviet | Cuba | Suicide bombing infantry |
+| Allied | America | **Airborne** — a paradrop power, not a unit |
+| Allied | Great Britain | Sniper |
+| Allied | France | Grand Cannon |
+| Allied | Germany | Tank Destroyer |
+| Allied | Korea | Black Eagle |
+| Soviet | Russia | Tesla Tank |
+| Soviet | Cuba | Terrorist |
+| Soviet | Iraq | Desolator |
+| Soviet | Libya | Demolition Truck |
+
+Confirmed against the source. Nine, and exactly these.
 
 The pattern is one unique unit or power each, on a shared side roster. The data
 layer already expresses `unique_units`, `removes_units` and `modifiers`; none of
@@ -172,8 +186,8 @@ exist.
 
 ## 4. Structures and the tech tree
 
-Soviet costs, power and prerequisites from the source listed at the end. The
-Allied side mirrors it; its exact figures are still to be confirmed.
+Both sides researched. They mirror each other closely, and the differences are
+the interesting part.
 
 | Structure | Cost | Power | Needs | Notes | Engine |
 |---|---|---|---|---|---|
@@ -208,6 +222,32 @@ Five mechanics in that table alone that were not on any earlier list:
 - **A defence that a unit can charge**, and that becomes independent of the
   power grid once charged enough. That is a unit modifying a structure, which
   nothing in the engine can express.
+
+### Where the Allied side differs
+
+| Structure | Cost | Power | Needs | Notes |
+|---|---|---|---|---|
+| Power Plant | 600 | **+200** | — | More than a Tesla Reactor's +150 |
+| Airforce Command HQ | 1000 | −50 | Refinery | Radar **and four aircraft pads** — the Soviets have no equivalent |
+| Ore Purifier | 2500 | −200 | Refinery, Lab | **+25% credits from every load**. One per player |
+| Pillbox | 500 | **0** | Barracks | Anti-infantry, needs no power |
+| Patriot Missile | 1000 | −50 | Barracks | Anti-air; **intercepts missiles** |
+| Prism Tower | 1500 | −75 | Air HQ | **Combines beams with nearby towers**, the more chained the stronger |
+| Gap Generator | 1000 | −100 | Battle Lab | **Hides the base from enemy radar** — imposing fog on someone else |
+| Spy Satellite Uplink | 1000 | −100 | Battle Lab | Reveals the whole map |
+| Chronosphere | 2500 | −200 | Battle Lab | One per player |
+| Weather Control | 5000 | −200 | Battle Lab | One per player |
+
+Three mechanics here that exist on neither earlier list:
+
+- **A structure that boosts other structures of its own kind.** Prism Towers
+  chain, and the beam gets stronger with each tower in the chain. Nothing in
+  the engine lets one entity's stats depend on its neighbours.
+- **Imposing fog on an opponent.** The Gap Generator does not reveal ground for
+  its owner; it *hides* ground from everyone else. Redshift's visibility is
+  purely additive.
+- **An economy multiplier.** The Ore Purifier changes the value of every load
+  delivered, which is a standing modifier on a player rather than on a unit.
 
 ### The shape of the tree
 
@@ -417,10 +457,10 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 16 capabilities confirmed, 25 gaps.**
+**As of the last run: 16 capabilities confirmed, 31 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
-Thirteen of those twenty-five were invisible until the mechanics were looked up
+Nineteen of those thirty-one were invisible until the mechanics were looked up
 rather than recalled.
 
 Confirmed working, exercised end to end rather than asserted:
@@ -533,8 +573,13 @@ Costs, power figures and prerequisites throughout sections 4 to 7 come from:
 - [Allied units](https://cncnz.com/games/red-alert-2/allied-units/)
 - [Soviet units](https://cncnz.com/games/red-alert-2/soviet-units/)
 - [Soviet structures](https://cncnz.com/games/red-alert-2/soviet-structures/)
-- [Allied structures](https://cncnz.com/games/red-alert-2/allied-structures/) — **not yet read**, rate-limited
-- [Tech buildings](https://cncnz.com/games/red-alert-2/tech-buildings/) — **not yet read**
+- [Allied structures](https://cncnz.com/games/red-alert-2/allied-structures/)
+- [Tech buildings](https://cncnz.com/games/red-alert-2/tech-buildings/)
+- [Garrisoning](https://cnc.fandom.com/wiki/Garrisoning) — capacity, the building's own weapon, eviction below a third health
+- [Prism tower (Red Alert 2)](https://cnc.fandom.com/wiki/Prism_tower_(Red_Alert_2)) — beam chaining
+- [Ore](https://cnc.fandom.com/wiki/Ore) — that ore can be destroyed by force-fire
+- [Tech buildings](https://cncnz.com/games/red-alert-2/tech-buildings/) — exact figures: $1000 and $20/sec
+- [Factions](https://cncnz.com/games/red-alert-2/factions/) — the nine countries, confirmed
 
 Two reimplementations exist and were checked for licence rather than mined for
 code: [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2) is

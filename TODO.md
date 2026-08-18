@@ -140,6 +140,37 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ---
 
+### Engine gaps the roster audit found
+
+Ten capabilities the original's roster needs and the trait catalogue does not
+cover. Engine work, not content, so they belong here rather than in Phase 5.
+See docs/08-roster.md.
+
+- [ ] Capture — `Capturable` exists and nothing reads it; engineers need it
+- [ ] Repair — a structure that heals vehicles that come to it
+- [ ] Walls — a one-cell structure that connects to its neighbours
+- [ ] Map reveal — a one-off effect on the visibility layers
+- [ ] Economy modifiers on a structure (ore purifier, industrial plant)
+- [ ] Deploy — a unit that becomes a structure, and one that toggles a stance
+- [ ] Transports that load, unload, and let passengers fire or change the weapon
+- [ ] **Projectiles** — shots currently land instantly
+- [ ] **Air targeting** — nothing distinguishes an air target from a ground one
+- [ ] Placed charges — armed now, detonating later
+
+### Subsystems needing a decision before a schedule
+
+Each is its own piece of work, and some may belong in Phase 5 alongside the
+units that need them.
+
+- [ ] Aircraft: basing, rearming, and movement that is not the ground pathfinder
+- [ ] Naval: shoreline transports, water as a surface rather than an obstacle
+- [ ] Superweapons and support powers
+- [ ] Mind control — changing a unit's owner mid-match
+- [ ] Chrono teleport — movement without a path
+- [ ] Disguise — appearing as something else to one side only
+
+---
+
 ## Phase 4 — Art and feel
 
 - [ ] Blender → glTF pipeline with budget validation on import

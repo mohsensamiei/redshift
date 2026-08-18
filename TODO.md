@@ -142,32 +142,51 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ### Engine gaps the roster audit found
 
-Ten capabilities the original's roster needs and the trait catalogue does not
-cover. Engine work, not content, so they belong here rather than in Phase 5.
-See docs/08-roster.md.
+Capabilities the original needs and the engine cannot express. These are engine
+work, not content, so they belong in Phase 3 rather than Phase 5. Full detail
+and reasoning in docs/08-roster.md.
 
-- [ ] Capture — `Capturable` exists and nothing reads it; engineers need it
-- [ ] Repair — a structure that heals vehicles that come to it
-- [ ] Walls — a one-cell structure that connects to its neighbours
+**Small — a trait and a rule each**
+
+- [ ] Capture — `Capturable` exists and nothing reads it
+- [ ] Repair — a structure that heals what comes to it
+- [ ] Consumed on use — the engineer disappearing into the building
+- [ ] Walls — one-cell structures that connect to their neighbours
 - [ ] Map reveal — a one-off effect on the visibility layers
-- [ ] Economy modifiers on a structure (ore purifier, industrial plant)
-- [ ] Deploy — a unit that becomes a structure, and one that toggles a stance
-- [ ] Transports that load, unload, and let passengers fire or change the weapon
-- [ ] **Projectiles** — shots currently land instantly
-- [ ] **Air targeting** — nothing distinguishes an air target from a ground one
+- [ ] Economy modifiers on a structure
+- [ ] A neutral player — owns things, commands nothing, hostile to nobody
+- [ ] Instant-kill weapons — sniper, attack dog
+- [ ] Placement rules per structure — a naval yard must touch water
+
+**Medium — real mechanics with interactions**
+
+- [ ] **Projectiles** — shots currently land instantly *(foundational)*
+- [ ] **Air targeting** — nothing tells an air target from a ground one *(foundational)*
+- [ ] Deploy — unit↔structure, and stance toggling
+- [ ] Garrison — passengers firing from a building, evicted when it falls
+- [ ] Transports — loading, unloading, passengers that fire or change the weapon
+- [ ] Multiple weapons per unit — anti-ground and anti-air on one chassis
 - [ ] Placed charges — armed now, detonating later
+- [ ] Temporary status effects — invulnerable, irradiated, disabled
+- [ ] Wandering civilians — autonomous, purposeless movement
 
 ### Subsystems needing a decision before a schedule
 
-Each is its own piece of work, and some may belong in Phase 5 alongside the
-units that need them.
-
-- [ ] Aircraft: basing, rearming, and movement that is not the ground pathfinder
-- [ ] Naval: shoreline transports, water as a surface rather than an obstacle
-- [ ] Superweapons and support powers
+- [ ] **Elevation** — real height, ramps, and its effect on sight and combat.
+      Probably not deferrable: it changes the map format everything is built on
+- [ ] Aircraft — basing, rearming, a movement model that is not the pathfinder
+- [ ] Naval — shoreline transports, water as a surface rather than an obstacle
+- [ ] Superweapons and powers — charge timers, targeting modes, novel effects
 - [ ] Mind control — changing a unit's owner mid-match
-- [ ] Chrono teleport — movement without a path
+- [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
+- [ ] Bridges — destructible terrain that changes connectivity
+
+### Verifying the specification
+
+- [ ] **docs/08-roster.md is written from memory and unverified.** Check it
+      against the original before building to it. Getting it wrong means
+      building the wrong engine quietly.
 
 ---
 

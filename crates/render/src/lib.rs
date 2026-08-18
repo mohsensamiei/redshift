@@ -109,6 +109,7 @@ impl Plugin for RedshiftRenderPlugin {
         )
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .init_resource::<input::Selection>()
+        .init_resource::<input::ControlGroups>()
         .init_resource::<input::DragState>()
         .init_resource::<overlay::OverlayState>()
         .init_resource::<world::TerrainBuiltAt>()

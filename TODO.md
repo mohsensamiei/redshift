@@ -124,15 +124,15 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 - [ ] Map format: heightmap, tile types, cliffs, buildability — *water and ore done*
 - [ ] Map editor or an authoring-format converter
-- [ ] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
-- [ ] Trait system and the initial trait catalogue
+- [x] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
+- [x] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits
 - [x] Construction: build queue, footprints, prerequisites, placement
 - [x] Power grid and low-power effects — *slowdown ratio is a placeholder, see below*
 - [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
 - [ ] Veterancy
 - [x] Fog of war and shroud — *Detector and Cloakable traits still unread*
-- [ ] Unit behaviour: attack-move, guard, stop, formations, control groups
+- [x] Unit behaviour: attack-move, guard, stop, formations, control groups
 - [ ] Superweapon / support power framework
 - [ ] UI: sidebar, build tabs, minimap, unit info — *health bars done*
 - [ ] Skirmish AI v1: build order, expansion, attack waves

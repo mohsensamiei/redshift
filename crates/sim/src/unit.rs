@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use redshift_data::rules::EntityKind;
 
+use crate::arena::EntityId;
 use crate::command::PlayerId;
 use crate::fx::{Angle, Fx};
 use crate::hash::{StateHash, StateHasher};
@@ -115,23 +116,103 @@ pub enum Order {
     /// Nothing to do.
     #[default]
     Idle,
-    /// Heading for `destination`, following `path`.
-    Move {
-        destination: Cell,
-        /// Remaining waypoints. The next one is at `path[0]`.
-        path: Vec<Cell>,
-        /// Set when the route was partial, so the unit knows to ask again on
-        /// arrival rather than assuming it is done.
-        needs_repath: bool,
-        /// Node budget for the next search. Raised on each retry so a unit in
-        /// awkward terrain escalates instead of livelocking.
-        retry_budget: u32,
+    /// Going somewhere, ignoring everything on the way.
+    Move(Travel),
+    /// Going somewhere, but stopping to fight whatever is met.
+    ///
+    /// The distinction is the whole reason both exist. A plain move is for
+    /// repositioning and should not be derailed; an attack-move is for
+    /// advancing into contested ground and should be.
+    AttackMove(Travel),
+    /// Closing on a specific target and killing it.
+    Attack {
+        target: EntityId,
+        /// How to get within range. Recomputed as the target moves.
+        approach: Travel,
     },
+    /// Holding a position and engaging whatever comes near.
+    Guard {
+        post: Cell,
+        /// Set while walking back to the post after being drawn off it.
+        returning: Option<Travel>,
+    },
+}
+
+/// Where a unit is going and how far it has got.
+///
+/// Shared by every order that involves movement rather than repeated three
+/// times. The repetition would have been the obvious way to add attack-move,
+/// and it would have meant three copies of the repath and partial-route
+/// handling that took two rounds of bugs to settle.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Travel {
+    pub destination: Cell,
+    /// Remaining waypoints. The next one is at `path[0]`.
+    pub path: Vec<Cell>,
+    /// Set when the route was partial, so the unit knows to ask again on
+    /// arrival rather than assuming it is done.
+    pub needs_repath: bool,
+    /// Node budget for the next search. Raised on each retry so a unit in
+    /// awkward terrain escalates instead of livelocking.
+    pub retry_budget: u32,
+}
+
+impl Travel {
+    pub fn to(destination: Cell, budget: u32) -> Travel {
+        Travel {
+            destination,
+            path: Vec::new(),
+            needs_repath: true,
+            retry_budget: budget,
+        }
+    }
+}
+
+impl StateHash for Travel {
+    fn state_hash(&self, h: &mut StateHasher) {
+        h.write(&self.destination);
+        h.write_u32(self.path.len() as u32);
+        for c in &self.path {
+            h.write(c);
+        }
+        h.write_bool(self.needs_repath);
+        h.write_u32(self.retry_budget);
+    }
 }
 
 impl Order {
     pub fn is_idle(&self) -> bool {
         matches!(self, Order::Idle)
+    }
+
+    /// The travel state this order is following, if it is going anywhere.
+    pub fn travel(&self) -> Option<&Travel> {
+        match self {
+            Order::Move(t) | Order::AttackMove(t) => Some(t),
+            Order::Attack { approach, .. } => Some(approach),
+            Order::Guard { returning, .. } => returning.as_ref(),
+            Order::Idle => None,
+        }
+    }
+
+    pub fn travel_mut(&mut self) -> Option<&mut Travel> {
+        match self {
+            Order::Move(t) | Order::AttackMove(t) => Some(t),
+            Order::Attack { approach, .. } => Some(approach),
+            Order::Guard { returning, .. } => returning.as_mut(),
+            Order::Idle => None,
+        }
+    }
+
+    /// Whether this order lets the unit stop and fight on the way.
+    ///
+    /// A plain move does not: a player repositioning an army expects it to
+    /// arrive, not to stop at the first thing that shoots at it.
+    pub fn engages_on_the_way(&self) -> bool {
+        matches!(
+            self,
+            Order::AttackMove(_) | Order::Attack { .. } | Order::Guard { .. } | Order::Idle
+        )
     }
 }
 
@@ -226,20 +307,30 @@ impl StateHash for Unit {
         h.write(&self.combat);
         match &self.order {
             Order::Idle => h.write_u8(0),
-            Order::Move {
-                destination,
-                path,
-                needs_repath,
-                retry_budget,
-            } => {
+            Order::Move(t) => {
                 h.write_u8(1);
-                h.write(destination);
-                h.write_u32(path.len() as u32);
-                for c in path {
-                    h.write(c);
+                h.write(t);
+            }
+            Order::AttackMove(t) => {
+                h.write_u8(2);
+                h.write(t);
+            }
+            Order::Attack { target, approach } => {
+                h.write_u8(3);
+                h.write_u32(target.index());
+                h.write_u32(target.generation());
+                h.write(approach);
+            }
+            Order::Guard { post, returning } => {
+                h.write_u8(4);
+                h.write(post);
+                match returning {
+                    Some(t) => {
+                        h.write_u8(1);
+                        h.write(t);
+                    }
+                    None => h.write_u8(0),
                 }
-                h.write_bool(*needs_repath);
-                h.write_u32(*retry_budget);
             }
         }
     }
@@ -309,12 +400,12 @@ mod tests {
     fn hashing_covers_the_order() {
         let mut a = sample(WorldPos::ORIGIN);
         let base = hash(&a);
-        a.order = Order::Move {
+        a.order = Order::Move(Travel {
             destination: Cell::new(1, 1),
             path: vec![Cell::new(1, 1)],
             needs_repath: false,
             retry_budget: 100,
-        };
+        });
         assert_ne!(
             hash(&a),
             base,

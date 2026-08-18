@@ -169,6 +169,7 @@ pub fn handle_selection(
 /// Right-click issues a move order for the current selection.
 pub fn handle_orders(
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
     selection: Res<Selection>,
@@ -177,6 +178,7 @@ pub fn handle_orders(
     if !buttons.just_pressed(MouseButton::Right) || selection.is_empty() {
         return;
     }
+    let attack_move = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let Ok(window) = windows.single() else { return };
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
@@ -193,10 +195,106 @@ pub fn handle_orders(
         return;
     }
 
-    session.issue(CommandKind::Move {
-        units: selection.units.clone(),
-        target,
+    // Right-clicking a visible enemy attacks it; holding Ctrl advances rather
+    // than repositioning. Both are what the original did, and both are what a
+    // player who has played one of these before will try first.
+    let local = session.local_player();
+    let clicked_enemy = session.sim().view().units().find(|(_, unit)| {
+        unit.owner != local
+            && unit.is_alive()
+            && unit.cell() == target
+            && session.sim().can_see(local, unit)
     });
+
+    if let Some((victim, _)) = clicked_enemy {
+        session.issue(CommandKind::Attack {
+            units: selection.units.clone(),
+            target: victim,
+        });
+    } else if attack_move {
+        session.issue(CommandKind::AttackMove {
+            units: selection.units.clone(),
+            target,
+        });
+    } else {
+        session.issue(CommandKind::Move {
+            units: selection.units.clone(),
+            target,
+        });
+    }
+}
+
+/// Named unit selections, recalled with the number keys.
+///
+/// Nine groups, as the original had. Held in the renderer rather than the
+/// simulation because they are a property of one player's interface: which
+/// units someone has filed under "3" changes nothing about the world, so
+/// putting it in simulation state would mean sending it over the network and
+/// hashing it for no reason at all.
+#[derive(Resource, Default)]
+pub struct ControlGroups {
+    groups: [Vec<EntityId>; 9],
+}
+
+impl ControlGroups {
+    pub fn assign(&mut self, index: usize, units: &[EntityId]) {
+        if let Some(slot) = self.groups.get_mut(index) {
+            slot.clear();
+            slot.extend_from_slice(units);
+        }
+    }
+
+    pub fn recall(&self, index: usize) -> &[EntityId] {
+        self.groups.get(index).map_or(&[], |g| g.as_slice())
+    }
+
+    /// Drops units that no longer exist.
+    ///
+    /// Without this a group slowly fills with the dead, and recalling it
+    /// selects fewer and fewer units with nothing to explain why.
+    pub fn forget_missing(&mut self, alive: &dyn Fn(EntityId) -> bool) {
+        for group in &mut self.groups {
+            group.retain(|id| alive(*id));
+        }
+    }
+}
+
+/// Number keys recall a group; `Ctrl` with a number assigns one.
+pub fn handle_control_groups(
+    keys: Res<ButtonInput<KeyCode>>,
+    session: Res<Session>,
+    mut groups: ResMut<ControlGroups>,
+    mut selection: ResMut<Selection>,
+) {
+    const DIGITS: [KeyCode; 9] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+
+    groups.forget_missing(&|id| session.sim().units().get(id).is_some());
+
+    let assigning = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    for (index, key) in DIGITS.iter().enumerate() {
+        if !keys.just_pressed(*key) {
+            continue;
+        }
+        if assigning {
+            groups.assign(index, &selection.units);
+        } else {
+            let recalled = groups.recall(index).to_vec();
+            if !recalled.is_empty() {
+                selection.set(recalled);
+            }
+        }
+        return;
+    }
 }
 
 /// `S` stops the selection; `Escape` clears it.

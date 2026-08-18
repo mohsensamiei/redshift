@@ -49,6 +49,15 @@ pub enum CommandKind {
         /// Where its footprint should start.
         at: Cell,
     },
+    /// Advance to a place, stopping to fight whatever is met on the way.
+    AttackMove { units: Vec<EntityId>, target: Cell },
+    /// Attack a specific unit, closing on it if necessary.
+    Attack {
+        units: Vec<EntityId>,
+        target: EntityId,
+    },
+    /// Hold this ground and engage whatever comes near.
+    Guard { units: Vec<EntityId> },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -110,6 +119,33 @@ impl StateHash for Command {
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
                 h.write_u16(kind.0);
+            }
+            CommandKind::AttackMove { units, target } => {
+                h.write_u8(5);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
+                h.write(target);
+            }
+            CommandKind::Attack { units, target } => {
+                h.write_u8(6);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
+                h.write_u32(target.index());
+                h.write_u32(target.generation());
+            }
+            CommandKind::Guard { units } => {
+                h.write_u8(7);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
             }
             CommandKind::PlaceBuilding { producer, at } => {
                 h.write_u8(4);

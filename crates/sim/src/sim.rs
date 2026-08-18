@@ -23,7 +23,7 @@ use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
 use crate::unit::{
     ARRIVAL_TOLERANCE, FIRING_ARC, HarvestStage, MAX_SEPARATION_STEP, MOVE_ALIGNMENT, Order,
-    SEPARATION_EPSILON, Unit,
+    SEPARATION_EPSILON, Travel, Unit,
 };
 use crate::vision::Visibility;
 use crate::{TICKS_PER_SECOND, Tick};
@@ -255,6 +255,12 @@ const EXIT_SEARCH_RADIUS: i32 = 5;
 /// in TODO.md alongside the low-power ratio.
 const BUILD_RADIUS: i32 = 8;
 
+/// How far a guarding unit may be drawn from its post before walking back.
+///
+/// Without a leash a guard would chase a target across the map and the order
+/// would be indistinguishable from attack-move.
+const GUARD_LEASH: i32 = 4;
+
 /// How far around a refinery a harvester will look for somewhere to pull up.
 ///
 /// Wider than the largest footprint, so a harvester can always find the edge of
@@ -429,6 +435,7 @@ impl Sim {
         self.apply_commands(commands);
         self.run_production();
         self.run_harvesters();
+        self.update_engagements();
         self.service_path_requests();
         self.move_units();
         self.separate_units();
@@ -1203,6 +1210,38 @@ impl Sim {
                 CommandKind::CancelProduction { building, index } => {
                     self.order_cancel_production(command.player, *building, *index as usize);
                 }
+                CommandKind::AttackMove { units, target } => {
+                    self.order_group_move(command.player, units, *target);
+                    // Reissued as attack-move: the group move already worked
+                    // out a formation and a route for each unit, and only the
+                    // kind of order differs.
+                    for &id in units {
+                        if self.owned_by(id, command.player)
+                            && let Some(unit) = self.units.get_mut(id)
+                            && let Order::Move(travel) = unit.order.clone()
+                        {
+                            unit.order = Order::AttackMove(travel);
+                        }
+                    }
+                }
+                CommandKind::Attack { units, target } => {
+                    for &id in units {
+                        self.order_attack(command.player, id, *target);
+                    }
+                }
+                CommandKind::Guard { units } => {
+                    for &id in units {
+                        if self.owned_by(id, command.player)
+                            && let Some(unit) = self.units.get_mut(id)
+                        {
+                            let post = unit.cell();
+                            unit.order = Order::Guard {
+                                post,
+                                returning: None,
+                            };
+                        }
+                    }
+                }
                 CommandKind::PlaceBuilding { producer, at } => {
                     self.order_place_building(command.player, *producer, *at);
                 }
@@ -1255,6 +1294,122 @@ impl Sim {
             .and_then(|q| q.cancel(index));
         if let Some(refund) = refund {
             self.treasury.deposit(player, refund);
+        }
+    }
+
+    /// Orders a unit to attack a specific target.
+    ///
+    /// Refused for a target the player cannot see. Allowing it would let a
+    /// client with the fog switched off pick out units it has no business
+    /// knowing about — and, since the simulation and the interface would then
+    /// disagree about which orders are legal, desync the match.
+    fn order_attack(&mut self, player: PlayerId, id: EntityId, target: EntityId) {
+        if !self.owned_by(id, player) || id == target {
+            return;
+        }
+        let Some(victim) = self.units.get(target) else {
+            return;
+        };
+        if !victim.is_alive() || !self.can_see(player, victim) {
+            return;
+        }
+        let goal = victim.cell();
+        if let Some(unit) = self.units.get_mut(id) {
+            unit.order = Order::Attack {
+                target,
+                approach: Travel::to(goal, DEFAULT_NODE_BUDGET),
+            };
+        }
+        if !self.path_queue.contains(&id) {
+            self.path_queue.push(id);
+        }
+    }
+
+    /// Keeps attack, attack-move and guard orders honest.
+    ///
+    /// Run before movement so that a unit which should be standing still this
+    /// tick has already stopped, rather than taking one more step and then
+    /// noticing.
+    fn update_engagements(&mut self) {
+        for id in self.units.ids() {
+            let Some(unit) = self.units.get(id) else {
+                continue;
+            };
+            match unit.order.clone() {
+                Order::Attack { target, .. } => {
+                    let gone = self
+                        .units
+                        .get(target)
+                        .is_none_or(|v| !v.is_alive() || !self.can_see(unit.owner, v));
+                    if gone {
+                        // The target died or slipped into fog. Stopping is the
+                        // honest answer: chasing a remembered position would
+                        // walk the unit into an ambush it cannot see.
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Idle;
+                        }
+                        continue;
+                    }
+
+                    // Close only until the weapon reaches, then hold. Walking
+                    // all the way onto the target would push it about instead
+                    // of shooting it.
+                    let in_range = self
+                        .combat
+                        .weapon(unit.kind)
+                        .zip(self.units.get(target))
+                        .is_some_and(|(w, v)| {
+                            Fx::dist_sq(v.pos.x - unit.pos.x, v.pos.y - unit.pos.y) <= w.range_sq
+                        });
+                    let moved = self.units.get(target).map(|v| v.cell());
+                    if let Some(unit) = self.units.get_mut(id)
+                        && let Order::Attack { approach, .. } = &mut unit.order
+                    {
+                        if in_range {
+                            approach.path.clear();
+                            approach.needs_repath = false;
+                        } else if let Some(cell) = moved
+                            && approach.destination != cell
+                        {
+                            // The target moved: aim at where it is now.
+                            *approach = Travel::to(cell, DEFAULT_NODE_BUDGET);
+                            if !self.path_queue.contains(&id) {
+                                self.path_queue.push(id);
+                            }
+                        }
+                    }
+                }
+
+                Order::Guard { post, returning } => {
+                    let has_target = unit.combat.target.is_some();
+                    let drifted = unit.cell().chebyshev_to(post) > GUARD_LEASH;
+
+                    if has_target {
+                        // Fighting takes priority; walking home mid-fight would
+                        // present the unit's back to whatever it is shooting.
+                        if returning.is_some()
+                            && let Some(unit) = self.units.get_mut(id)
+                        {
+                            unit.order = Order::Guard {
+                                post,
+                                returning: None,
+                            };
+                        }
+                    } else if drifted && returning.is_none() {
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Guard {
+                                post,
+                                returning: Some(Travel::to(post, DEFAULT_NODE_BUDGET)),
+                            };
+                        }
+                        if !self.path_queue.contains(&id) {
+                            self.path_queue.push(id);
+                        }
+                    }
+                }
+
+                Order::AttackMove(_) | Order::Move(_) | Order::Idle => {}
+            }
         }
     }
 
@@ -1422,12 +1577,12 @@ impl Sim {
         let Some(unit) = self.units.get_mut(id) else {
             return;
         };
-        unit.order = Order::Move {
+        unit.order = Order::Move(Travel {
             destination: target,
             path: Vec::new(),
             needs_repath: true,
             retry_budget: DEFAULT_NODE_BUDGET,
-        };
+        });
         if !self.path_queue.contains(&id) {
             self.path_queue.push(id);
         }
@@ -1531,23 +1686,17 @@ impl Sim {
             let Some(unit) = self.units.get(id) else {
                 continue;
             };
-            let Order::Move {
-                destination,
-                needs_repath,
-                retry_budget,
-                ..
-            } = &unit.order
-            else {
+            let Some(travel) = unit.order.travel() else {
                 continue;
             };
-            if !needs_repath {
+            if !travel.needs_repath {
                 continue;
             }
 
             let start = unit.cell();
-            let goal = *destination;
+            let goal = travel.destination;
             let locomotor = self.stats.get(unit.owner, unit.kind).locomotor;
-            let budget = (*retry_budget).min(TICK_PATH_BUDGET - spent);
+            let budget = travel.retry_budget.min(TICK_PATH_BUDGET - spent);
 
             let result = path::find_path(
                 &self.map,
@@ -1562,36 +1711,38 @@ impl Sim {
             let Some(unit) = self.units.get_mut(id) else {
                 continue;
             };
+            // The travel state is updated in place rather than the order being
+            // replaced. Replacing it would quietly turn an attack-move into a
+            // plain move the first time a route was recomputed, and the unit
+            // would stop engaging without anything having obviously changed.
+            // A unit that is fighting stands and fights, provided its order
+            // allows it to. This is the entire difference between a move and an
+            // attack-move: a player repositioning an army expects it to arrive,
+            // not to stop at the first thing that shoots at it.
+            if unit.combat.target.is_some() && unit.order.engages_on_the_way() {
+                continue;
+            }
+
+            let Some(travel) = unit.order.travel_mut() else {
+                continue;
+            };
             match result {
                 PathResult::Found(cells) => {
-                    unit.order = Order::Move {
-                        destination: goal,
-                        path: cells,
-                        needs_repath: false,
-                        retry_budget: DEFAULT_NODE_BUDGET,
-                    };
+                    travel.path = cells;
+                    travel.needs_repath = false;
+                    travel.retry_budget = DEFAULT_NODE_BUDGET;
                 }
                 PathResult::Partial(cells) => {
-                    if cells.is_empty() {
+                    let empty = cells.is_empty();
+                    travel.path = cells;
+                    // Ask again on arrival: the goal may still be reachable, we
+                    // just could not afford to prove it.
+                    travel.needs_repath = true;
+                    travel.retry_budget = budget.saturating_mul(2).max(DEFAULT_NODE_BUDGET);
+                    if empty {
                         // No progress possible at this budget. Raise it and try
-                        // again next tick rather than spinning on the same
-                        // search forever.
-                        unit.order = Order::Move {
-                            destination: goal,
-                            path: Vec::new(),
-                            needs_repath: true,
-                            retry_budget: budget.saturating_mul(2).max(DEFAULT_NODE_BUDGET),
-                        };
+                        // again next tick rather than spinning forever.
                         deferred.push(id);
-                    } else {
-                        unit.order = Order::Move {
-                            destination: goal,
-                            path: cells,
-                            // Ask again on arrival; the goal may still be
-                            // reachable, we just could not afford to prove it.
-                            needs_repath: true,
-                            retry_budget: budget.saturating_mul(2).max(DEFAULT_NODE_BUDGET),
-                        };
                     }
                 }
                 PathResult::Unreachable => {
@@ -1623,10 +1774,10 @@ impl Sim {
         for (id, unit) in units.iter_mut() {
             let unit_stats = stats.get(unit.owner, unit.kind);
 
-            let Order::Move { path, .. } = &mut unit.order else {
+            let Some(travel) = unit.order.travel_mut() else {
                 continue;
             };
-            let Some(&waypoint) = path.first() else {
+            let Some(&waypoint) = travel.path.first() else {
                 // An empty route means the unit has nothing left to walk,
                 // whether it finished one or never received one. Either way the
                 // order is resolved below — leaving it in `Move` with no path
@@ -1651,8 +1802,8 @@ impl Sim {
                 // Snap to the waypoint rather than overshooting and correcting
                 // next tick, which would read as jitter.
                 unit.pos = target;
-                path.remove(0);
-                if path.is_empty() {
+                travel.path.remove(0);
+                if travel.path.is_empty() {
                     arrived.push(id);
                 }
             } else {
@@ -1668,14 +1819,10 @@ impl Sim {
             let Some(unit) = self.units.get(id) else {
                 continue;
             };
-            let Order::Move {
-                destination,
-                needs_repath,
-                ..
-            } = &unit.order
-            else {
+            let Some(travel) = unit.order.travel() else {
                 continue;
             };
+            let (destination, needs_repath) = (&travel.destination, &travel.needs_repath);
             let destination = *destination;
             let needs_repath = *needs_repath;
             let at_destination = unit.cell() == destination;
@@ -1685,7 +1832,14 @@ impl Sim {
             };
             if at_destination || !needs_repath {
                 // Arrived, or walked a route that was known to be complete.
-                unit.order = Order::Idle;
+                // A guard keeps its post rather than forgetting it.
+                unit.order = match &unit.order {
+                    Order::Guard { post, .. } => Order::Guard {
+                        post: *post,
+                        returning: None,
+                    },
+                    _ => Order::Idle,
+                };
             } else if !self.path_queue.contains(&id) {
                 // The route was partial: ask for the next leg.
                 self.path_queue.push(id);
@@ -1815,8 +1969,8 @@ pub fn total_remaining_distance(sim: &Sim) -> Fx {
     sim.units
         .iter()
         .filter_map(|(_, u)| match &u.order {
-            Order::Move { destination, .. } => Some(u.pos.dist(destination.centre())),
-            Order::Idle => None,
+            Order::Move(t) => Some(u.pos.dist(t.destination.centre())),
+            _ => None,
         })
         .sum()
 }

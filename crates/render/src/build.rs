@@ -23,11 +23,16 @@ use crate::world::fx_to_f32;
 ///
 /// Named rather than indexed, so the binding survives entities being added to
 /// the rules in a different order.
+/// Structures the function keys queue.
+///
+/// Not the number keys: those are control groups, as they were in the original
+/// and as anyone who has played one of these will assume. These bindings are a
+/// stopgap until there is a real sidebar to click.
 const HOTKEYS: [(KeyCode, &str); 4] = [
-    (KeyCode::Digit1, "power_plant"),
-    (KeyCode::Digit2, "barracks"),
-    (KeyCode::Digit3, "refinery"),
-    (KeyCode::Digit4, "war_factory"),
+    (KeyCode::F5, "power_plant"),
+    (KeyCode::F6, "barracks"),
+    (KeyCode::F7, "refinery"),
+    (KeyCode::F8, "war_factory"),
 ];
 
 /// Marks the translucent footprint that follows the cursor.

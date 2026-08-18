@@ -9,14 +9,17 @@
 //! which is the part that runs on the dedicated server too and the part CI can
 //! check without a GPU.
 
+use redshift_data::rules::{ArmourTable, EntityDef, Rules, WeaponDef};
+use redshift_data::traits::{Locomotor, Trait};
+use redshift_data::value::{Hundredths, Ticks};
 use redshift_sim::command::{Command, CommandKind, PlayerId};
 use redshift_sim::map::{Cell, Map, Terrain};
-use redshift_sim::sim::{MatchSetup, Sim};
+use redshift_sim::sim::{MatchSetup, PlayerSetup, Sim, Spawn};
 use redshift_sim::{EntityId, TICK_MS};
 
 /// Units on the field. The budget in `docs/04-rendering.md` is stated at "a few
 /// hundred"; 400 is the number quoted for the simulation tick.
-const UNIT_COUNT: i32 = 400;
+const UNIT_COUNT: i32 = 1200;
 
 /// Ticks to run. 600 at 20 Hz is thirty seconds of play.
 const TICKS: u32 = 600;
@@ -34,6 +37,7 @@ pub fn run() -> i32 {
     let mut sim = Sim::new(setup());
     let ids: Vec<EntityId> = sim.units().ids();
 
+    let mut paths_served = 0usize;
     let mut worst_ms = 0.0f32;
     let mut total_ms = 0.0f32;
     let mut worst_tick = 0;
@@ -60,9 +64,11 @@ pub fn run() -> i32 {
             ));
         }
 
+        let queued_before = sim.view().pending_paths();
         let started = std::time::Instant::now();
         sim.tick(&commands);
         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
+        paths_served += queued_before.saturating_sub(sim.view().pending_paths());
 
         total_ms += elapsed;
         if elapsed > worst_ms {
@@ -70,6 +76,21 @@ pub fn run() -> i32 {
             worst_tick = tick;
         }
     }
+
+    // Prove the run actually exercised what it claims to. A benchmark that
+    // silently measures nothing is worse than no benchmark: this one passed
+    // comfortably for weeks while skipping combat entirely, because the units
+    // it spawned had no weapons and all belonged to one player.
+    let engaged = sim
+        .units()
+        .iter()
+        .filter(|(_, u)| u.combat.target.is_some())
+        .count();
+    let damaged = sim
+        .units()
+        .iter()
+        .filter(|(_, u)| u.health < 100_000)
+        .count();
 
     let mean_ms = total_ms / TICKS as f32;
     let realtime_headroom = TICK_MS as f32 / worst_ms;
@@ -92,6 +113,13 @@ pub fn run() -> i32 {
     );
 
     println!();
+    println!("coverage — what this run actually exercised");
+    println!("{}", "-".repeat(46));
+    failures += require("units engaging a target", engaged, UNIT_COUNT as usize / 4);
+    failures += require("units that took damage", damaged, UNIT_COUNT as usize / 4);
+    failures += require("paths served", paths_served, 100);
+
+    println!();
     if failures == 0 {
         println!("PASS — within budget");
         0
@@ -100,6 +128,22 @@ pub fn run() -> i32 {
         println!("See docs/04-rendering.md. The budget is not the thing to change.");
         1
     }
+}
+
+/// Reports a coverage floor: a count that must be *at least* this large.
+///
+/// The inverse of a budget. A budget catches work that grew; this catches work
+/// that quietly stopped happening.
+fn require(name: &str, value: usize, floor: usize) -> i32 {
+    let under = value < floor;
+    println!(
+        "{:<22}{:>10}  {:>10}  {}",
+        name,
+        value,
+        format!(">= {floor}"),
+        if under { "NOT EXERCISED" } else { "ok" }
+    );
+    under as i32
 }
 
 fn report(name: &str, value: f32, ceiling: f32, unit: &str) -> i32 {
@@ -114,9 +158,89 @@ fn report(name: &str, value: f32, ceiling: f32, unit: &str) -> i32 {
     over as i32
 }
 
-/// A deliberately awkward map: obstacles everywhere, so pathfinding cannot
-/// shortcut. Measuring on open ground would flatter the numbers.
+/// Rules for the benchmark: two armed unit types and an armour table.
+///
+/// The benchmark builds its own rules rather than using the shared test set,
+/// because the shared set has no weapons. That mattered more than it sounds:
+/// with nothing armed, `acquire_and_fire` skipped every unit on the first line
+/// and the benchmark never measured combat at all.
+fn bench_rules() -> Rules {
+    let armour: ArmourTable = ron::from_str(
+        r#"(
+            classes: ["none", "heavy"],
+            table: {
+                "small_arms": { "none": 100, "heavy": 10 },
+                "ap_shell":   { "none": 40,  "heavy": 100 },
+            },
+        )"#,
+    )
+    .expect("armour table");
+
+    let weapons = vec![
+        WeaponDef {
+            id: "rifle".into(),
+            damage: 8,
+            warhead: "small_arms".into(),
+            reload: Ticks(12),
+            range: Hundredths(450),
+            splash_radius: Hundredths::ZERO,
+            projectile_speed: Hundredths::ZERO,
+        },
+        WeaponDef {
+            id: "cannon".into(),
+            damage: 20,
+            warhead: "ap_shell".into(),
+            reload: Ticks(30),
+            range: Hundredths(600),
+            splash_radius: Hundredths(40),
+            projectile_speed: Hundredths(2000),
+        },
+    ];
+
+    let unit = |id: &str, weapon: &str, armour: &str, category: &str, health: u32| EntityDef {
+        id: id.into(),
+        name_key: format!("unit.{id}"),
+        side: None,
+        category: category.into(),
+        traits: vec![
+            // Deliberately tough: the point is to keep four hundred units alive
+            // and fighting for the whole run, not to measure how fast a battle
+            // can end.
+            Trait::Health {
+                max: health,
+                armour: armour.into(),
+            },
+            Trait::Mobile {
+                speed: Hundredths(400),
+                turn_rate: 360,
+                locomotor: Locomotor::Tracked,
+            },
+            Trait::Armed {
+                weapon: weapon.into(),
+                turret: true,
+                turret_rate: 360,
+            },
+            Trait::Vision {
+                range: Hundredths(600),
+            },
+        ],
+    };
+
+    Rules::from_parts(
+        vec![
+            unit("rifleman", "rifle", "none", "infantry", 100_000),
+            unit("tank", "cannon", "heavy", "vehicle", 100_000),
+        ],
+        weapons,
+        armour,
+        Vec::new(),
+    )
+    .expect("benchmark rules should validate")
+}
+
+/// A deliberately awkward map
 fn setup() -> MatchSetup {
+    let rules = bench_rules();
     let mut map = Map::new(64, 64);
     for i in 0..6 {
         let x = 8 + i * 9;
@@ -125,24 +249,51 @@ fn setup() -> MatchSetup {
     }
     map.fill_rect(Cell::new(2, 30), Cell::new(12, 33), Terrain::Water);
 
+    let rifleman = rules.kind_of("rifleman").expect("rifleman");
+    let tank = rules.kind_of("tank").expect("tank");
+
+    // Two hostile players, interleaved across the map. A single-player field
+    // would leave every unit with nothing to target, which is the other half of
+    // why this benchmark used to skip combat entirely.
     let mut spawns = Vec::new();
     let mut placed = 0;
     let mut y = 2;
     while placed < UNIT_COUNT {
-        for x in 2..8 {
+        for x in 2..14 {
             if placed >= UNIT_COUNT {
                 break;
             }
             let cell = Cell::new(x, y);
-            if map.is_passable(cell, redshift_sim::Locomotor::Tracked) {
-                spawns.push((PlayerId(0), cell.centre()));
-                placed += 1;
+            if !map.is_passable(cell, Locomotor::Tracked) {
+                continue;
             }
+            spawns.push(Spawn {
+                owner: PlayerId((placed % 2) as u8),
+                kind: if placed % 3 == 0 { tank } else { rifleman },
+                pos: cell.centre(),
+            });
+            placed += 1;
         }
         y += 1;
         if y >= 62 {
             y = 2;
         }
     }
-    MatchSetup::for_test(0xBE0C_0DE0_0000_0001, map, spawns)
+
+    MatchSetup {
+        seed: 0xBE0C_0DE0_0000_0001,
+        map,
+        rules,
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns,
+    }
 }

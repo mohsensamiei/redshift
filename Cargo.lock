@@ -3650,9 +3650,11 @@ name = "redshift-app"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "redshift-data",
  "redshift-net",
  "redshift-render",
  "redshift-sim",
+ "ron",
 ]
 
 [[package]]

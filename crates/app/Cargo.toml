@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 redshift-sim = { workspace = true }
+redshift-data = { workspace = true }
+ron = { workspace = true }
 redshift-render = { workspace = true }
 redshift-net = { workspace = true }
 bevy = { workspace = true }

@@ -161,7 +161,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 - [ ] Complete rosters for both sides
 - [ ] Country modifiers and unique units
-- [ ] **The new country** — added with zero Rust changes
+- [ ] All nine of the original's countries, each with its unique unit and modifier
 - [ ] AI improvements and difficulty levels
 - [ ] Additional maps
 - [ ] Balance pass against the faithful baseline
@@ -177,6 +177,21 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [ ] Public docs and modding guide
 - [ ] Trademark-safe naming pass over all user-visible strings
 - [ ] Public relay server and community infrastructure
+
+---
+
+## Phase 7 — Beyond the remaster (not started, and not before Phase 6 ships)
+
+Requested additions, held until the faithful remaster exists. See
+docs/adr/0005-faithful-remaster-scope.md for why.
+
+- [ ] New countries: Iran, Israel, USA, Russia, China
+- [ ] Iran — cluster-warhead missiles (needs submunitions on weapons)
+- [ ] Israel — stealth strike aircraft (expressible with existing traits)
+- [ ] USA — carrier operating several aircraft (needs a Carrier trait)
+- [ ] Russia — heavy main battle tank (expressible with existing traits)
+- [ ] China — EMP vehicle that disables rather than destroys (proposed; needs a
+      disable effect distinct from damage, and is still open to discussion)
 
 ---
 

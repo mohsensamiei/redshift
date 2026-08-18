@@ -33,9 +33,33 @@ where it does not change unit speed or arrival timing.
 **Not allowed** — changed unit stats, costs or build times; new mechanics; altered economy rates;
 free camera rotation; changed tech tree structure.
 
-New countries are in scope, but only within the original's own framework — one unique unit or
-structure plus a passive modifier, which is exactly the pattern the original used for its
-countries.
+The original's own countries are in scope, each with its unique unit or structure and its
+passive modifier. *Additional* countries are not — see below.
+
+## The country roster is the original's, exactly
+
+Stated separately because it is the rule most likely to be quietly bent.
+
+**The shipped remaster has the same countries the original had — no more, no
+fewer.** They are:
+
+| Side | Countries |
+|---|---|
+| Allied | America, Korea, France, Germany, Great Britain |
+| Soviet | Russia, Iraq, Libya, Cuba |
+
+Each keeps its own unique unit or structure and its own passive advantage, as
+in the original.
+
+New countries are wanted, and are explicitly **not part of the remaster**. They
+come after it ships, as the first entry in a separate content phase. The
+reasoning is the same one that put netcode before art: a remaster that is
+"nearly faithful plus some new things" can never be checked against anything,
+because there is no longer a version of the game to compare it to. Finish the
+faithful one, confirm it plays like the original, and then add.
+
+This is not a judgement about the new countries. It is about having a finished,
+comparable baseline before changing it.
 
 ## Consequences
 

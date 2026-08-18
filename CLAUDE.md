@@ -51,14 +51,28 @@ Inside the simulation:
 - **No `sort_unstable_by` on partial orders.** Sorts must have a total, deterministic tie-break
   (fall back to entity id).
 
-### 4. No third-party game assets
+### 4. Ship the faithful remaster before changing anything
+
+The country roster is **exactly** the original's: America, Korea, France,
+Germany, Great Britain, Russia, Iraq, Libya, Cuba. No additions, no removals.
+
+New countries, new units and rebalancing are all wanted, and all come **after**
+the remaster ships. A remaster that is "nearly faithful plus some new things"
+cannot be checked against anything, because there is no longer a version of the
+game to compare it to.
+
+If a request arrives for new content mid-remaster, the answer is to record it
+for the content phase rather than to build it. See
+[docs/adr/0005-faithful-remaster-scope.md](docs/adr/0005-faithful-remaster-scope.md).
+
+### 5. No third-party game assets
 
 This project ships only assets we created. Do not add, extract, convert, or commit art, audio,
 video, or data files originating from any commercial release. Gameplay *values* (damage numbers,
 build costs, speeds) are re-derived and stored in our own data format; the original data files
 themselves are never redistributed.
 
-### 5. The performance budget is a test, not a wish
+### 6. The performance budget is a test, not a wish
 
 See [docs/04-rendering.md](docs/04-rendering.md). The budget is enforced by an automated check.
 If a change blows the budget, the change is wrong — not the budget.

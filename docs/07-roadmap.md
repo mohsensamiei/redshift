@@ -159,17 +159,17 @@ test from.
 
 ## Phase 5 — Content and factions
 
-*Goal: full rosters, plus the new country.*
+*Goal: the original's full rosters — every unit, structure and country it shipped with.*
 
 - Complete unit and structure rosters for both sides
 - Country modifiers and unique units for the original countries
-- **The new country**, added purely through data and art
 - Skirmish AI improvements, difficulty levels
 - More maps
 - Balance pass against the faithful baseline
 
 **Exit criteria**
-- The new country is added with **zero Rust changes** — one RON file, one model, one voice set
+- All nine of the original's countries are present, each with its unique unit and modifier
+- A country can be expressed with **zero Rust changes** — one RON file, one model, one voice set
 - AI plays a competent game on all difficulties
 - Multiplayer balance is stable across a run of test matches
 
@@ -190,6 +190,32 @@ test from.
 
 ---
 
+## Phase 7 — Beyond the remaster
+
+*Everything wanted that is not part of being faithful. Begins only once Phase 6
+has shipped a remaster that plays like the original.*
+
+Held here deliberately rather than folded into earlier phases: a remaster that
+is "nearly faithful plus some new things" cannot be checked against anything,
+because there is no longer a version of the game to compare it to. See
+[docs/adr/0005-faithful-remaster-scope.md](adr/0005-faithful-remaster-scope.md).
+
+**Requested and waiting:**
+
+- **New countries.** Iran (cluster-warhead missiles), Israel (a stealth
+  strike aircraft), USA (a carrier operating several aircraft), Russia (a
+  heavy main battle tank), China (an EMP vehicle that disables rather than
+  destroys — proposed, and the one still open to discussion).
+- The engine capabilities three of those need and the remaster does not: a
+  carrier trait that owns and rebuilds its own aircraft, cluster submunitions,
+  and a disable effect distinct from damage.
+- Rebalancing, if wanted at all, as an opt-in ruleset rather than a change to
+  the default.
+
+*No estimate. Scope is a conversation to have once the remaster exists.*
+
+---
+
 ## Summary
 
 | Phase | Deliverable | Estimate |
@@ -199,7 +225,7 @@ test from.
 | 2 | Internet play via relay | 3–4 weeks — *deferred* |
 | 3 | Core gameplay, placeholder art | 3–5 months |
 | 4 | Art, audio, feel | 4–8 months |
-| 5 | Full rosters and the new country | 2–4 months |
+| 5 | The original's full rosters | 2–4 months |
 | 6 | Release engineering | 1–2 months |
 
 **Realistically 18–30 months part-time.** Phases 0–2 are roughly three months and produce a

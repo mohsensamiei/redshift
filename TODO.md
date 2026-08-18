@@ -127,7 +127,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [ ] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [ ] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits
-- [ ] Construction: build queue, placement rules, prerequisites
+- [x] Construction: build queue, footprints, prerequisites — *placement by the player still to come*
 - [ ] Power grid and low-power effects
 - [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
 - [ ] Veterancy

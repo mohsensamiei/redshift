@@ -35,6 +35,7 @@ pub mod fx;
 pub mod hash;
 pub mod map;
 pub mod path;
+pub mod production;
 pub mod rng;
 pub mod sim;
 pub mod stats;
@@ -49,6 +50,7 @@ pub use economy::Treasury;
 pub use fx::{Angle, Fx, FxWide};
 pub use hash::{StateHash, StateHasher};
 pub use map::{Cell, Locomotor, Map, Terrain, WorldPos};
+pub use production::{ProductionItem, ProductionQueue};
 pub use rng::SimRng;
 pub use stats::{StatTable, UnitStats};
 

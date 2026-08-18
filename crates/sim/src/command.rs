@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use redshift_data::rules::EntityKind;
+
 use crate::arena::EntityId;
 use crate::hash::{StateHash, StateHasher};
 use crate::map::Cell;
@@ -33,6 +35,13 @@ pub enum CommandKind {
     Move { units: Vec<EntityId>, target: Cell },
     /// Cancel current orders and hold position.
     Stop { units: Vec<EntityId> },
+    /// Queue something at a production building.
+    Produce {
+        building: EntityId,
+        kind: EntityKind,
+    },
+    /// Remove a queued item by its position in the queue.
+    CancelProduction { building: EntityId, index: u8 },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -88,6 +97,18 @@ impl StateHash for Command {
                     h.write_u32(u.index());
                     h.write_u32(u.generation());
                 }
+            }
+            CommandKind::Produce { building, kind } => {
+                h.write_u8(2);
+                h.write_u32(building.index());
+                h.write_u32(building.generation());
+                h.write_u16(kind.0);
+            }
+            CommandKind::CancelProduction { building, index } => {
+                h.write_u8(3);
+                h.write_u32(building.index());
+                h.write_u32(building.generation());
+                h.write_u8(*index);
             }
         }
     }

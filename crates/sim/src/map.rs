@@ -237,6 +237,14 @@ pub struct Map {
     /// beneath never does. Folding it into the terrain enum would mean
     /// mutating passability every time a harvester took a load.
     ore: Vec<u16>,
+    /// Cells covered by a building's footprint.
+    ///
+    /// Kept on the map rather than derived from the units each time a path is
+    /// searched. Two reasons: pathfinding asks this question millions of times
+    /// and must not walk the entity list to answer it, and putting it here
+    /// means `is_passable` accounts for buildings automatically — so no code
+    /// that already knows how to avoid a cliff had to learn about buildings.
+    blocked: Vec<bool>,
 }
 
 impl Map {
@@ -250,6 +258,7 @@ impl Map {
             width,
             height,
             ore: vec![0; width as usize * height as usize],
+            blocked: vec![false; width as usize * height as usize],
             terrain: vec![Terrain::Ground; width as usize * height as usize],
         }
     }
@@ -322,7 +331,14 @@ impl Map {
 
     #[inline]
     pub fn is_passable(&self, cell: Cell, locomotor: Locomotor) -> bool {
-        self.contains(cell) && locomotor.can_enter(self.terrain(cell))
+        if !self.contains(cell) || !locomotor.can_enter(self.terrain(cell)) {
+            return false;
+        }
+        // Aircraft fly over buildings; everything on the surface goes round.
+        // Answering this here rather than in the pathfinder means every caller
+        // that already knew how to avoid a cliff avoids buildings too, with no
+        // change at all.
+        locomotor == Locomotor::Air || !self.is_blocked(cell)
     }
 
     /// Whether a diagonal step between two cells is allowed.
@@ -431,6 +447,54 @@ impl Map {
     }
 }
 
+impl Map {
+    /// Whether a cell is covered by a building.
+    #[inline]
+    pub fn is_blocked(&self, cell: Cell) -> bool {
+        self.index(cell).is_some_and(|i| self.blocked[i as usize])
+    }
+
+    /// Marks or clears a rectangle of cells as covered by a building.
+    pub fn set_blocked(&mut self, origin: Cell, width: u8, height: u8, blocked: bool) {
+        for dy in 0..height as i32 {
+            for dx in 0..width as i32 {
+                if let Some(i) = self.index(Cell::new(origin.x + dx, origin.y + dy)) {
+                    self.blocked[i as usize] = blocked;
+                }
+            }
+        }
+    }
+
+    /// Whether a building of this size could stand with its corner at `origin`.
+    ///
+    /// Every cell has to be on the map, buildable terrain, and free. Checked as
+    /// a whole rather than cell by cell at placement time, so a half-placed
+    /// building is not a state that can exist.
+    pub fn can_place(&self, origin: Cell, width: u8, height: u8) -> bool {
+        for dy in 0..height as i32 {
+            for dx in 0..width as i32 {
+                let cell = Cell::new(origin.x + dx, origin.y + dy);
+                if !self.contains(cell) {
+                    return false;
+                }
+                // Buildings need dry, level ground — the same surface a tracked
+                // unit can cross.
+                if self.terrain(cell) != Terrain::Ground {
+                    return false;
+                }
+                if self.is_blocked(cell) {
+                    return false;
+                }
+                // Ore under a foundation would be unreachable for good.
+                if self.has_ore(cell) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
 impl StateHash for Map {
     fn state_hash(&self, h: &mut StateHasher) {
         h.write_u16(self.width);
@@ -442,6 +506,9 @@ impl StateHash for Map {
         // about how much is left will disagree about credits a minute later.
         for amount in &self.ore {
             h.write_u16(*amount);
+        }
+        for b in &self.blocked {
+            h.write_bool(*b);
         }
     }
 }

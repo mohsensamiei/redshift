@@ -340,6 +340,36 @@ fn harvesters_never_drive_into_water_to_reach_ore() {
 }
 
 #[test]
+fn a_harvester_reaches_a_refinery_that_occupies_its_own_ground() {
+    // The regression this pins: once buildings started blocking the cells they
+    // stand on, harvesters were still being sent to the refinery's *centre*.
+    // Pathfinding correctly reported no route into a solid building, so every
+    // harvester walked to the edge, gave up, and the economy silently stopped
+    // earning while still looking busy.
+    let mut sim = Sim::new(scenario(2, Cell::new(24, 24), 3));
+
+    let refinery_cell = sim
+        .units()
+        .iter()
+        .find(|(_, u)| u.harvest.is_none())
+        .map(|(_, u)| u.cell())
+        .expect("a refinery");
+    assert!(
+        sim.map().is_blocked(refinery_cell),
+        "the test needs a refinery that actually occupies ground"
+    );
+
+    let before = credits(&sim);
+    for _ in 0..2_000 {
+        sim.tick(&[]);
+    }
+    assert!(
+        credits(&sim) > before,
+        "harvesters never delivered to a refinery standing on its own footprint"
+    );
+}
+
+#[test]
 fn the_economy_is_deterministic() {
     // The point of the whole exercise. Free choice with no command stream, run
     // twice, must land in exactly the same place.

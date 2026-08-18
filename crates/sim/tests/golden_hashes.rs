@@ -66,22 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when the economy landed. Units carry harvest state, the map
-/// carries ore, and the world carries a treasury — all of which the hash now
-/// covers. Determinism was confirmed first, including the new autonomous
-/// harvester cycle, which is the first behaviour in the project with no
-/// command stream to correct a peer that chose differently.
+/// Re-recorded when construction landed. Buildings occupy the ground they
+/// stand on, which the map now carries, and units carry a build queue.
+/// Determinism was confirmed first, across all five behaviour suites.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x457cc4ed775d7e61),
-    (50, 0xc4ecf1f8267a98a9),
-    (100, 0x6609311cdbec3614),
-    (200, 0xf5973ca5e6fe0106),
-    (400, 0xf60dc1dcc44d5f25),
+    (10, 0x0d52b74d0c290e1b),
+    (50, 0x756cd49a3753316d),
+    (100, 0x3c9d6b203bb7e9d6),
+    (200, 0x69dc793691ecf82c),
+    (400, 0xae85b09cfaf37b99),
 ];
 
 #[test]

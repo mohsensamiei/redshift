@@ -156,6 +156,11 @@ pub struct Unit {
     /// `None` for everything else, so the harvester pass can skip them without
     /// consulting the rules.
     pub harvest: Option<crate::unit::HarvestState>,
+    /// The build queue, for buildings that produce.
+    ///
+    /// `None` for everything else, so the production pass can skip most of the
+    /// world without consulting the rules.
+    pub production: Option<crate::production::ProductionQueue>,
     /// Targeting and reload state.
     ///
     /// Deliberately separate from [`Order`]: a unit shoots *while* moving.
@@ -174,6 +179,7 @@ impl Unit {
             health: max_health,
             order: Order::Idle,
             harvest: None,
+            production: None,
             combat: crate::combat::CombatState::default(),
         }
     }
@@ -207,6 +213,13 @@ impl StateHash for Unit {
             Some(state) => {
                 h.write_u8(1);
                 h.write(state);
+            }
+            None => h.write_u8(0),
+        }
+        match &self.production {
+            Some(queue) => {
+                h.write_u8(1);
+                h.write(queue);
             }
             None => h.write_u8(0),
         }

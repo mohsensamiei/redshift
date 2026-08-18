@@ -35,7 +35,7 @@ const FULL_TURN: i64 = 65_536;
 ///
 /// Everything is already in per-tick terms and fixed point. Nothing here needs
 /// converting again.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnitStats {
     pub max_health: u32,
     /// Cells travelled per tick.
@@ -61,6 +61,12 @@ pub struct UnitStats {
     pub harvest_capacity: Option<u32>,
     /// Ore gathered per bite, in hundredths of a unit.
     pub gather_rate: u32,
+    /// Cells this occupies, as `(width, height)`.
+    ///
+    /// `(1, 1)` for anything without a declared footprint. Buildings state
+    /// theirs; units are a single cell and are kept apart by their radius
+    /// instead, since they move and a building does not.
+    pub footprint: (u8, u8),
     /// Whether harvesters can unload here.
     pub is_refinery: bool,
     /// Physical radius, for keeping units out of each other.
@@ -70,6 +76,30 @@ pub struct UnitStats {
     /// shape. A unit whose drawn box is wider than its collision radius reads
     /// as clipping through its neighbours.
     pub radius: Fx,
+}
+
+impl Default for UnitStats {
+    fn default() -> Self {
+        UnitStats {
+            max_health: 0,
+            speed: Fx::ZERO,
+            turn_rate: 0,
+            locomotor: Locomotor::default(),
+            vision: Fx::ZERO,
+            selection_priority: 0,
+            cost: 0,
+            build_time: 0,
+            can_crush: false,
+            mobile: false,
+            harvest_capacity: None,
+            gather_rate: 0,
+            is_refinery: false,
+            // One cell, not zero. A zero footprint would make a thing occupy
+            // nothing and stack invisibly with everything else.
+            footprint: (1, 1),
+            radius: Fx::ZERO,
+        }
+    }
 }
 
 impl StateHash for UnitStats {
@@ -87,6 +117,8 @@ impl StateHash for UnitStats {
         h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
         h.write_u32(self.gather_rate);
         h.write_bool(self.is_refinery);
+        h.write_u8(self.footprint.0);
+        h.write_u8(self.footprint.1);
     }
 }
 
@@ -195,6 +227,9 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.gather_rate = gather_rate.0.max(0) as u32;
             }
             Trait::Refinery { .. } => stats.is_refinery = true,
+            Trait::Footprint { width, height } => {
+                stats.footprint = ((*width).max(1), (*height).max(1))
+            }
             Trait::Buildable {
                 cost, build_time, ..
             } => {

@@ -17,6 +17,7 @@ use crate::fx::{Angle, Fx};
 use crate::hash::StateHasher;
 use crate::map::{Cell, Locomotor, Map, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
+use crate::production::{ProductionItem, ProductionQueue};
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
 use crate::unit::{
@@ -199,6 +200,28 @@ const UNLOAD_RANGE: Fx = Fx::from_frac(250, 100);
 /// without being able to skip the early economy.
 const STARTING_CREDITS: u32 = 5_000;
 
+/// The top-left cell of a footprint centred on `centre`.
+///
+/// A building's position is its centre, but its footprint is laid out from a
+/// corner. Deriving one from the other in a single place keeps placement,
+/// occupancy and release from disagreeing — three sites that must all pick the
+/// same cells or a building leaves a permanent hole in the map when it dies.
+pub fn footprint_origin(centre: Cell, footprint: (u8, u8)) -> Cell {
+    Cell::new(
+        centre.x - (footprint.0 as i32 - 1) / 2,
+        centre.y - (footprint.1 as i32 - 1) / 2,
+    )
+}
+
+/// How far from a factory a new unit will look for somewhere to stand.
+const EXIT_SEARCH_RADIUS: i32 = 5;
+
+/// How far around a refinery a harvester will look for somewhere to pull up.
+///
+/// Wider than the largest footprint, so a harvester can always find the edge of
+/// the building it is aiming for.
+const UNLOAD_APPROACH: i32 = 4;
+
 /// The simulated world.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sim {
@@ -258,13 +281,14 @@ impl Sim {
         };
         let stats = StatTable::resolve(&setup.rules, &factions);
 
+        let mut map = setup.map;
         let mut units = Arena::with_capacity(setup.spawns.len());
         for spawn in &setup.spawns {
             let spawn_stats = stats.get(spawn.owner, spawn.kind);
             let mut unit = Unit::new(
                 spawn.owner,
                 spawn.kind,
-                setup.map.clamp_pos(spawn.pos),
+                map.clamp_pos(spawn.pos),
                 spawn_stats.max_health,
             );
             // Harvesters begin their cycle the moment they exist. Waiting for
@@ -273,12 +297,23 @@ impl Sim {
             if spawn_stats.harvest_capacity.is_some() {
                 unit.harvest = Some(crate::unit::HarvestState::default());
             }
+            // A building's footprint is claimed the moment it exists, so
+            // pathfinding never routes a unit through one.
+            if spawn_stats.footprint != (1, 1) {
+                let origin = footprint_origin(unit.cell(), spawn_stats.footprint);
+                map.set_blocked(
+                    origin,
+                    spawn_stats.footprint.0,
+                    spawn_stats.footprint.1,
+                    true,
+                );
+            }
             units.insert(unit);
         }
-        let workspace = PathWorkspace::new(setup.map.cell_count());
+        let workspace = PathWorkspace::new(map.cell_count());
         Sim {
             tick: 0,
-            map: setup.map,
+            map,
             units,
             rng: SimRng::new(setup.seed),
             path_queue: Vec::new(),
@@ -363,6 +398,7 @@ impl Sim {
         );
 
         self.apply_commands(commands);
+        self.run_production();
         self.run_harvesters();
         self.service_path_requests();
         self.move_units();
@@ -372,6 +408,93 @@ impl Sim {
         self.remove_the_dead();
 
         self.tick += 1;
+    }
+
+    // -- Production ----------------------------------------------------------
+
+    /// Advances every build queue by one tick.
+    ///
+    /// Queues are visited in arena order and each is offered the player's whole
+    /// remaining balance in turn, so with two factories and not enough money
+    /// the lower-indexed one is funded first. That is arbitrary but it has to
+    /// be *decided*: splitting the balance evenly would be equally arbitrary
+    /// and would stall both instead of finishing one.
+    fn run_production(&mut self) {
+        for id in self.units.ids() {
+            let Some(unit) = self.units.get(id) else {
+                continue;
+            };
+            if unit.production.as_ref().is_none_or(|q| q.is_empty()) || !unit.is_alive() {
+                continue;
+            }
+            let owner = unit.owner;
+            let available = self.treasury.credits(owner);
+
+            let Some(queue) = self.units.get_mut(id).and_then(|u| u.production.as_mut()) else {
+                continue;
+            };
+            let step = queue.tick(available);
+
+            if step.spent > 0 {
+                // Reported by the queue and applied here, so credits are only
+                // ever created or destroyed in one place.
+                let paid = self.treasury.try_spend(owner, step.spent);
+                debug_assert!(paid, "the queue spent more than it was offered");
+            }
+
+            if let Some(kind) = step.completed {
+                self.deliver_produced(id, owner, kind);
+            }
+        }
+    }
+
+    /// Places a newly built unit next to the building that made it.
+    ///
+    /// If there is nowhere to put it, the unit is *not* lost: the item goes
+    /// back to the front of the queue, fully paid, and is delivered as soon as
+    /// room appears. Destroying a paid-for unit because a factory was boxed in
+    /// would be an infuriating way to lose a match.
+    fn deliver_produced(&mut self, building: EntityId, owner: PlayerId, kind: EntityKind) {
+        let Some(unit) = self.units.get(building) else {
+            return;
+        };
+        let origin = unit.cell();
+        let locomotor = self.stats.get(owner, kind).locomotor;
+
+        let spot = self.free_cell_near(origin, locomotor, EXIT_SEARCH_RADIUS);
+
+        match spot {
+            Some(cell) => {
+                self.spawn_unit(owner, kind, cell.centre());
+            }
+            None => {
+                if let Some(queue) = self
+                    .units
+                    .get_mut(building)
+                    .and_then(|u| u.production.as_mut())
+                {
+                    let mut finished = ProductionItem::new(kind, 0, 1);
+                    finished.progress = finished.duration;
+                    queue.hold_completed(finished);
+                }
+            }
+        }
+    }
+
+    /// The nearest cell to `origin` that `locomotor` can stand on.
+    ///
+    /// Needed because a building's own cells are impassable once it occupies
+    /// them. Anything that wants to *reach* a building — a harvester coming to
+    /// unload, a freshly built unit driving out — has to aim beside it rather
+    /// than at it, or pathfinding correctly reports no route and the unit
+    /// simply gives up.
+    fn free_cell_near(&self, origin: Cell, locomotor: Locomotor, radius: i32) -> Option<Cell> {
+        (0..=radius).find_map(|r| {
+            ring_offsets(r).into_iter().find_map(|(dx, dy)| {
+                let cell = Cell::new(origin.x + dx, origin.y + dy);
+                self.map.is_passable(cell, locomotor).then_some(cell)
+            })
+        })
     }
 
     // -- Economy -------------------------------------------------------------
@@ -486,8 +609,14 @@ impl Sim {
                         self.set_harvest(id, |h| h.load = 0);
                         self.assign_field(id, cell, &claimed);
                     } else if !travelling {
-                        // Not there and not moving: head for the refinery.
-                        self.order_move(owner, id, target_cell);
+                        // Beside the refinery, not into it: its own cells are
+                        // impassable, so aiming at the centre would correctly
+                        // find no route and the harvester would give up.
+                        if let Some(approach) =
+                            self.free_cell_near(target_cell, stats.locomotor, UNLOAD_APPROACH)
+                        {
+                            self.order_move(owner, id, approach);
+                        }
                     }
                 }
             }
@@ -535,7 +664,14 @@ impl Sim {
         if let Some(refinery) = refinery
             && let Some(cell) = self.units.get(refinery).map(|u| u.cell())
         {
-            self.order_move(owner, id, cell);
+            let locomotor = self
+                .units
+                .get(id)
+                .map(|u| self.stats.get(u.owner, u.kind).locomotor)
+                .unwrap_or_default();
+            if let Some(approach) = self.free_cell_near(cell, locomotor, UNLOAD_APPROACH) {
+                self.order_move(owner, id, approach);
+            }
         }
     }
 
@@ -853,6 +989,24 @@ impl Sim {
     /// After all damage, so a unit that dies this tick still got to fire —
     /// which is what makes two evenly matched units able to destroy each other.
     fn remove_the_dead(&mut self) {
+        // A destroyed building has to release its footprint, or it leaves a
+        // permanent hole in the map that nothing can walk through and nothing
+        // can build on — invisible, and impossible to explain to a player.
+        let released: Vec<(Cell, (u8, u8))> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter_map(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                (stats.footprint != (1, 1)).then(|| (u.cell(), stats.footprint))
+            })
+            .collect();
+        for (centre, footprint) in released {
+            let origin = footprint_origin(centre, footprint);
+            self.map
+                .set_blocked(origin, footprint.0, footprint.1, false);
+        }
+
         self.units.retain(|_, unit| unit.is_alive());
     }
 
@@ -873,8 +1027,107 @@ impl Sim {
                         }
                     }
                 }
+                CommandKind::Produce { building, kind } => {
+                    self.order_produce(command.player, *building, *kind);
+                }
+                CommandKind::CancelProduction { building, index } => {
+                    self.order_cancel_production(command.player, *building, *index as usize);
+                }
             }
         }
+    }
+
+    /// Queues an item at a production building.
+    ///
+    /// Every condition is checked here rather than in the interface. A modified
+    /// client could send anything, and — more importantly — every peer has to
+    /// reach the same answer about whether a queue happened, or their
+    /// simulations diverge on the next tick.
+    fn order_produce(&mut self, player: PlayerId, building: EntityId, kind: EntityKind) {
+        if !self.owned_by(building, player) {
+            return;
+        }
+        let Some(unit) = self.units.get(building) else {
+            return;
+        };
+        if !unit.is_alive() {
+            return;
+        }
+        // The building must actually make this sort of thing.
+        if !self.can_produce(unit.kind, kind) {
+            return;
+        }
+        if !self.prerequisites_met(player, kind) {
+            return;
+        }
+
+        let stats = self.stats.get(player, kind);
+        let item = ProductionItem::new(kind, stats.cost, stats.build_time);
+
+        if let Some(unit) = self.units.get_mut(building) {
+            unit.production
+                .get_or_insert_with(ProductionQueue::default)
+                .enqueue(item);
+        }
+    }
+
+    fn order_cancel_production(&mut self, player: PlayerId, building: EntityId, index: usize) {
+        if !self.owned_by(building, player) {
+            return;
+        }
+        let refund = self
+            .units
+            .get_mut(building)
+            .and_then(|u| u.production.as_mut())
+            .and_then(|q| q.cancel(index));
+        if let Some(refund) = refund {
+            self.treasury.deposit(player, refund);
+        }
+    }
+
+    /// Whether a producer of `producer_kind` makes things of `kind`.
+    ///
+    /// Matched on the produced thing's *category* against the producer's
+    /// declared list, so a new unit slots into an existing factory by naming
+    /// its category — no code, which is the whole point of the data layer.
+    fn can_produce(&self, producer_kind: EntityKind, kind: EntityKind) -> bool {
+        let producer = self.rules.entity(producer_kind);
+        let produced = self.rules.entity(kind);
+        producer.traits.iter().any(|t| match t {
+            redshift_data::traits::Trait::Produces { categories } => {
+                categories.contains(&produced.category)
+            }
+            _ => false,
+        })
+    }
+
+    /// Whether a player owns everything an item requires.
+    ///
+    /// Prerequisites name entity ids, and a player satisfies one by owning a
+    /// living entity of that kind. Buildings under construction do not count —
+    /// they are not yet entities.
+    pub fn prerequisites_met(&self, player: PlayerId, kind: EntityKind) -> bool {
+        let needed: Vec<&String> = self
+            .rules
+            .entity(kind)
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                redshift_data::traits::Trait::Buildable { prerequisites, .. } => {
+                    Some(prerequisites)
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        needed.iter().all(|required| {
+            self.rules.kind_of(required).is_some_and(|required_kind| {
+                self.units
+                    .iter()
+                    .any(|(_, u)| u.owner == player && u.is_alive() && u.kind == required_kind)
+            })
+        })
     }
 
     /// Rejects a command for a unit the issuing player does not own.

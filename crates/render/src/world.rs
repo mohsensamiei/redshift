@@ -70,31 +70,40 @@ const TEAM_COLOURS: [(u8, u8, u8); 4] = [
 /// is already data, and a unit's category already says whether it walks or
 /// drives. Guessing here from the same source keeps the placeholder honest —
 /// when a real model replaces it in Phase 4, it drops into the same volume.
-fn placeholder_size(def: &redshift_sim::EntityDef) -> Vec3 {
-    use redshift_sim::Trait;
-    // A structure states its own footprint.
-    if let Some(Trait::Footprint { width, height }) = def
-        .traits
-        .iter()
-        .find(|t| matches!(t, Trait::Footprint { .. }))
-    {
-        return Vec3::new(*width as f32 * 0.9, 0.9, *height as f32 * 0.9);
-    }
+fn placeholder_size(def: &redshift_sim::EntityDef, radius: f32) -> Vec3 {
+    // Footprint comes from the simulation's collision radius, not from a second
+    // table kept beside it. Two hand-maintained lists drift, and when they do
+    // the result is units that visibly overlap while the simulation considers
+    // them well clear — which reads as the collision being broken.
+    let footprint = radius * 2.0;
 
-    match def.category.as_str() {
-        // Narrow and tall, so a squad reads as people rather than as crates.
-        "infantry" => Vec3::new(0.28, 0.55, 0.28),
-        // Wide and low: the classic tank silhouette at this zoom.
-        "vehicle" => Vec3::new(0.62, 0.38, 0.78),
-        "aircraft" => Vec3::new(0.7, 0.22, 0.7),
-        "ship" => Vec3::new(0.8, 0.35, 1.2),
-        "structure" => Vec3::new(1.8, 1.0, 1.8),
-        _ => Vec3::new(UNIT_WIDTH, UNIT_HEIGHT, UNIT_WIDTH),
-    }
+    // Height is presentation only: nothing in the simulation has a vertical
+    // extent, so it is chosen for silhouette rather than derived.
+    let height = match def.category.as_str() {
+        // Tall and narrow, so a squad reads as people rather than as crates.
+        "infantry" => 0.55,
+        // Low and wide: the classic tank silhouette at this zoom.
+        "vehicle" => 0.38,
+        "aircraft" => 0.22,
+        "ship" => 0.35,
+        "structure" => 1.0,
+        _ => UNIT_HEIGHT,
+    };
+
+    // Vehicles and ships read better slightly longer than they are wide, which
+    // also gives the fixed camera something to show a heading against.
+    let elongation = match def.category.as_str() {
+        "vehicle" => 1.2,
+        "ship" => 1.5,
+        _ => 1.0,
+    };
+
+    Vec3::new(footprint, height, footprint * elongation)
 }
 
 pub fn build_assets(
     rules: &redshift_sim::Rules,
+    stats: &redshift_sim::StatTable,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) -> RenderAssets {
@@ -109,7 +118,9 @@ pub fn build_assets(
             unit_meshes.len(),
             "kinds must be dense and in order"
         );
-        let size = placeholder_size(def);
+        // The simulation is the authority on how much room a unit takes up.
+        let radius = fx_to_f32(stats.get(redshift_sim::PlayerId(0), kind).radius);
+        let size = placeholder_size(def, radius);
         unit_meshes.push(meshes.add(Cuboid::new(size.x, size.y, size.z)));
         unit_half_heights.push(size.y / 2.0);
     }

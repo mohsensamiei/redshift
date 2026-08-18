@@ -66,21 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when units stopped walking through each other. Positions now
-/// carry the separation push, and a group ordered to one cell is spread into a
-/// formation around it rather than stacked on it, so the world genuinely
-/// differs from tick one. Determinism was confirmed first.
+/// Re-recorded when collision radii were resized to match what the renderer
+/// draws. Units take up different room, so they settle in different places.
+/// Determinism was confirmed first.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xa43e3609db3f0764),
-    (50, 0x0158d493b2d51665),
-    (100, 0xcc41941b4b631180),
-    (200, 0x65b9a5aea20f0ed5),
-    (400, 0xf3fb337b46f3e32b),
+    (10, 0x0bad7877e887a109),
+    (50, 0x5f9b79310101db63),
+    (100, 0x29010ec8d0c182f4),
+    (200, 0xd57e2bdd930ad8ae),
+    (400, 0x072da0abf4c0cc33),
 ];
 
 #[test]

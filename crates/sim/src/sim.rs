@@ -1037,6 +1037,30 @@ impl<'a> WorldView<'a> {
     }
 
     #[inline]
+    /// A unit's resolved stats, as its owner fields them.
+    ///
+    /// The renderer needs the maximum health to draw a health bar, and the
+    /// radius to size a selection ring. Both live in the stat table rather than
+    /// on the unit, so the view has to reach them.
+    pub fn stats_of(&self, id: EntityId) -> Option<UnitStats> {
+        self.unit(id).map(|u| self.sim.stats.get(u.owner, u.kind))
+    }
+
+    /// How hurt a unit is, as a percentage of its maximum.
+    ///
+    /// Returned as an integer percentage rather than a fraction: the caller is
+    /// the renderer, which will turn it into a float anyway, and keeping the
+    /// simulation side integral means this can be used in simulation code too
+    /// without introducing the one float that ruins everything.
+    pub fn health_percent(&self, id: EntityId) -> Option<u32> {
+        let unit = self.unit(id)?;
+        let max = self.sim.stats.get(unit.owner, unit.kind).max_health;
+        if max == 0 {
+            return None;
+        }
+        Some(((unit.health as u64 * 100) / max as u64) as u32)
+    }
+
     pub fn unit_count(&self) -> usize {
         self.sim.units.len()
     }

@@ -20,6 +20,7 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
 pub mod camera;
+pub mod health;
 pub mod input;
 pub mod overlay;
 pub mod session;
@@ -125,6 +126,7 @@ impl Plugin for RedshiftRenderPlugin {
                 session::advance_session,
                 (world::sync_units, world::interpolate_units).chain(),
                 (input::sync_selection_rings, input::move_selection_rings).chain(),
+                (health::sync_health_bars, health::update_health_bars).chain(),
                 camera::update_camera,
                 (
                     overlay::toggle_overlay,
@@ -195,8 +197,16 @@ fn setup(
         Transform::IDENTITY,
     ));
 
-    let assets = world::build_assets(session.sim().rules(), &mut meshes, &mut materials);
+    let assets = world::build_assets(
+        session.sim().rules(),
+        session.sim().stats(),
+        &mut meshes,
+        &mut materials,
+    );
     commands.insert_resource(assets);
+
+    let health_assets = health::build_health_assets(&mut meshes, &mut materials);
+    commands.insert_resource(health_assets);
 
     world::spawn_lighting(&mut commands);
     camera::spawn_camera(&mut commands, &rig);

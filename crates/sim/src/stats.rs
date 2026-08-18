@@ -146,10 +146,10 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
     // sized by what it is. These match the renderer's placeholder proportions,
     // so what the player sees is what the simulation enforces.
     let radius = match def.category.as_str() {
-        "infantry" => Fx::from_frac(18, 100),
-        "vehicle" => Fx::from_frac(34, 100),
+        "infantry" => Fx::from_frac(16, 100),
+        "vehicle" => Fx::from_frac(39, 100),
         "aircraft" => Fx::from_frac(35, 100),
-        "ship" => Fx::from_frac(50, 100),
+        "ship" => Fx::from_frac(60, 100),
         "structure" => Fx::from_frac(90, 100),
         _ => Fx::from_frac(30, 100),
     };

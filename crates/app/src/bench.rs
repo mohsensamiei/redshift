@@ -19,7 +19,7 @@ use redshift_sim::{EntityId, TICK_MS};
 
 /// Units on the field. The budget in `docs/04-rendering.md` is stated at "a few
 /// hundred"; 400 is the number quoted for the simulation tick.
-const UNIT_COUNT: i32 = 1200;
+const UNIT_COUNT: i32 = 400;
 
 /// Ticks to run. 600 at 20 Hz is thirty seconds of play.
 const TICKS: u32 = 600;

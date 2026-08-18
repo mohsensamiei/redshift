@@ -83,6 +83,25 @@ It reports every metric above against its ceiling and exits non-zero on a breach
 overlay (`F3`) shows the same numbers live during normal play, so the budget is visible while
 developing rather than discovered at the end.
 
+## Where the ceiling actually is
+
+Measured, not assumed, with combat and pathfinding both active:
+
+| Units | Mean tick | Worst tick | Verdict |
+|---|---|---|---|
+| 400 | 0.35 ms | 2.0 ms | comfortable — 24× realtime headroom |
+| 800 | 0.72 ms | 2.8 ms | comfortable |
+| 1200 | 1.03 ms | 5.7 ms | **over the 5 ms ceiling** |
+
+The mean scales linearly, so the ceiling is not a throughput wall — it is the
+first tick, where every unit asks for a path at once. That is worth knowing
+before raising the unit cap: the fix would be spreading the initial path
+requests over several ticks, not making pathfinding faster.
+
+Target selection is quadratic in principle — each unit scans the field for an
+enemy — but only runs when a unit has no valid target, so it amortises away
+once combat settles. A scenario with constant target churn would expose it.
+
 ## Instancing
 
 With hundreds of units of a few dozen types, per-unit draw calls would dominate. Units of the

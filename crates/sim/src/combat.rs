@@ -34,7 +34,7 @@ use crate::map::WorldPos;
 use crate::unit::Unit;
 
 /// A unit's weapon, resolved from the rules.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct WeaponStats {
     pub damage: u32,
     /// Index into the armour table's warhead list, resolved once.
@@ -282,7 +282,7 @@ pub fn armour_of(
 /// Built alongside [`StatTable`] and for the same reason: this is read on the
 /// hot path, and resolving strings there would be both slow and a determinism
 /// hazard.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CombatTable {
     weapons: Vec<Option<WeaponStats>>,
     armour: Vec<ArmourId>,

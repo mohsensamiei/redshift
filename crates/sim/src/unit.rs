@@ -25,6 +25,24 @@ pub const ARRIVAL_TOLERANCE: Fx = Fx::from_raw(65536 / 8);
 /// Roughly 22.5°. Moving before turning looks like drifting; waiting for a
 /// perfect alignment looks hesitant. This matches the original's feel of units
 /// pivoting, then committing.
+/// How far off the mark a weapon may be and still fire, in binary angle units.
+///
+/// About 5°. Wide enough that a unit is not paralysed by a target strafing
+/// across its arc, narrow enough that shots visibly come from a barrel pointed
+/// the right way.
+pub const FIRING_ARC: u16 = 1024;
+
+/// Below this separation, two units count as exactly coincident and the push
+/// direction has to come from somewhere other than their positions.
+pub const SEPARATION_EPSILON: Fx = Fx::from_raw(64);
+
+/// The most a unit may be displaced by separation in one tick.
+///
+/// A unit in the middle of a dense press accumulates a push from every
+/// neighbour. Without a cap it would be flung clear rather than shuffling
+/// aside, and the crowd would visibly explode.
+pub const MAX_SEPARATION_STEP: Fx = Fx::from_raw(6553);
+
 pub const MOVE_ALIGNMENT: u16 = 4096;
 
 /// What a unit is currently trying to do.
@@ -69,6 +87,12 @@ pub struct Unit {
     /// Remaining health. Its maximum lives in the stat table.
     pub health: u32,
     pub order: Order,
+    /// Targeting and reload state.
+    ///
+    /// Deliberately separate from [`Order`]: a unit shoots *while* moving.
+    /// Folding the two together would force a choice between advancing and
+    /// firing that the original never made.
+    pub combat: crate::combat::CombatState,
 }
 
 impl Unit {
@@ -80,6 +104,7 @@ impl Unit {
             facing: Angle::ZERO,
             health: max_health,
             order: Order::Idle,
+            combat: crate::combat::CombatState::default(),
         }
     }
 
@@ -90,6 +115,15 @@ impl Unit {
     pub fn is_alive(&self) -> bool {
         self.health > 0
     }
+
+    /// Applies damage, saturating at zero.
+    ///
+    /// Saturating rather than wrapping: an overkill shot on a nearly-dead unit
+    /// would otherwise wrap to enormous health, and the unit would become
+    /// unkillable in a way that looks like a rendering glitch.
+    pub fn take_damage(&mut self, amount: u32) {
+        self.health = self.health.saturating_sub(amount);
+    }
 }
 
 impl StateHash for Unit {
@@ -99,6 +133,7 @@ impl StateHash for Unit {
         h.write(&self.pos);
         h.write_u16(self.facing.raw());
         h.write_u32(self.health);
+        h.write(&self.combat);
         match &self.order {
             Order::Idle => h.write_u8(0),
             Order::Move {

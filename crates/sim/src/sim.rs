@@ -10,14 +10,18 @@ use serde::{Deserialize, Serialize};
 use redshift_data::rules::{EntityKind, Rules};
 
 use crate::arena::{Arena, EntityId};
+use crate::combat::{self, CombatTable, PendingHit};
 use crate::command::{Command, CommandKind, PlayerId};
-use crate::fx::Fx;
+use crate::fx::{Angle, Fx};
 use crate::hash::StateHasher;
-use crate::map::{Cell, Map, WorldPos};
+use crate::map::{Cell, Locomotor, Map, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
-use crate::unit::{ARRIVAL_TOLERANCE, MOVE_ALIGNMENT, Order, Unit};
+use crate::unit::{
+    ARRIVAL_TOLERANCE, FIRING_ARC, MAX_SEPARATION_STEP, MOVE_ALIGNMENT, Order, SEPARATION_EPSILON,
+    Unit,
+};
 use crate::{TICKS_PER_SECOND, Tick};
 
 /// Node expansions all pathfinding may spend in a single tick, across every
@@ -135,6 +139,53 @@ pub struct MatchSetup {
     pub spawns: Vec<Spawn>,
 }
 
+/// The 3×3 block of cells a unit can overlap something in.
+///
+/// A fixed array rather than a computed range, so the visiting order is part of
+/// the code and cannot drift.
+const NEIGHBOURHOOD: [(i32, i32); 9] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (0, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+/// How far a formation may spread from the ordered target, in cells.
+///
+/// Generous enough for a large selection, bounded so a group ordered into a
+/// pocket does not scatter across the map looking for room.
+const FORMATION_MAX_RADIUS: i32 = 6;
+
+/// Offsets forming the ring at `radius`, in a fixed order.
+///
+/// Built rather than stored because the outer rings are large, but the order is
+/// deterministic: top edge left to right, then right edge, then bottom right to
+/// left, then left edge. Two peers walking this produce the same formation.
+fn ring_offsets(radius: i32) -> Vec<(i32, i32)> {
+    if radius == 0 {
+        return vec![(0, 0)];
+    }
+    let mut out = Vec::with_capacity((radius as usize * 8).max(8));
+    for x in -radius..=radius {
+        out.push((x, -radius));
+    }
+    for y in (-radius + 1)..=radius {
+        out.push((radius, y));
+    }
+    for x in (-radius..radius).rev() {
+        out.push((x, radius));
+    }
+    for y in (-radius + 1..radius).rev() {
+        out.push((-radius, y));
+    }
+    out
+}
+
 /// The simulated world.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sim {
@@ -156,6 +207,17 @@ pub struct Sim {
     /// units, and skipping this would leave every unit with default stats —
     /// stationary, and with no indication why.
     stats: StatTable,
+    /// Reused between ticks so separation does not allocate every frame.
+    #[serde(skip)]
+    separation_buckets: Vec<Vec<EntityId>>,
+    /// Weapons, armour classes and the damage table, resolved once at load for
+    /// the same reason the stat table is: this is read on the hot path.
+    ///
+    /// Serialised with the rest of the world rather than skipped. Skipping it
+    /// would leave a restored match with no weapons at all — every unit would
+    /// quietly stop shooting, with nothing to say why. It also means a desync
+    /// dump carries the exact tables that were in play.
+    combat: CombatTable,
     players: Vec<PlayerSetup>,
 }
 
@@ -200,6 +262,8 @@ impl Sim {
             rng: SimRng::new(setup.seed),
             path_queue: Vec::new(),
             workspace,
+            combat: CombatTable::build(&setup.rules),
+            separation_buckets: Vec::new(),
             rules: setup.rules,
             stats,
             players: setup.players,
@@ -273,8 +337,315 @@ impl Sim {
         self.apply_commands(commands);
         self.service_path_requests();
         self.move_units();
+        self.separate_units();
+        let hits = self.acquire_and_fire();
+        self.resolve_damage(&hits);
+        self.remove_the_dead();
 
         self.tick += 1;
+    }
+
+    // -- Separation ----------------------------------------------------------
+
+    /// Pushes overlapping units apart.
+    ///
+    /// # Why a push rather than a hard block
+    ///
+    /// Refusing to enter an occupied cell sounds tidier and is much worse in
+    /// practice: a unit arriving at a crowded destination has nowhere legal to
+    /// stand, so it stops early, re-paths, and jitters against the crowd
+    /// forever. Letting units overlap briefly and pressing them apart lets a
+    /// group settle into a formation on its own, which is what the original
+    /// did and what reads as natural.
+    ///
+    /// # Determinism
+    ///
+    /// Three things would break this if written carelessly:
+    ///
+    /// - **Order dependence.** Displacements are accumulated for every unit
+    ///   first and applied afterwards, so no unit sees a neighbour that has
+    ///   already been nudged this tick. Applying as we went would make the
+    ///   result depend on arena order in a way that shifts when slots are
+    ///   reused.
+    /// - **Exactly coincident units.** Two units at the same point have no
+    ///   direction between them. Falling back to an arbitrary direction would
+    ///   be fine locally and catastrophic across peers, so the fallback is
+    ///   derived from their entity ids.
+    /// - **Cost.** Checking every pair is quadratic, and 400 units is 80,000
+    ///   pairs a tick. Units are bucketed by cell and only neighbouring
+    ///   buckets are consulted.
+    fn separate_units(&mut self) {
+        // Bucket by cell. A dense vector indexed by cell rather than a map:
+        // lookup is an array read, and there is no hashed iteration order to
+        // worry about.
+        let cell_count = self.map.cell_count();
+        if self.separation_buckets.len() != cell_count {
+            self.separation_buckets = vec![Vec::new(); cell_count];
+        }
+        for bucket in &mut self.separation_buckets {
+            bucket.clear();
+        }
+
+        for (id, unit) in self.units.iter() {
+            let stats = self.stats.get(unit.owner, unit.kind);
+            // Aircraft fly over everything, each other included.
+            if stats.locomotor == Locomotor::Air {
+                continue;
+            }
+            if let Some(index) = self.map.index(unit.cell()) {
+                self.separation_buckets[index as usize].push(id);
+            }
+        }
+
+        // Accumulated displacement per unit, in arena order.
+        let mut pushes: Vec<(EntityId, Fx, Fx)> = Vec::new();
+
+        for (id, unit) in self.units.iter() {
+            let stats = self.stats.get(unit.owner, unit.kind);
+            if stats.locomotor == Locomotor::Air || !stats.mobile {
+                continue;
+            }
+            let cell = unit.cell();
+            let mut dx_total = Fx::ZERO;
+            let mut dy_total = Fx::ZERO;
+
+            for (ox, oy) in NEIGHBOURHOOD {
+                let neighbour = Cell::new(cell.x + ox, cell.y + oy);
+                let Some(index) = self.map.index(neighbour) else {
+                    continue;
+                };
+                for &other_id in &self.separation_buckets[index as usize] {
+                    if other_id == id {
+                        continue;
+                    }
+                    let Some(other) = self.units.get(other_id) else {
+                        continue;
+                    };
+                    let other_stats = self.stats.get(other.owner, other.kind);
+                    let wanted = stats.radius + other_stats.radius;
+
+                    let dx = unit.pos.x - other.pos.x;
+                    let dy = unit.pos.y - other.pos.y;
+                    let gap_sq = Fx::dist_sq(dx, dy);
+                    if gap_sq >= wanted.sq() {
+                        continue;
+                    }
+
+                    let gap = gap_sq.sqrt();
+                    let (nx, ny) = if gap <= SEPARATION_EPSILON {
+                        // Exactly on top of each other. There is no direction
+                        // between them, so one is derived from the entity ids —
+                        // arbitrary, but identically arbitrary on every peer.
+                        let spread =
+                            Angle::from_raw((id.index().wrapping_mul(2654435761) >> 16) as u16);
+                        (spread.cos(), spread.sin())
+                    } else {
+                        (dx.div(gap), dy.div(gap))
+                    };
+
+                    // Half the overlap each: the neighbour is doing the same
+                    // sum from its own side, so together they close the gap.
+                    let push = (wanted - gap).div_int(2);
+                    dx_total += nx.mul(push);
+                    dy_total += ny.mul(push);
+                }
+            }
+
+            if dx_total != Fx::ZERO || dy_total != Fx::ZERO {
+                // Capped so a unit caught in a dense press is nudged rather
+                // than flung across the map.
+                let magnitude = Fx::dist(dx_total, dy_total);
+                if magnitude > MAX_SEPARATION_STEP {
+                    let scale = MAX_SEPARATION_STEP.div(magnitude);
+                    dx_total = dx_total.mul(scale);
+                    dy_total = dy_total.mul(scale);
+                }
+                pushes.push((id, dx_total, dy_total));
+            }
+        }
+
+        for (id, dx, dy) in pushes {
+            let Some(unit) = self.units.get_mut(id) else {
+                continue;
+            };
+            let moved = WorldPos {
+                x: unit.pos.x + dx,
+                y: unit.pos.y + dy,
+            };
+            // A push must never shove a unit somewhere it could not walk —
+            // into a lake, or through a cliff.
+            let stats = self.stats.get(unit.owner, unit.kind);
+            let target_cell = moved.cell();
+            if self.map.is_passable(target_cell, stats.locomotor) {
+                unit.pos = self.map.clamp_pos(moved);
+            }
+        }
+    }
+
+    // -- Combat --------------------------------------------------------------
+
+    /// Whether two players are on the same side.
+    ///
+    /// Trivial while every player is an enemy of every other. It exists as a
+    /// function so that teams and alliances slot in here later rather than
+    /// being threaded through targeting after the fact.
+    fn are_allied(a: PlayerId, b: PlayerId) -> bool {
+        a == b
+    }
+
+    /// Targeting and firing.
+    ///
+    /// Returns the shots to apply rather than applying them, so every unit
+    /// chooses its target against the *same* world. Applying damage as each
+    /// unit fires would let a unit early in the arena kill a target before a
+    /// later unit considered it — an outcome that depends on arena order, and
+    /// that shifts whenever slots are reused.
+    fn acquire_and_fire(&mut self) -> Vec<PendingHit> {
+        let mut hits = Vec::new();
+
+        // A snapshot for targeting, so every attacker sees the same world.
+        // Cloning the arena each tick would be wasteful; the targeting pass
+        // reads it immutably and the firing pass writes only to the attacker.
+        let ids = self.units.ids();
+
+        for attacker in ids {
+            let Some(unit) = self.units.get(attacker) else {
+                continue;
+            };
+            if !unit.is_alive() {
+                continue;
+            }
+            let Some(weapon) = self.combat.weapon(unit.kind).copied() else {
+                continue;
+            };
+
+            // Keep the current target if it is still worth shooting at, so a
+            // unit does not flicker between two equally close enemies.
+            let keep = unit.combat.target.filter(|t| {
+                combat::target_is_valid(unit, *t, &weapon, &self.units, &Self::are_allied)
+            });
+            let target = keep.or_else(|| {
+                combat::choose_target(attacker, unit, &weapon, &self.units, &Self::are_allied)
+            });
+
+            // Aim before firing. A turret traverses on its own; without one the
+            // hull must come round, which is most of what makes a tank feel
+            // like a tank.
+            let aim = target.and_then(|t| self.units.get(t)).and_then(|other| {
+                self.units
+                    .get(attacker)
+                    .and_then(|a| a.pos.heading_to(other.pos))
+            });
+
+            let Some(unit) = self.units.get_mut(attacker) else {
+                continue;
+            };
+            unit.combat.target = target;
+            unit.combat.reload_remaining = unit.combat.reload_remaining.saturating_sub(1);
+
+            let Some(heading) = aim else {
+                // Nothing to shoot at: let the turret settle back to the hull
+                // so an idle unit is not left staring at where an enemy was.
+                unit.combat.turret_facing = unit
+                    .combat
+                    .turret_facing
+                    .rotate_toward(unit.facing, weapon.turret_rate);
+                continue;
+            };
+
+            if weapon.turret {
+                unit.combat.turret_facing = unit
+                    .combat
+                    .turret_facing
+                    .rotate_toward(heading, weapon.turret_rate);
+            } else {
+                unit.combat.turret_facing = unit.facing;
+            }
+
+            // Too far off the mark to shoot yet.
+            if unit.combat.turret_facing.delta(heading).unsigned_abs() > FIRING_ARC as u32 {
+                continue;
+            }
+            if unit.combat.reload_remaining > 0 {
+                continue;
+            }
+
+            let Some(target) = target else { continue };
+            unit.combat.reload_remaining = weapon.reload;
+            let at = self.units.get(target).map(|t| t.pos);
+
+            if let Some(at) = at {
+                hits.push(PendingHit {
+                    attacker,
+                    target,
+                    damage: weapon.damage,
+                    warhead: weapon.warhead,
+                    splash_radius: weapon.splash_radius,
+                    at,
+                });
+            }
+        }
+        hits
+    }
+
+    /// Applies the shots collected this tick.
+    fn resolve_damage(&mut self, hits: &[PendingHit]) {
+        for hit in hits {
+            // The primary target takes the shot even if it has moved, since the
+            // shot was already committed this tick.
+            if let Some(target) = self.units.get(hit.target) {
+                let armour = self.combat.armour(target.kind);
+                let damage =
+                    self.combat
+                        .damage_table()
+                        .damage_against(hit.damage, hit.warhead, armour);
+                if let Some(target) = self.units.get_mut(hit.target) {
+                    target.take_damage(damage);
+                }
+            }
+
+            if hit.splash_radius <= Fx::ZERO {
+                continue;
+            }
+
+            // Splash catches everything nearby, friend included. Sparing
+            // friendly units would make artillery strictly better than it
+            // should be, and the original did not spare them either.
+            let radius_sq = hit.splash_radius.sq();
+            let splashed: Vec<(EntityId, u32)> = self
+                .units
+                .iter()
+                .filter(|(id, other)| *id != hit.target && other.is_alive())
+                .filter_map(|(id, other)| {
+                    let dx = other.pos.x - hit.at.x;
+                    let dy = other.pos.y - hit.at.y;
+                    if Fx::dist_sq(dx, dy) > radius_sq {
+                        return None;
+                    }
+                    let armour = self.combat.armour(other.kind);
+                    Some((
+                        id,
+                        self.combat
+                            .damage_table()
+                            .damage_against(hit.damage, hit.warhead, armour),
+                    ))
+                })
+                .collect();
+
+            for (id, damage) in splashed {
+                if let Some(unit) = self.units.get_mut(id) {
+                    unit.take_damage(damage);
+                }
+            }
+        }
+    }
+
+    /// Removes destroyed units.
+    ///
+    /// After all damage, so a unit that dies this tick still got to fire —
+    /// which is what makes two evenly matched units able to destroy each other.
+    fn remove_the_dead(&mut self) {
+        self.units.retain(|_, unit| unit.is_alive());
     }
 
     // -- Phase 1: commands ---------------------------------------------------
@@ -283,9 +654,7 @@ impl Sim {
         for command in commands {
             match &command.kind {
                 CommandKind::Move { units, target } => {
-                    for &id in units {
-                        self.order_move(command.player, id, *target);
-                    }
+                    self.order_group_move(command.player, units, *target);
                 }
                 CommandKind::Stop { units } => {
                     for &id in units {
@@ -325,6 +694,81 @@ impl Sim {
         if !self.path_queue.contains(&id) {
             self.path_queue.push(id);
         }
+    }
+
+    /// Orders a group to a target, giving each unit its own place to stand.
+    ///
+    /// # Why the destinations are spread
+    ///
+    /// Sending every unit to the same cell means only one of them can be right.
+    /// The rest pile onto the same point and the separation pass shoves them
+    /// apart — and because a unit that has arrived goes idle and never comes
+    /// back, each new arrival ratchets the crowd wider. Nine units ordered to
+    /// one cell settled into a blob four cells across, which is both ugly and
+    /// nothing like a formation.
+    ///
+    /// Giving each unit a distinct nearby cell fixes it at the source. The
+    /// separation pass then only has to handle incidental overlaps on the way,
+    /// which is what it is good at.
+    ///
+    /// Assignment is deterministic: units are taken in entity-id order and
+    /// given cells from a fixed outward spiral, so every peer builds the same
+    /// formation.
+    fn order_group_move(&mut self, player: PlayerId, units: &[EntityId], target: Cell) {
+        // Entity-id order, so the assignment does not depend on the order the
+        // player's client happened to list the selection in.
+        let mut ordered: Vec<EntityId> = units
+            .iter()
+            .copied()
+            .filter(|id| self.owned_by(*id, player))
+            .collect();
+        ordered.sort();
+        ordered.dedup();
+
+        if ordered.len() == 1 {
+            self.order_move(player, ordered[0], target);
+            return;
+        }
+
+        let mut taken: Vec<Cell> = Vec::with_capacity(ordered.len());
+        for id in ordered {
+            let locomotor = self
+                .units
+                .get(id)
+                .map(|u| self.stats.get(u.owner, u.kind).locomotor)
+                .unwrap_or_default();
+
+            let spot = self
+                .nearest_free_cell(target, locomotor, &taken)
+                .unwrap_or(target);
+            taken.push(spot);
+            self.order_move(player, id, spot);
+        }
+    }
+
+    /// The closest cell to `target` that is passable and not already claimed.
+    ///
+    /// Walks a fixed outward spiral, so two peers considering the same
+    /// candidates in the same order arrive at the same formation.
+    fn nearest_free_cell(
+        &self,
+        target: Cell,
+        locomotor: Locomotor,
+        taken: &[Cell],
+    ) -> Option<Cell> {
+        for radius in 0..=FORMATION_MAX_RADIUS {
+            for (dx, dy) in ring_offsets(radius) {
+                let cell = Cell::new(target.x + dx, target.y + dy);
+                if !self.map.is_passable(cell, locomotor) {
+                    continue;
+                }
+                if taken.contains(&cell) {
+                    continue;
+                }
+                return Some(cell);
+            }
+        }
+        None
     }
 
     // -- Phase 2: pathfinding ------------------------------------------------

@@ -66,17 +66,21 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when units became data-driven: `Unit` lost the speed, turn rate
-/// and locomotor it used to carry — those now come from the rules — and gained
-/// a kind and a health value. The hash covers different bytes, so the numbers
-/// moved. Determinism itself was unaffected, which the determinism suite
-/// confirmed before these were replaced.
+/// Re-recorded when units stopped walking through each other. Positions now
+/// carry the separation push, and a group ordered to one cell is spread into a
+/// formation around it rather than stacked on it, so the world genuinely
+/// differs from tick one. Determinism was confirmed first.
+///
+/// These values are load-bearing for *cross-platform* agreement, not for
+/// immutability: while the state layout is still being built out, an intended
+/// change moves them. Once Phase 3 settles, a change here should be treated as
+/// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x66b59093f28af366),
-    (50, 0x9a40b7227df0534d),
-    (100, 0x0f0433f872e69446),
-    (200, 0xbf7244da768d09ef),
-    (400, 0x22c2456ef75ec742),
+    (10, 0xa43e3609db3f0764),
+    (50, 0x0158d493b2d51665),
+    (100, 0xcc41941b4b631180),
+    (200, 0x65b9a5aea20f0ed5),
+    (400, 0xf3fb337b46f3e32b),
 ];
 
 #[test]

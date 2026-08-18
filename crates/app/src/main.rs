@@ -156,8 +156,10 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
     let harvester = kind("harvester");
 
     let mut spawns = Vec::new();
+    // Close enough that a demo run reaches contact, far enough that the walk
+    // there still exercises pathfinding.
     for (owner, base_x, base_y, dx, dy) in
-        [(PlayerId(0), 3, 3, 1, 1), (PlayerId(1), 41, 41, -1, -1)]
+        [(PlayerId(0), 18, 20, 1, 1), (PlayerId(1), 28, 26, -1, -1)]
     {
         for i in 0..6i32 {
             spawns.push(Spawn {

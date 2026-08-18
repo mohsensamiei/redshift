@@ -53,6 +53,13 @@ pub struct UnitStats {
     pub can_crush: bool,
     /// Whether this kind can move at all. Structures cannot.
     pub mobile: bool,
+    /// Physical radius, for keeping units out of each other.
+    ///
+    /// Derived from the same source the renderer sizes its placeholder from, so
+    /// what the player sees and what the simulation enforces are the same
+    /// shape. A unit whose drawn box is wider than its collision radius reads
+    /// as clipping through its neighbours.
+    pub radius: Fx,
 }
 
 impl StateHash for UnitStats {
@@ -66,6 +73,7 @@ impl StateHash for UnitStats {
         h.write_u32(self.build_time);
         h.write_bool(self.can_crush);
         h.write_bool(self.mobile);
+        h.write_i32(self.radius.raw());
     }
 }
 
@@ -133,7 +141,22 @@ impl StateHash for StatTable {
 
 fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitStats {
     let def = rules.entity(kind);
-    let mut stats = UnitStats::default();
+
+    // Physical size. A structure states its footprint; everything else is
+    // sized by what it is. These match the renderer's placeholder proportions,
+    // so what the player sees is what the simulation enforces.
+    let radius = match def.category.as_str() {
+        "infantry" => Fx::from_frac(18, 100),
+        "vehicle" => Fx::from_frac(34, 100),
+        "aircraft" => Fx::from_frac(35, 100),
+        "ship" => Fx::from_frac(50, 100),
+        "structure" => Fx::from_frac(90, 100),
+        _ => Fx::from_frac(30, 100),
+    };
+    let mut stats = UnitStats {
+        radius,
+        ..UnitStats::default()
+    };
 
     for t in &def.traits {
         match t {

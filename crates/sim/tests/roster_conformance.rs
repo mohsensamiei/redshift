@@ -565,6 +565,71 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
+#[ignore = "gap: low power disables structures, it does not merely slow them"]
+fn a_radar_stops_working_when_power_runs_short() {
+    // Researched: the original *switches off* radar towers and flak cannons in
+    // low power. Redshift models a shortage as a production slowdown only, so a
+    // player who loses their reactor keeps their air defence — which is most of
+    // what makes attacking a power plant worth doing.
+    panic!("low power slows production; nothing is ever disabled");
+}
+
+#[test]
+#[ignore = "gap: a structure cannot arrive with a unit"]
+fn a_refinery_comes_with_a_miner() {
+    // The free miner is not a nicety. It is why a refinery is the first thing
+    // built, and an economy balanced without it would be wrong from the start.
+    panic!("production delivers the thing built and nothing else");
+}
+
+#[test]
+#[ignore = "gap: no per-player build limit on structures"]
+fn only_one_superweapon_of_a_kind_can_be_built() {
+    // Three separate structures are limited to one per player. Distinct from a
+    // unit build limit, and nothing counts what already exists before allowing
+    // a build.
+    panic!("production checks cost and prerequisites, never how many exist");
+}
+
+#[test]
+#[ignore = "gap: a destroyed structure has no death effect"]
+fn a_nuclear_reactor_explodes_when_destroyed() {
+    // `Explodes` is in the trait catalogue and unread, and the reactor case
+    // adds lasting ground contamination on top of the blast.
+    panic!("destruction removes the unit and does nothing else");
+}
+
+#[test]
+#[ignore = "gap: a unit cannot modify a structure"]
+fn tesla_troopers_charge_a_tesla_coil() {
+    // Troopers standing at a coil extend its range and power, and three of them
+    // make it work with no power at all. That is a unit changing a structure's
+    // stats and its relationship to the power grid — nothing in the engine can
+    // express it.
+    panic!("stats are resolved per kind at match start and never change");
+}
+
+#[test]
+#[ignore = "gap: projectiles cannot be intercepted"]
+fn an_anti_missile_defence_shoots_down_a_rocket() {
+    // Researched, and more central than it first looked: the Aegis Cruiser, Sea
+    // Scorpion and Flak Cannon exist largely to shoot missiles down, and the V3
+    // and Dreadnought exist to fire missiles that can be. Redshift has shots in
+    // flight already, so this is closer than most of the list.
+    panic!("a projectile in flight cannot be targeted or destroyed");
+}
+
+#[test]
+#[ignore = "gap: submersion is a third visibility state, distinct from cloak"]
+fn a_submarine_surfaces_when_it_attacks_or_is_damaged() {
+    // Not the same rule as the cloak already implemented: a submarine is
+    // revealed by *being damaged* as well as by firing, and specific units
+    // detect it. Assuming cloak covers it would be wrong in a way that only
+    // shows up in naval play.
+    panic!("cloak breaks on firing only, and there is no submerged state");
+}
+
+#[test]
 #[ignore = "gap: infiltration — no effect table keyed on what was entered"]
 fn a_spy_gets_a_different_effect_from_each_kind_of_building() {
     // Researched, and richer than "infiltration works": a barracks promotes

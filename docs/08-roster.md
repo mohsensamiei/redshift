@@ -17,23 +17,23 @@ each is a concrete behaviour to write a test for, long before the art exists.
 
 ## Accuracy
 
-Sections 2, 2b and 4b were **researched and verified** against public
-documentation of the original; sources are listed at the end. The rest is
-**still written from memory and unverified**, and is marked ⚠️ where it is a
-guess.
+Sections 2 through 8 — civilians, tech structures, spy infiltration,
+multi-behaviour units, the infantry, vehicle, naval and air rosters,
+superweapons and crates — are **researched against public documentation of the
+original**. Sources are listed at the end. Individual entries still marked ⚠️
+are ones the sources did not settle.
 
-That split is deliberate rather than laziness: the verified parts are the ones
-the engine turned out to be furthest from, so they were worth the time first.
-The remainder still needs the same treatment.
+Still outstanding: **section 1 (terrain)** is from memory, and the **Allied
+structure table** has not been read yet — the source rate-limited. Allied
+figures are assumed to mirror the Soviet ones, which is exactly the kind of
+assumption this document exists to stop.
 
-**The parts written from memory are not yet safe to build against.** Names, numbers and specific behaviours
+Names are the original's, used to identify what is being described. They are
+not the names that ship — see
+[adr/0004-original-assets-only.md](adr/0004-original-assets-only.md). Names, numbers and specific behaviours
 need checking against the original before any of it is treated as settled. It is
 accurate enough to audit the engine against, which is what it is for. Entries
 that are guesses are marked ⚠️.
-
-Names are the original's, used to identify what is being described. They are not
-the names that ship — see
-[adr/0004-original-assets-only.md](adr/0004-original-assets-only.md).
 
 ---
 
@@ -170,31 +170,61 @@ exist.
 
 ---
 
-## 4. Tech tree
+## 4. Structures and the tech tree
 
-The shape both sides share:
+Soviet costs, power and prerequisites from the source listed at the end. The
+Allied side mirrors it; its exact figures are still to be confirmed.
+
+| Structure | Cost | Power | Needs | Notes | Engine |
+|---|---|---|---|---|---|
+| Construction Yard | 3000 | 0 | — | Built by deploying an MCV | ❌ deploy |
+| Tesla Reactor | 600 | **+150** | — | | ✅ |
+| Ore Refinery | 2000 | −50 | Reactor | **Comes with a free miner** | ❌ a building that spawns a unit |
+| Barracks | 500 | −10 | Reactor | | ✅ |
+| War Factory | 2000 | −25 | Refinery, Barracks | | ✅ |
+| Naval Shipyard | 1000 | −20 | Refinery | **Must be placed in water**; ships are **repaired** here | ❌ placement rule, ❌ repair |
+| Radar Tower | 1000 | −50 | Refinery | **Stops working when power is short** | ⚠️ low power slows production; it does not disable |
+| Service Depot | 800 | −20 | War Factory | Repairs vehicles; **removes a Terror Drone** | ❌ |
+| Battle Lab | 2000 | −100 | Factory, Radar | Unlocks, produces nothing | ✅ prerequisites |
+| Nuclear Reactor | 1000 | **+1000** | Battle Lab | **Explodes with fallout when destroyed** | ❌ death effect |
+| Cloning Vats | 2500 | −200 | Battle Lab | **Duplicates every infantry you train, free**; sells units for a refund; **one per player** | ❌ all three |
+| Fortress Wall | 100 | 0 | Barracks | **Four sections placed at once** | ❌ walls |
+| Sentry Gun | 500 | **0** | Barracks | Anti-infantry. **Needs no power** | ✅ |
+| Flak Cannon | 1000 | −50 | Barracks | Anti-air; **shoots down missiles**; **switches off in low power** | ❌ interception, ❌ disable |
+| Tesla Coil | 1500 | −75 | Radar | **Troopers charge it** for more range and power; **three charged troopers make it work without power at all** | ❌ |
+| Psychic Sensor | 1000 | −50 | Battle Lab | **Shows the orders enemy units have been given**; reveals spies | ❌ |
+| Iron Curtain | 2500 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
+| Nuclear Missile Silo | 5000 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
+
+Five mechanics in that table alone that were not on any earlier list:
+
+- **A building that comes with a unit.** A refinery arrives with a miner.
+- **A building limited to one per player**, which is different from a unit
+  build limit and applies to three separate structures.
+- **Structures that switch off in low power** rather than merely slowing.
+  Redshift models low power as a production slowdown; the original *disables*
+  radar and flak cannons outright.
+- **Structures that explode when destroyed**, with lasting ground effects.
+- **A defence that a unit can charge**, and that becomes independent of the
+  power grid once charged enough. That is a unit modifying a structure, which
+  nothing in the engine can express.
+
+### The shape of the tree
 
 ```
-Construction Yard ──┬─▶ Power Plant ─────────▶ (everything else needs power)
-                    ├─▶ Ore Refinery ────────▶ income, and a free harvester
-                    ├─▶ Barracks ────────────▶ infantry
-                    ├─▶ War Factory ─────────▶ vehicles
-                    ├─▶ Naval Yard ──────────▶ ships        ⚠️ must touch water
-                    ├─▶ Radar / Air HQ ──────▶ minimap, aircraft
-                    ├─▶ Battle Lab ──────────▶ advanced units, superweapons
-                    ├─▶ Service Depot ───────▶ repairs vehicles, sells them
-                    └─▶ defences
+Construction Yard ──▶ Reactor ──┬─▶ Refinery ──┬─▶ Barracks ─┬─▶ War Factory
+                                │              │             ├─▶ walls, sentry, flak
+                                │              ├─▶ Naval Yard  (must touch water)
+                                │              └─▶ Radar ─────┬─▶ Tesla Coil
+                                │                             └─▶ Battle Lab ──┬─▶ Nuclear Reactor
+                                └─▶ (everything needs power)                   ├─▶ Cloning Vats
+                                                                               ├─▶ Psychic Sensor
+                                                                               └─▶ superweapons
 ```
 
-Three properties in that diagram the engine does not model:
-
-- **A structure that unlocks rather than produces.** A Battle Lab makes nothing.
-  Prerequisites cover this and nothing has exercised it.
-- **A structure with its own placement rule.** A Naval Yard must touch water;
-  `Map::can_place` knows only terrain and occupancy.
-- **A structure that acts on units.** A Service Depot repairs and sells.
-
----
+Note that the War Factory needs **both** a Refinery and Barracks, and the
+Battle Lab needs **both** a Factory and Radar. Prerequisites are a set, not a
+chain, which Redshift already handles.
 
 ## 4b. Units that do more than one thing
 
@@ -250,75 +280,121 @@ record before anything is built on it.
 
 ## 5. Infantry
 
-| Role | Allied | Soviet | Engine |
-|---|---|---|---|
-| Basic | GI — **deploys into a static, stronger stance** | Conscript | ❌ deploy |
-| Anti-armour | Guardian GI (deploys) | Tesla Trooper — **also powers a Tesla Coil** ⚠️ | ❌ deploy, ❌ charging a structure |
-| Anti-air | — | Flak Trooper | ⚠️ needs air targets |
-| Scout | Attack Dog — **detects spies, kills infantry outright** | Attack Dog | ⚠️ detection ✅, instant kill ❌ |
-| Engineer | Engineer | Engineer | ❌ capture, ❌ repair, ❌ consumed on use |
-| Air | Rocketeer — flying infantry | — | ❌ |
-| Demolition | Navy SEAL, Tanya — **charges that destroy a building outright** | Crazy Ivan — **places bombs on anything, including units** | ❌ |
-| Infiltration | Spy — **disguised; effect depends on the building entered** | — | ❌ disguise, ❌ per-building effects |
-| Special | Chrono Legionnaire — **erases a target over time; teleports** | Yuri — **mind control**; Desolator — **ground denial** | ❌ all three |
-| Hero | Tanya | Boris — **calls an airstrike** | ❌ |
+Costs and prerequisites from the source listed at the end. The engine column
+says whether Redshift can express the behaviour at all.
 
-The engineer is worth calling out because it is three mechanics at once, and the
-user's summary of it is exactly right: **it enters a building, repairs or
-captures it, and is consumed.** Nothing in the engine can express any of the
-three.
-
----
+| Unit | Side | Cost | Needs | What it actually does | Engine |
+|---|---|---|---|---|---|
+| GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ❌ deploy, ❌ garrison |
+| Conscript | S | 100 | — | Basic, cheap, slow. Also garrisons | ❌ garrison |
+| Engineer | both | 500 | — | **Captures** enemy and neutral buildings, **repairs** friendly ones **and bridges**, **defuses bombs**, and is **consumed** | ❌ all of it |
+| Attack Dog | both | 200 | — | Kills infantry outright; **detects spies**; useless against vehicles and structures | ❌ instant kill, ❌ see through disguise |
+| Rocketeer | A | 600 | Air HQ | Jet-pack infantry: flies, hits air and ground | ❌ flying infantry |
+| Sniper | GB | 600 | Air HQ | Kills infantry with **one shot** at long range | ❌ instant kill |
+| Navy SEAL | A | 1000 | Air HQ | Rifle plus **C4**; **crosses land and water** | ❌ charges, ✅ amphibious |
+| Spy | A | 1000 | Battle Lab | **Disguised** as enemy infantry; infiltrates for a per-building effect | ❌ disguise, ❌ infiltration |
+| Tanya | A | 1000 | Battle Lab | **One-shot kills** infantry, **swims**, **C4** destroys buildings and ships | ❌ instant kill, ❌ charges |
+| Chrono Legionnaire | A | 1500 | Battle Lab | **Erases** a target progressively; **interrupting it undoes the erasure**; teleports | ❌ |
+| Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ❌ crush immunity, ❌ charging a structure |
+| Flak Trooper | S | 300 | Radar | Anti-air and anti-vehicle, **splash** | ✅ since air targeting landed |
+| Terrorist | Cuba | 200 | Radar | Suicide explosion with splash | ❌ |
+| Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ❌ deploy, ❌ terrain-altering effect |
+| Crazy Ivan | S | 600 | Radar | **Places dynamite** on structures, units **and bridges** | ❌ |
+| Yuri / Psi-Corps | S | 1200 | Battle Lab | **Mind control**; a psychic blast that kills surrounding infantry | ❌ |
+| Chrono Commando | A | 2000 | Spy in Allied lab | SEAL plus teleport. **Cannot swim** | ❌ |
+| Chrono Ivan | S | 1000 | Spy in Allied lab | Ivan plus teleport | ❌ |
+| Yuri Prime | S | 2000 | Spy in Soviet lab | Longer-ranged mind control. **One per player** without a Cloning Vat | ❌ build limit |
 
 ## 6. Vehicles
 
-| Role | Allied | Soviet | Engine |
-|---|---|---|---|
-| Main tank | Grizzly | Rhino | ✅ |
-| Heavy tank | — | Apocalypse — **two weapons, ground and air** | ❌ multiple weapons |
-| Harvester | Chrono Miner — **teleports home when full** | War Miner — **armed** | ✅ base, ❌ teleport, ❌ armed harvester |
-| Base vehicle | MCV | MCV | ❌ **deploys into a Construction Yard, and back** |
-| Transport | IFV — **weapon changes with its passenger** | Flak Track | ❌ |
-| Assault transport | Battle Fortress — **passengers fire from inside** | — | ❌ |
-| Artillery | Prism Tank — **beams chain between targets** ⚠️ | V3 Launcher — **slow visible missile** | ❌ projectiles, ❌ chaining |
-| Anti-infantry | Robot Tank — **hovers, immune to mind control** | Terror Drone — **enters a vehicle and kills it from inside** | ❌ |
-| Deploying | — | Siege Chopper — **flies, lands, becomes artillery** | ❌ |
-| Disguise | Mirage Tank — **looks like a tree** | — | ❌ |
-| Air transport | Nighthawk | — | ❌ |
-| Demolition | — | Demolition Truck | ❌ |
+| Unit | Side | Cost | Needs | What it actually does | Engine |
+|---|---|---|---|---|---|
+| Grizzly | A | 700 | — | Main tank. Faster and cheaper than a Rhino; **crushes infantry** | ❌ crushing |
+| Rhino | S | 900 | — | Main tank. More armour and range, slower | ✅ |
+| Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ❌ transport |
+| IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ❌ |
+| Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ❌ |
+| V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ❌ interception |
+| Tesla Tank | Russia | 1200 | Radar | **Fires over obstacles** | ❌ indirect fire |
+| Demolition Truck | Libya | 1500 | Radar | Nuclear charge, detonates **on destruction or on impact** | ❌ |
+| Chrono Miner | A | 1400 | Refinery | **Teleports home** when full; can be ordered to teleport as an escape | ❌ |
+| War Miner | S | 1400 | Refinery | Armed, higher capacity | ❌ armed harvester |
+| Tank Destroyer | Germany | 1000 | Air HQ | Very strong against vehicles, weak against everything else | ✅ armour table does this |
+| Mirage Tank | A | 1000 | Battle Lab | Looks like a **tree** when still. **Can fire while disguised**, and firing drops it | ❌ |
+| Prism Tank | A | 1200 | Battle Lab | Beam **reflects onto further targets**; weak armour, poor against vehicles | ❌ chaining |
+| Battle Fortress | A | — | Battle Lab | Five passengers **firing from inside**; crushes even things normally uncrushable | ❌ |
+| Robot Tank | A | — | Battle Lab | **Hovers**, so crosses water; **immune to mind control** — no driver | ✅ hover, ❌ immunity |
+| Apocalypse | S | 1750 | Battle Lab | **Twin cannon vs ground and twin missiles vs air**; slow | ❌ two weapons |
+| MCV | both | 3000 | Service Depot | **Becomes a Construction Yard**, and back | ❌ deploy |
+| Siege Chopper | S | — | — | Flies, **lands and becomes artillery** | ❌ |
+| Grand Cannon | France | — | — | Fixed, very long range | ✅ armed structure |
 
----
+## 7. Naval and air
 
-## 7. Aircraft and naval
+| Unit | Side | Cost | Needs | What it does | Engine |
+|---|---|---|---|---|---|
+| Amphibious Transport | both | 900 | — | **Twelve slots**, infantry and vehicles, **crosses land and water**, unarmed | ❌ transport, ✅ amphibious |
+| Destroyer | A | 1200 | — | Ship-to-ship and shore bombardment; **detects submerged units** | ❌ detection at sea |
+| Aegis Cruiser | A | 1000 | Air HQ | Anti-air **and anti-missile** — it shoots down projectiles | ❌ interception |
+| Dolphin | A | 500 | Battle Lab | Submerged, sonic weapon, anti-submarine | ❌ |
+| Aircraft Carrier | A | 2000 | Battle Lab | Launches **three Hornets** that attack, **land, rearm, and go again**; lost aircraft are replaced | ❌ |
+| Typhoon Sub | S | 1000 | — | Submerged; **becomes visible when it attacks or is damaged** | ❌ naval cloak |
+| Sea Scorpion | S | 600 | Radar | Hits ground, sea and air; **anti-missile system** | ❌ |
+| Giant Squid | S | 1000 | Battle Lab | **Grabs and crushes** a ship; visible when damaged | ❌ |
+| Dreadnought | S | 2000 | Battle Lab | Long-range missiles at ground targets. **Shootable down in flight** | ❌ |
+| Nighthawk | A | 1000 | — | Carries five infantry; **invisible to radar** | ❌ |
+| Harrier | A | 1200 | — | Attacks, returns to a pad, **rearms**, relaunches | ❌ |
+| Black Eagle | Korea | 1200 | — | A tougher Harrier | ❌ |
+| Kirov | S | 2000 | Battle Lab | Very tough bomber; **can only hit what is directly below it** | ❌ |
 
-Both need whole subsystems that do not exist in any form.
+Two things this table makes obvious that the prose did not.
 
-**Aircraft** launch from a pad, attack, return, rearm, and relaunch. They do not
-use the ground pathfinder, they cannot be attacked by most weapons, and they
-crash rather than simply vanishing.
+**Projectile interception is a real, recurring mechanic**, not an exotic one:
+the Aegis Cruiser and Sea Scorpion exist largely to shoot down missiles, and
+the V3 and Dreadnought exist to fire missiles that can be shot down. Redshift
+already has projectiles in flight and in the state hash, so this is closer than
+most of the list.
 
-**Naval** needs water pathing that works, transports that load and unload across
-a shoreline, and submarines that are cloaked until they fire. An aircraft
-carrier is both problems at once — the user's example is exact: **it is a ship
-whose aircraft move like air units.**
+**Submersion is a third visibility state**, beside cloaked and fogged: a
+submarine is hidden until it attacks *or is damaged*, and specific units detect
+it. That is not quite the cloak rule already implemented, and assuming it is
+would be wrong in a way that only shows up in naval play.
 
----
+## 8. Superweapons, powers and crates
 
-## 8. Superweapons and powers
+Researched.
 
 | | Effect | Shape of the mechanic |
 |---|---|---|
-| Nuclear Missile | Huge damage in a radius | Charge timer, targeted, delayed |
-| Iron Curtain | Makes units invulnerable briefly | Charge timer, targeted, temporary status |
-| Chronosphere | Teleports units | Charge timer, two targets |
-| Weather Control | Roaming storm | Charge timer, persistent moving effect |
-| Paratroopers | Delivers infantry | Recurring power, spawns units |
-| Spy Plane | Reveals an area | Recurring power, visibility effect |
+| **Nuclear Missile** | Heavy damage in a radius | Charge timer, targeted, delayed arrival |
+| **Iron Curtain** | Makes vehicles and structures in a small area **invulnerable for about 50 seconds** — and **kills any infantry** caught in it. Also cures a Terror Drone infection | Timed status on several units at once, with a second effect on a different unit type |
+| **Chronosphere** | Teleports units from one place to another. **Cannot move infantry** | Two targets, movement without a path, a per-type restriction |
+| **Weather Control** | A storm that roams and damages | Persistent moving effect |
+| **Paratroopers** | Delivers infantry from off-map | Recurring power that spawns units |
+| **Spy Plane** | Reveals an area | Recurring power, visibility effect |
 
-Common machinery: a charge timer, a targeting mode in the interface, and effects
-that are not "damage in a radius". None of it exists.
+Two details worth pulling out, because they are the kind that get missed:
+the Iron Curtain **kills the infantry it covers** rather than protecting them,
+and the Chronosphere **cannot teleport infantry at all**. Both are per-unit-type
+rules attached to an effect, not to a unit.
 
----
+### Crates
+
+Neutral pickups scattered on the map, collected by driving over them.
+
+| Crate | Effect |
+|---|---|
+| Money | Credits |
+| Veterancy | Promotes units **in an area**, not just the one that collected it |
+| Armour, firepower, speed | Permanent upgrades, again area-of-effect |
+| Full heal | Restores all your units and structures, and **removes Terror Drone infections** |
+| Free vehicle | Any ground vehicle, including an MCV or a miner. Never air or naval |
+| Map reveal | Reveals the map, except ground hidden by a gap generator |
+| Explosive | Damages whatever opened it |
+
+The upgrades are worth noting: they are **permanent per-unit modifiers applied
+in an area**, which is a third shape again beside "damage now" and "a standing
+modifier on a player".
 
 ## 9. The audit is executable
 
@@ -341,10 +417,11 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 16 capabilities confirmed, 18 gaps.**
+**As of the last run: 16 capabilities confirmed, 25 gaps.**
 
-The gap count went *up* after research, which is the point of doing it: six of
-those eighteen were invisible until the mechanics were actually looked up.
+The gap count went *up* after research, twice, which is the point of doing it.
+Thirteen of those twenty-five were invisible until the mechanics were looked up
+rather than recalled.
 
 Confirmed working, exercised end to end rather than asserted:
 
@@ -441,6 +518,23 @@ release are used here or anywhere in this project — see
 - [IFV Weapon System](https://modenc.renegadeprojects.com/IFV_Weapon_System) — 24 turret modes in RA2, 4 more in YR
 - [Infantry Fighting Vehicle](https://cnc.fandom.com/wiki/Infantry_Fighting_Vehicle)
 - [Engineer (Red Alert 2)](https://cnc.fandom.com/wiki/Engineer_(Red_Alert_2))
+- [Disguise Logic](https://modenc.renegadeprojects.com/Disguise_Logic) — what breaks a disguise, and what sees through one
+- [Mirage tank (Red Alert 2)](https://cnc.fandom.com/wiki/Mirage_tank_(Red_Alert_2))
+- [Allied units](https://cncnz.com/games/red-alert-2/allied-units/) and [Soviet units](https://cncnz.com/games/red-alert-2/soviet-units/)
+- [Battle Fortress](https://cnc.fandom.com/wiki/Battle_Fortress), [Prism tank](https://cnc.fandom.com/wiki/Prism_tank_(Red_Alert_2)), [Chrono Miner](https://cnc.fandom.com/wiki/Chrono_Miner)
+- [Aircraft carrier (Red Alert 2)](https://cnc.fandom.com/wiki/Aircraft_carrier_(Red_Alert_2)) — the three-Hornet rearm cycle
+- [Dreadnought (Red Alert 2)](https://cnc.fandom.com/wiki/Dreadnought_(Red_Alert_2))
+- [Iron Curtain (Red Alert 2)](https://cnc.fandom.com/wiki/Iron_Curtain_(Red_Alert_2)) — invulnerability, and that it kills infantry
+- [Chronosphere (Red Alert 2)](https://cnc.fandom.com/wiki/Chronosphere_(Red_Alert_2))
+- [Crate (Red Alert 2)](https://cnc.fandom.com/wiki/Crate_(Red_Alert_2))
+
+Costs, power figures and prerequisites throughout sections 4 to 7 come from:
+
+- [Allied units](https://cncnz.com/games/red-alert-2/allied-units/)
+- [Soviet units](https://cncnz.com/games/red-alert-2/soviet-units/)
+- [Soviet structures](https://cncnz.com/games/red-alert-2/soviet-structures/)
+- [Allied structures](https://cncnz.com/games/red-alert-2/allied-structures/) — **not yet read**, rate-limited
+- [Tech buildings](https://cncnz.com/games/red-alert-2/tech-buildings/) — **not yet read**
 
 Two reimplementations exist and were checked for licence rather than mined for
 code: [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2) is

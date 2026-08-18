@@ -66,20 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when the power grid landed. The world carries supply and draw
-/// per player, and production runs at a quarter speed while a base is short.
-/// Determinism was confirmed first, across all six behaviour suites.
+/// Re-recorded when veterancy and cloak landed. Units carry a kill count and a
+/// time-since-fired, and the world carries a detection layer. Determinism was
+/// confirmed first across every behaviour suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xf5863f11b345693b),
-    (50, 0xab1eb5e5038d9c0d),
-    (100, 0x247099608ac56af6),
-    (200, 0xa9c940073129ba8c),
-    (400, 0x04ddf56283a80779),
+    (10, 0x5b3bd4360a6ec7eb),
+    (50, 0x9d8d7819b7166e2d),
+    (100, 0x64ee0b6c89c2e42e),
+    (200, 0xc8730a3f03b70fac),
+    (400, 0x6557994d6b2ba0f9),
 ];
 
 #[test]

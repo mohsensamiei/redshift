@@ -130,8 +130,8 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] Construction: build queue, footprints, prerequisites, placement
 - [x] Power grid and low-power effects — *slowdown ratio is a placeholder, see below*
 - [x] Combat: weapons, warhead/armour table, splash — *projectiles still instant*
-- [ ] Veterancy
-- [x] Fog of war and shroud — *Detector and Cloakable traits still unread*
+- [x] Veterancy
+- [x] Fog of war, shroud, cloak and detection
 - [x] Unit behaviour: attack-move, guard, stop, formations, control groups
 - [ ] Superweapon / support power framework
 - [ ] UI: sidebar, build tabs, minimap, unit info — *health bars done*
@@ -199,6 +199,9 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 
 - [ ] **Terrain mesh is rebuilt whole** each simulation tick when the fog
       moves. Affordable at 48x48; a much larger map will want chunking.
+- [ ] **Veterancy bonuses.** `rank::VETERAN_BONUS` and `ELITE_BONUS` are 115%
+      and 135%, chosen by feel. Promotion on kills is faithful; the numbers are
+      not verified.
 - [ ] **Build radius.** `sim::BUILD_RADIUS` is 8 cells, chosen by feel. The
       constraint is faithful; the distance is not verified against the original.
 - [ ] **Low-power slowdown ratio.** `power::LOW_POWER_DIVISOR` is set to 4 by

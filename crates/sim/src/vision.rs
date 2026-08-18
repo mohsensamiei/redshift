@@ -52,6 +52,12 @@ pub struct Visibility {
     explored: Vec<Vec<bool>>,
     /// Rebuilt every tick from what is standing.
     visible: Vec<Vec<bool>>,
+    /// Ground a detector is watching, per player.
+    ///
+    /// A separate layer from `visible` because they answer different questions:
+    /// a player can see a patch of ground perfectly well and still not see the
+    /// cloaked unit standing on it.
+    detected: Vec<Vec<bool>>,
     /// When false, everything reads as visible.
     ///
     /// Not a debug convenience: a replay being watched after the fact, or a
@@ -68,6 +74,7 @@ impl Visibility {
             height,
             explored: vec![vec![false; cells]; players],
             visible: vec![vec![false; cells]; players],
+            detected: vec![vec![false; cells]; players],
             enabled: true,
         }
     }
@@ -92,6 +99,9 @@ impl Visibility {
     /// Clears the visible layer. Explored ground is left alone.
     pub fn begin_tick(&mut self) {
         for row in &mut self.visible {
+            row.iter_mut().for_each(|v| *v = false);
+        }
+        for row in &mut self.detected {
             row.iter_mut().for_each(|v| *v = false);
         }
     }
@@ -129,6 +139,42 @@ impl Visibility {
                 explored[i] = true;
             }
         }
+    }
+
+    /// Marks everything within `radius` of `centre` as watched by a detector.
+    pub fn reveal_cloaked(&mut self, player: PlayerId, centre: Cell, radius: Fx) {
+        let Some(detected) = self.detected.get_mut(player.0 as usize) else {
+            return;
+        };
+        let cells = radius.to_int().max(0);
+        let radius_sq = radius.sq();
+        for dy in -cells..=cells {
+            for dx in -cells..=cells {
+                let cell = Cell::new(centre.x + dx, centre.y + dy);
+                if cell.x < 0
+                    || cell.y < 0
+                    || cell.x >= self.width as i32
+                    || cell.y >= self.height as i32
+                {
+                    continue;
+                }
+                if Fx::dist_sq(Fx::from_int(dx), Fx::from_int(dy)) > radius_sq {
+                    continue;
+                }
+                detected[cell.y as usize * self.width as usize + cell.x as usize] = true;
+            }
+        }
+    }
+
+    /// Whether a player has a detector watching this cell.
+    pub fn is_detected(&self, player: PlayerId, cell: Cell) -> bool {
+        if !self.enabled {
+            return true;
+        }
+        let Some(i) = self.index(cell) else {
+            return false;
+        };
+        self.detected.get(player.0 as usize).is_some_and(|d| d[i])
     }
 
     /// How much a player knows about a cell.
@@ -188,6 +234,11 @@ impl StateHash for Visibility {
             }
         }
         for row in &self.visible {
+            for v in row {
+                h.write_bool(*v);
+            }
+        }
+        for row in &self.detected {
             for v in row {
                 h.write_bool(*v);
             }

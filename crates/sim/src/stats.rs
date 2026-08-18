@@ -67,6 +67,14 @@ pub struct UnitStats {
     /// theirs; units are a single cell and are kept apart by their radius
     /// instead, since they move and a building does not.
     pub footprint: (u8, u8),
+    /// Kills needed to reach each rank. `None` if this kind never promotes.
+    pub veterancy: Option<(u32, u32)>,
+    /// Whether this can hide from anything without a detector.
+    pub cloakable: bool,
+    /// Ticks after firing before the cloak returns.
+    pub recloak_delay: u32,
+    /// Whether this reveals cloaked things within its vision.
+    pub detector: bool,
     /// Power this supplies to its owner's grid.
     pub power_supply: u32,
     /// Power this draws. Anything with a draw stops working in a shortage.
@@ -98,6 +106,10 @@ impl Default for UnitStats {
             harvest_capacity: None,
             gather_rate: 0,
             is_refinery: false,
+            veterancy: None,
+            cloakable: false,
+            recloak_delay: 0,
+            detector: false,
             power_supply: 0,
             power_draw: 0,
             // One cell, not zero. A zero footprint would make a thing occupy
@@ -123,6 +135,12 @@ impl StateHash for UnitStats {
         h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
         h.write_u32(self.gather_rate);
         h.write_bool(self.is_refinery);
+        let (vet, elite) = self.veterancy.unwrap_or((u32::MAX, u32::MAX));
+        h.write_u32(vet);
+        h.write_u32(elite);
+        h.write_bool(self.cloakable);
+        h.write_u32(self.recloak_delay);
+        h.write_bool(self.detector);
         h.write_u32(self.power_supply);
         h.write_u32(self.power_draw);
         h.write_u8(self.footprint.0);
@@ -235,6 +253,15 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.gather_rate = gather_rate.0.max(0) as u32;
             }
             Trait::Refinery { .. } => stats.is_refinery = true,
+            Trait::Veterancy {
+                kills_for_veteran,
+                kills_for_elite,
+            } => stats.veterancy = Some((*kills_for_veteran, *kills_for_elite)),
+            Trait::Cloakable { recloak_delay } => {
+                stats.cloakable = true;
+                stats.recloak_delay = recloak_delay.0;
+            }
+            Trait::Detector => stats.detector = true,
             Trait::PowerSupply { output } => stats.power_supply = *output,
             Trait::PowerDraw { amount } => stats.power_draw = *amount,
             Trait::Footprint { width, height } => {

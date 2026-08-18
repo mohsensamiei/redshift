@@ -19,6 +19,7 @@ use crate::map::{Cell, Locomotor, Map, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
 use crate::power::PowerGrid;
 use crate::production::{ProductionItem, ProductionQueue};
+use crate::rank::Rank;
 use crate::rng::SimRng;
 use crate::stats::{StatTable, UnitStats};
 use crate::unit::{
@@ -479,6 +480,13 @@ impl Sim {
             }
             self.visibility
                 .reveal(unit.owner, unit.cell(), stats.vision);
+            // A detector reveals cloaked things across the same ground it
+            // watches. A separate layer, because a player can see a patch of
+            // ground perfectly well and still not see what is standing on it.
+            if stats.detector {
+                self.visibility
+                    .reveal_cloaked(unit.owner, unit.cell(), stats.vision);
+            }
         }
     }
 
@@ -502,7 +510,32 @@ impl Sim {
     /// unfair and — since the interface and the simulation would be working
     /// from different answers — a source of desyncs.
     pub fn can_see(&self, player: PlayerId, unit: &Unit) -> bool {
-        self.visibility.is_visible(player, unit.cell())
+        if !self.visibility.is_visible(player, unit.cell()) {
+            return false;
+        }
+        // A cloaked unit stands in plain sight and still cannot be seen. Its
+        // own side always sees it, or a player could not command their own
+        // units — a rule the original never needed to state either.
+        if unit.owner == player || !self.is_cloaked(unit) {
+            return true;
+        }
+        self.visibility.is_detected(player, unit.cell())
+    }
+
+    /// Whether a unit is currently hidden.
+    ///
+    /// Cloak lapses when a unit fires and returns after a delay. That is the
+    /// whole tension of the mechanic: staying hidden and doing something are
+    /// mutually exclusive, so a cloaked unit is a threat rather than an
+    /// invulnerability.
+    pub fn is_cloaked(&self, unit: &Unit) -> bool {
+        let stats = self.stats.get(unit.owner, unit.kind);
+        stats.cloakable && unit.since_fired >= stats.recloak_delay
+    }
+
+    /// A unit's earned rank.
+    pub fn rank_of(&self, unit: &Unit) -> Rank {
+        Rank::for_kills(unit.kills, self.stats.get(unit.owner, unit.kind).veterancy)
     }
 
     // -- Power ---------------------------------------------------------------
@@ -1065,6 +1098,7 @@ impl Sim {
             };
             unit.combat.target = target;
             unit.combat.reload_remaining = unit.combat.reload_remaining.saturating_sub(1);
+            unit.since_fired = unit.since_fired.saturating_add(1);
 
             let Some(heading) = aim else {
                 // Nothing to shoot at: let the turret settle back to the hull
@@ -1095,6 +1129,8 @@ impl Sim {
 
             let Some(target) = target else { continue };
             unit.combat.reload_remaining = weapon.reload;
+            // Firing gives a cloaked unit away.
+            unit.since_fired = 0;
             let at = self.units.get(target).map(|t| t.pos);
 
             if let Some(at) = at {
@@ -1118,12 +1154,29 @@ impl Sim {
             // shot was already committed this tick.
             if let Some(target) = self.units.get(hit.target) {
                 let armour = self.combat.armour(target.kind);
-                let damage =
+                let base =
                     self.combat
                         .damage_table()
                         .damage_against(hit.damage, hit.warhead, armour);
+
+                // Both ranks matter: the attacker's experience makes the shot
+                // hit harder, and the defender's makes it land softer.
+                let attacker_rank = self.units.get(hit.attacker).map(|u| self.rank_of(u));
+                let damage = self
+                    .rank_of(target)
+                    .resist(attacker_rank.map_or(base, |r| r.scale(base)));
+                let killed = target.is_alive() && target.health <= damage;
+
                 if let Some(target) = self.units.get_mut(hit.target) {
                     target.take_damage(damage);
+                }
+                // Credited on the killing blow only. Anything else and a unit
+                // promotes for as long as it keeps firing at a body.
+                if killed
+                    && hit.attacker != hit.target
+                    && let Some(attacker) = self.units.get_mut(hit.attacker)
+                {
+                    attacker.kills = attacker.kills.saturating_add(1);
                 }
             }
 

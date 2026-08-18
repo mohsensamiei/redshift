@@ -242,6 +242,14 @@ pub struct Unit {
     /// `None` for everything else, so the production pass can skip most of the
     /// world without consulting the rules.
     pub production: Option<crate::production::ProductionQueue>,
+    /// Kills to this unit's name.
+    pub kills: u32,
+    /// Ticks since it last fired.
+    ///
+    /// Counted up rather than down, so a unit that never fires is not
+    /// perpetually one tick from being uncloaked by an integer that already
+    /// hit zero.
+    pub since_fired: u32,
     /// Targeting and reload state.
     ///
     /// Deliberately separate from [`Order`]: a unit shoots *while* moving.
@@ -259,6 +267,8 @@ impl Unit {
             facing: Angle::ZERO,
             health: max_health,
             order: Order::Idle,
+            kills: 0,
+            since_fired: u32::MAX,
             harvest: None,
             production: None,
             combat: crate::combat::CombatState::default(),
@@ -304,6 +314,8 @@ impl StateHash for Unit {
             }
             None => h.write_u8(0),
         }
+        h.write_u32(self.kills);
+        h.write_u32(self.since_fired);
         h.write(&self.combat);
         match &self.order {
             Order::Idle => h.write_u8(0),

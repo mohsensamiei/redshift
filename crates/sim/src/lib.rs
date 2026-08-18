@@ -48,7 +48,11 @@ pub use map::{Cell, Locomotor, Map, Terrain, WorldPos};
 pub use rng::SimRng;
 pub use stats::{StatTable, UnitStats};
 
-pub use redshift_data::rules::{EntityKind, Rules};
+// Re-exported so the renderer and other consumers can read rules without
+// depending on redshift-data directly. The data crate is an implementation
+// detail of what the simulation is made from, not a second public interface.
+pub use redshift_data::rules::{EntityDef, EntityKind, Rules};
+pub use redshift_data::traits::Trait;
 pub use sim::{MatchSetup, Sim, WorldView};
 pub use unit::{Order, Unit};
 

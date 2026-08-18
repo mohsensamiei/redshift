@@ -195,7 +195,7 @@ fn setup(
         Transform::IDENTITY,
     ));
 
-    let assets = world::build_assets(&mut meshes, &mut materials);
+    let assets = world::build_assets(session.sim().rules(), &mut meshes, &mut materials);
     commands.insert_resource(assets);
 
     world::spawn_lighting(&mut commands);

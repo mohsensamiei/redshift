@@ -36,7 +36,20 @@ pub struct SelectionRing;
 /// `docs/04-rendering.md`.
 #[derive(Resource)]
 pub struct RenderAssets {
+    /// One mesh per entity kind, indexed by [`EntityKind`].
+    ///
+    /// A mesh per *kind* rather than per *entity*: units of the same kind and
+    /// team share a mesh and a material, which is what lets Bevy batch them
+    /// into a single instanced draw call. Sizing each one from the rules also
+    /// means a new unit becomes visibly distinct with no renderer change —
+    /// the same property the data layer is built for.
+    pub unit_meshes: Vec<Handle<Mesh>>,
+    /// Fallback for a kind with no mesh, which should not happen but must not
+    /// crash if it does.
     pub unit_mesh: Handle<Mesh>,
+    /// Half-height per kind. A unit is positioned by its centre, so a shorter
+    /// box needs a lower centre or it hovers above the ground.
+    pub unit_half_heights: Vec<f32>,
     pub ring_mesh: Handle<Mesh>,
     pub team_materials: Vec<Handle<StandardMaterial>>,
     pub selection_material: Handle<StandardMaterial>,
@@ -51,11 +64,55 @@ const TEAM_COLOURS: [(u8, u8, u8); 4] = [
     (230, 180, 60), // yellow
 ];
 
+/// The placeholder proportions for one entity kind.
+///
+/// Read from the rules rather than hard-coded per unit: a structure's footprint
+/// is already data, and a unit's category already says whether it walks or
+/// drives. Guessing here from the same source keeps the placeholder honest —
+/// when a real model replaces it in Phase 4, it drops into the same volume.
+fn placeholder_size(def: &redshift_sim::EntityDef) -> Vec3 {
+    use redshift_sim::Trait;
+    // A structure states its own footprint.
+    if let Some(Trait::Footprint { width, height }) = def
+        .traits
+        .iter()
+        .find(|t| matches!(t, Trait::Footprint { .. }))
+    {
+        return Vec3::new(*width as f32 * 0.9, 0.9, *height as f32 * 0.9);
+    }
+
+    match def.category.as_str() {
+        // Narrow and tall, so a squad reads as people rather than as crates.
+        "infantry" => Vec3::new(0.28, 0.55, 0.28),
+        // Wide and low: the classic tank silhouette at this zoom.
+        "vehicle" => Vec3::new(0.62, 0.38, 0.78),
+        "aircraft" => Vec3::new(0.7, 0.22, 0.7),
+        "ship" => Vec3::new(0.8, 0.35, 1.2),
+        "structure" => Vec3::new(1.8, 1.0, 1.8),
+        _ => Vec3::new(UNIT_WIDTH, UNIT_HEIGHT, UNIT_WIDTH),
+    }
+}
+
 pub fn build_assets(
+    rules: &redshift_sim::Rules,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) -> RenderAssets {
     let unit_mesh = meshes.add(Cuboid::new(UNIT_WIDTH, UNIT_HEIGHT, UNIT_WIDTH));
+
+    // Built in kind order, so the vector can be indexed directly by kind.
+    let mut unit_meshes = Vec::with_capacity(rules.entity_count());
+    let mut unit_half_heights = Vec::with_capacity(rules.entity_count());
+    for (kind, def) in rules.entities() {
+        debug_assert_eq!(
+            kind.0 as usize,
+            unit_meshes.len(),
+            "kinds must be dense and in order"
+        );
+        let size = placeholder_size(def);
+        unit_meshes.push(meshes.add(Cuboid::new(size.x, size.y, size.z)));
+        unit_half_heights.push(size.y / 2.0);
+    }
     // A flat quad standing in for the blob shadow and selection decal that
     // Phase 4 will replace with a proper texture.
     let ring_mesh = meshes.add(
@@ -77,6 +134,8 @@ pub fn build_assets(
     });
 
     RenderAssets {
+        unit_meshes,
+        unit_half_heights,
         unit_mesh,
         ring_mesh,
         team_materials,
@@ -249,15 +308,26 @@ pub fn sync_units(
         if drawn.remove(&id).is_some() {
             continue;
         }
+        let half_height = assets
+            .unit_half_heights
+            .get(unit.kind.0 as usize)
+            .copied()
+            .unwrap_or(UNIT_HEIGHT / 2.0);
         let material = assets
             .team_materials
             .get(unit.owner.0 as usize % assets.team_materials.len())
             .expect("at least one team material")
             .clone();
         commands.spawn((
-            Mesh3d(assets.unit_mesh.clone()),
+            Mesh3d(
+                assets
+                    .unit_meshes
+                    .get(unit.kind.0 as usize)
+                    .unwrap_or(&assets.unit_mesh)
+                    .clone(),
+            ),
             MeshMaterial3d(material),
-            Transform::from_xyz(0.0, UNIT_HEIGHT / 2.0, 0.0),
+            Transform::from_xyz(0.0, half_height, 0.0),
             UnitView(id),
         ));
     }
@@ -276,7 +346,11 @@ pub fn sync_units(
 ///
 /// This is presentation only — it uses floating point freely and never feeds
 /// back into the simulation.
-pub fn interpolate_units(session: Res<Session>, mut views: Query<(&UnitView, &mut Transform)>) {
+pub fn interpolate_units(
+    session: Res<Session>,
+    assets: Res<RenderAssets>,
+    mut views: Query<(&UnitView, &mut Transform)>,
+) {
     let t = session.interpolation();
     for (view, mut transform) in &mut views {
         let Some(unit) = session.sim().view().unit(view.0) else {
@@ -293,7 +367,14 @@ pub fn interpolate_units(session: Res<Session>, mut views: Query<(&UnitView, &mu
 
         transform.translation.x = px + (cx - px) * t;
         transform.translation.z = py + (cy - py) * t;
-        transform.translation.y = GROUND_Y + UNIT_HEIGHT / 2.0;
+        // Sit each kind on the ground by its own half-height, not a shared
+        // constant — otherwise infantry sink and structures float.
+        transform.translation.y = GROUND_Y
+            + assets
+                .unit_half_heights
+                .get(unit.kind.0 as usize)
+                .copied()
+                .unwrap_or(UNIT_HEIGHT / 2.0);
 
         // Facing is not interpolated. Turn rates are already slow enough that
         // the step between ticks is imperceptible, and interpolating an angle

@@ -4,9 +4,10 @@ Live task list. Keep this current — check items off as they land, and add work
 discovered. Phase definitions, estimates and exit criteria live in
 [docs/07-roadmap.md](docs/07-roadmap.md).
 
-**Current phase: 0 — Foundation**
-**Next milestone:** the Bevy shell — window, isometric camera, cubes on screen.
-The headless simulation underneath is done and tested.
+**Current phase: 1 — Determinism and LAN**
+**Next milestone:** two machines on the same Wi-Fi discovering each other and playing.
+Phase 0 is complete; the lockstep scheduler and wire format are done and tested
+against a hostile simulated link.
 
 ---
 
@@ -78,17 +79,18 @@ The headless simulation underneath is done and tested.
 
 - [x] `Command` enum and compact serialisation
 - [x] Ordered command queue — sorted by (tick, player, sequence)
-- [ ] Turn scheduling with input delay `D`; RTT negotiation at match start
-- [ ] UDP transport: sequence numbers, redundant resend of the last 3 ticks
+- [x] Turn scheduling with input delay `D`; RTT negotiation at match start
+- [x] Wire format with framing, size limit, and foreign-traffic rejection
+- [ ] UDP transport: sockets, redundant resend of the last 3 ticks
 - [ ] "Waiting for player" stall handling after ~500 ms
 - [ ] LAN discovery: broadcast announce on UDP 47654, client listener
 - [ ] In-game LAN match list
 - [ ] Lobby: slots, colours, ready state, protocol version check
-- [ ] Rules hash exchanged and verified in the handshake
-- [ ] State hash exchange every 20 ticks
+- [x] Rules hash exchanged and verified in the handshake
+- [x] State hash exchange every 20 ticks
 - [ ] Desync halt with full dumps from both peers
 - [ ] Dev-only mode: per-tick, per-subsystem hashing to localise divergence
-- [ ] Replay record and playback
+- [x] Replay record and playback
 - [x] Determinism suite: `replay_roundtrip`, `two_sims_identical`, `serialisation_stable`
 - [x] CI cross-platform golden hashes — macOS/ARM vs Linux/x86
 

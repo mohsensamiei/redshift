@@ -7,3 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+redshift-sim = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }

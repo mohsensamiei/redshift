@@ -17,7 +17,16 @@ each is a concrete behaviour to write a test for, long before the art exists.
 
 ## Accuracy
 
-**Written from memory, not verified.** Names, numbers and specific behaviours
+Sections 2, 2b and 4b were **researched and verified** against public
+documentation of the original; sources are listed at the end. The rest is
+**still written from memory and unverified**, and is marked ⚠️ where it is a
+guess.
+
+That split is deliberate rather than laziness: the verified parts are the ones
+the engine turned out to be furthest from, so they were worth the time first.
+The remainder still needs the same treatment.
+
+**The parts written from memory are not yet safe to build against.** Names, numbers and specific behaviours
 need checking against the original before any of it is treated as settled. It is
 accurate enough to audit the engine against, which is what it is for. Entries
 that are guesses are marked ⚠️.
@@ -58,41 +67,79 @@ nobody, and that is exactly what makes it interesting.
 
 ### Civilians
 
-Men, women and children wandering a town, plus civilian cars. They have idle
-walks and reactions, they can be run over and shot, and killing them
-deliberately is something a player can choose to do.
+Men, women and children wandering a town, plus civilian cars. Verified
+behaviour, and the part that matters for the engine:
 
-For the engine this is a **neutral player** — a side that owns things, is
-hostile to nobody, and issues no commands. Wandering is an autonomous behaviour
-like the harvester cycle, but purposeless, which is its own small design
-question: what does a civilian do when a battle arrives?
+- They are **neutral and passive**. They do not fight, and military units do
+  not acquire them as targets. Standing an army next to a crowd starts nothing.
+- A player *can* kill them, but only by giving an explicit order. That is the
+  distinction the engine has to hold: auto-acquisition skips them, a deliberate
+  attack does not.
+- Their movement is aimless — a loop of wandering with no goal. Not an AI in
+  any meaningful sense, and it should not be built as one.
+
+For the engine this needs a **neutral player**: a side that owns things, issues
+no commands, and is hostile to nobody. Everything else follows from that.
 
 ### Occupiable structures
 
-Civilian buildings that infantry can garrison, firing from windows. The building
-becomes a fortification that has to be cleared rather than merely destroyed, and
+Civilian buildings infantry can garrison, firing from windows. The building
+becomes a fortification that must be cleared rather than merely destroyed, and
 whoever is inside dies with it.
 
-Needs: a structure that holds passengers, passengers that fire from inside, a
-capacity, and an eviction rule.
+### Tech structures — captured by an engineer
 
-### Capturable structures
+Verified. These are neutral buildings scattered on maps, marked with a yellow
+flag, captured by walking an engineer in.
 
-| Structure | Effect when captured |
+| Structure | Effect | Game |
+|---|---|---|
+| **Oil Derrick** | A one-off payment on capture, then a steady trickle of income | RA2 |
+| **Hospital** | Heals friendly infantry that walk into it | RA2 |
+| **Airport** | Grants the paratrooper power | RA2 |
+| **Outpost** | Defends with an IFV missile launcher, *and* acts as a service depot | RA2 |
+| **Machine Shop** | All your vehicles self-repair, anywhere on the map | YR |
+| **Power Plant** | +200 power | YR |
+| **Hospital** (YR) | All your infantry self-heal anywhere, rather than having to enter | YR |
+| **Secret Lab** | Grants one country-unique unit you could not otherwise build | YR |
+
+Three properties that apply to all of them, and that the engine has no notion
+of:
+
+- **They cannot be sold, and need no power.** Ownership rules differ from an
+  ordinary structure's.
+- **They extend the build radius.** A captured derrick is a forward base.
+  Redshift has a build radius and only structures the player *built* anchor it.
+- **The Secret Lab grants a unit chosen from a fixed list** — demolition truck,
+  desolator, grand cannon, psi commando, sniper, tank destroyer, terrorist,
+  tesla tank. That is a country-unique unit arriving by a route other than
+  being that country.
+
+---
+
+## 2b. Spy infiltration
+
+Verified, and considerably richer than "infiltration effects" suggested. Each
+building gives a different thing, and the spy has to reach a *specific* kind of
+building to get it.
+
+| Infiltrated | Effect |
 |---|---|
-| Oil derrick | A one-off payment, then a trickle of income |
-| Hospital | Nearby infantry heal ⚠️ |
-| Machine shop | Nearby vehicles repair ⚠️ |
-| Airport | Grants a support power ⚠️ |
-| Radar dome | Reveals part of the map ⚠️ |
+| **Barracks** | All infantry you produce gain a rank. Does not stack |
+| **War Factory** | All vehicles and aircraft you produce gain a rank. Does not stack |
+| **Power Plant** | The victim loses power for about a minute |
+| **Ore Refinery** | Steals 20% of the victim's funds |
+| **Battle Lab** | Unlocks a commando built from the *victim's* technology |
 
-Each is captured by an engineer walking in, and each keeps working for whoever
-holds it. `Capturable` exists in the catalogue and nothing reads it.
+The Battle Lab case is the interesting one. What you get depends on whose lab
+it was: an Allied lab gives a Chrono Commando, a Soviet lab a Chrono Ivan, a
+Yuri lab a Psi Commando. So infiltration is not one effect with a target — it
+is a table keyed on what was infiltrated.
 
-### Tech and hazards
-
-Barrels and crates that explode when shot, and crates that grant money, a free
-unit, a heal, or a one-off power when driven over.
+The veterancy effects are worth noting separately because they are **persistent
+production modifiers**, not one-off events: everything you build from then on
+arrives promoted, including units delivered by paradrop or released from a
+destroyed building.
 
 ---
 
@@ -148,6 +195,58 @@ Three properties in that diagram the engine does not model:
 - **A structure that acts on units.** A Service Depot repairs and sells.
 
 ---
+
+## 4b. Units that do more than one thing
+
+The point this document previously glossed over. A great many units are not
+"a unit with a weapon" — they are several capabilities at once, and which one
+applies depends on what they are pointed at.
+
+**Tanya** is the clearest case, and needs four separate mechanics:
+
+| Capability | Detail |
+|---|---|
+| Pistols | **Instantly kill** any infantry she can reach. Useless against vehicles |
+| C4 | Destroys **structures** and **naval units** outright. In YR, ground vehicles too |
+| Swimming | She crosses water — amphibious infantry |
+| Build limit | Only one at a time. Two with a Cloning Vat |
+
+Four capabilities, and the first two are chosen **by what she is aimed at**:
+infantry get shot, buildings get charges. That is not "two weapons"; it is two
+actions with different valid targets and different effects.
+
+A **Navy SEAL** is nearly the same unit with one difference — no anti-vehicle
+C4 in RA2 — which is exactly the kind of near-duplicate a trait system should
+express as a data difference and nothing else.
+
+**The Engineer** is three mechanics in one:
+
+- Enters a building and **captures** it, if it is an enemy's or neutral
+- Enters a damaged friendly building and **fully repairs** it
+- Is **consumed** either way
+
+**The IFV** changes weapon by passenger, and this is much larger than it
+sounds: RA2 has **24 turret modes**, and Yuri's Revenge adds four more. An
+engineer inside turns it into a repair vehicle. So the vehicle's weapon is a
+function of its cargo, resolved at runtime.
+
+**Units that deploy** are a category rather than an exception:
+
+| Unit | Deployed form |
+|---|---|
+| MCV | Becomes a Construction Yard, and back again |
+| GI, Guardian GI | A static, stronger emplacement. Cannot move while deployed |
+| Siege Chopper | Lands and becomes artillery |
+| Desolator | Static, irradiating the ground around it |
+| Yuri | A wider mind-control radius |
+
+**Tanks crush infantry** while also firing, which is the plainest example of
+two capabilities running at once rather than one being chosen.
+
+The engine consequence, stated once: **a unit's capability is a list of
+actions, each with its own valid targets and its own effect** — not a weapon
+slot. This is the same shape as ADR 0006 and probably wants its own decision
+record before anything is built on it.
 
 ## 5. Infantry
 
@@ -242,7 +341,10 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 16 capabilities confirmed, 12 gaps.**
+**As of the last run: 16 capabilities confirmed, 18 gaps.**
+
+The gap count went *up* after research, which is the point of doing it: six of
+those eighteen were invisible until the mechanics were actually looked up.
 
 Confirmed working, exercised end to end rather than asserted:
 
@@ -320,3 +422,31 @@ map format, which everything else is built on.
 **And this document needs verifying.** It is a memory dump. Its value is in
 having something concrete to check the engine against, and getting it wrong
 means building the wrong engine quietly.
+
+---
+
+## Sources
+
+Public documentation of the original's mechanics. Gameplay rules are facts
+about how the game behaves; no data files, art or code from any commercial
+release are used here or anywhere in this project — see
+[adr/0004-original-assets-only.md](adr/0004-original-assets-only.md).
+
+- [Spy (Red Alert 2)](https://cnc.fandom.com/wiki/Spy_(Red_Alert_2)) — infiltration effects per building
+- [Infiltration](https://cnc.fandom.com/wiki/Infiltration)
+- [Tech building](https://cnc.fandom.com/wiki/Tech_building) — the four RA2 tech structures
+- [Yuri's Revenge new tech buildings](https://cncnz.com/games/yuris-revenge/new-tech-buildings/) — machine shop, power plant, secret lab
+- [Tanya (Red Alert 2)](https://cnc.fandom.com/wiki/Tanya_(Red_Alert_2)) — pistols, C4 targets, swimming, build limit
+- [Navy SEAL (Red Alert 2)](https://cnc.fandom.com/wiki/Navy_SEAL_(Red_Alert_2))
+- [IFV Weapon System](https://modenc.renegadeprojects.com/IFV_Weapon_System) — 24 turret modes in RA2, 4 more in YR
+- [Infantry Fighting Vehicle](https://cnc.fandom.com/wiki/Infantry_Fighting_Vehicle)
+- [Engineer (Red Alert 2)](https://cnc.fandom.com/wiki/Engineer_(Red_Alert_2))
+
+Two reimplementations exist and were checked for licence rather than mined for
+code: [huangkaoya/redalert2](https://github.com/huangkaoya/redalert2) is
+GPL-3.0, and
+[ammaarreshi/RedAlert2-Mac-iOS-iPad](https://github.com/ammaarreshi/RedAlert2-Mac-iOS-iPad)
+is built on Chrono Divide's **proprietary** engine and is not a usable
+reference. Copying from either would make this project a derivative work of
+someone else's reimplementation rather than a clean-room one, which is a
+different thing from what this project set out to be.

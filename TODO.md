@@ -171,6 +171,12 @@ and reasoning in docs/08-roster.md.
       list, not a slot
 - [ ] Placed charges — armed now, detonating later
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
+- [ ] Spy infiltration — an effect table keyed on the building entered
+- [ ] Tech structures — neutral, capturable, unsellable, extend the build radius
+- [ ] Persistent production modifiers — an effect that changes what is built later
+- [ ] Instant-kill weapons — some weapons kill outright rather than dealing damage
+- [ ] A unit's weapon depending on its cargo — the IFV's 24 turret modes
+- [ ] Build limits — only one commando at a time, two with a cloning vat
 - [ ] Wandering civilians — autonomous, purposeless movement
 
 ### Subsystems needing a decision before a schedule
@@ -188,7 +194,10 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, twelve gaps, each an ignored test with its reason attached.
+confirmed, eighteen gaps, each an ignored test with its reason attached.
+
+The count went up after researching the original properly: six gaps were
+invisible until the mechanics were looked up rather than recalled.
 
 ```sh
 cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore

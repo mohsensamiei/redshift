@@ -565,6 +565,65 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
+#[ignore = "gap: infiltration — no effect table keyed on what was entered"]
+fn a_spy_gets_a_different_effect_from_each_kind_of_building() {
+    // Researched, and richer than "infiltration works": a barracks promotes
+    // everything you build from then on, a refinery hands over a fifth of the
+    // victim's money, a power plant goes dark for a minute, and a battle lab
+    // unlocks a commando built from *the victim's* technology.
+    //
+    // So this is a table keyed on the infiltrated building, not one effect with
+    // a target. Two of the entries are persistent production modifiers rather
+    // than events, which is a third shape again.
+    panic!("no infiltration action, and no per-building effect table");
+}
+
+#[test]
+#[ignore = "gap: tech structures — neutral, capturable, unsellable, and they extend the build radius"]
+fn a_captured_tech_structure_extends_the_build_radius() {
+    // A captured oil derrick is a forward base. Redshift has a build radius and
+    // only counts structures the player built, so capturing one would give a
+    // player income and no ground to build on.
+    panic!("no capture, no neutral owner, and the build radius ignores captured ground");
+}
+
+#[test]
+#[ignore = "gap: persistent production modifiers — an effect that changes everything built afterwards"]
+fn an_effect_can_promote_every_unit_built_from_now_on() {
+    // A spy in a barracks, and a tech machine shop repairing every vehicle you
+    // own anywhere on the map. Neither is a one-off event nor a per-unit trait:
+    // they are standing modifiers on a player, and there is nowhere to put one.
+    panic!("effects are instantaneous; a player carries no standing modifiers");
+}
+
+#[test]
+#[ignore = "gap: instant-kill weapons — damage is a number, and some weapons simply kill"]
+fn some_weapons_kill_outright_regardless_of_health() {
+    // Tanya's pistols kill any infantry outright and do nothing at all to
+    // vehicles. A sniper is the same. Expressing that as "very high damage"
+    // would make it merely very strong against vehicles too, which is exactly
+    // wrong.
+    panic!("a weapon has a damage number and no notion of killing outright");
+}
+
+#[test]
+#[ignore = "gap: a unit's weapon cannot depend on its cargo"]
+fn an_ifv_changes_weapon_with_its_passenger() {
+    // Twenty-four turret modes in the original, four more in the expansion, and
+    // an engineer inside turns it into a repair vehicle. The vehicle's weapon
+    // is a function of what it is carrying, resolved at runtime.
+    panic!("no transport, and weapons are fixed per entity kind");
+}
+
+#[test]
+#[ignore = "gap: build limits — some units may only exist once at a time"]
+fn only_one_commando_can_exist_at_a_time() {
+    // Tanya is unique per player, and two with a cloning vat — so the limit is
+    // itself modifiable. Nothing counts existing units before allowing a build.
+    panic!("production checks cost and prerequisites, never how many already exist");
+}
+
+#[test]
 #[ignore = "gap: no neutral player — civilians and neutral structures have no owner"]
 fn a_neutral_structure_belongs_to_nobody_and_is_hostile_to_nobody() {
     panic!("every player is hostile to every other; there is no neutral side");

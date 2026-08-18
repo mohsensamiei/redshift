@@ -182,6 +182,18 @@ and reasoning in docs/08-roster.md.
 - [ ] Disguise — appearing as something else to one side only
 - [ ] Bridges — destructible terrain that changes connectivity
 
+### The gap list is executable
+
+`crates/sim/tests/roster_conformance.rs` holds it. Nine capabilities confirmed,
+thirteen gaps, each an ignored test with its reason attached.
+
+```sh
+cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
+```
+
+Closing a gap means deleting an `#[ignore]`. Prefer that to ticking a box here:
+a checkbox can be wrong and a test cannot.
+
 ### Verifying the specification
 
 - [ ] **docs/08-roster.md is written from memory and unverified.** Check it

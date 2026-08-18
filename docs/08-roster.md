@@ -221,7 +221,41 @@ that are not "damage in a radius". None of it exists.
 
 ---
 
-## 9. What the engine actually cannot do
+## 9. The audit is executable
+
+This document used to end in a hand-written list of gaps, which is exactly the
+kind of thing that drifts from the code and then misleads. The list lives in
+`crates/sim/tests/roster_conformance.rs` now.
+
+Every capability here is a test that builds the thing **through the data layer**,
+as a real unit would. A passing test is a capability the engine has. An ignored
+test is one it lacks, with the reason attached.
+
+```sh
+# what works
+cargo test -p redshift-sim --test roster_conformance
+
+# the live gap list, with reasons
+cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
+```
+
+Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
+change to express a *unit*, ADR 0006 has been violated somewhere.
+
+**As of the last run: 9 capabilities confirmed, 13 gaps.**
+
+Confirmed working, exercised end to end rather than asserted:
+
+- Ordinary infantry cannot cross water, and amphibious infantry can — from one
+  line of data, no engine change
+- A hovercraft crosses both surfaces; a ship cannot leave the water; aircraft
+  cross everything including high ground
+- A unit may declare a size that its category would not give it
+- A producer builds only its declared categories
+- Prerequisites gate the tech tree, and a structure that produces nothing can
+  still unlock things
+
+## 10. What the engine cannot do
 
 Consolidated from everything above, ordered by how much each represents.
 
@@ -262,7 +296,7 @@ Consolidated from everything above, ordered by how much each represents.
 
 ---
 
-## 10. What follows
+## 11. What follows
 
 **The Phase 3 exit criteria are wrong.** They say a 1v1 skirmish is playable,
 which is nearly true, and say nothing about the roster being expressible. Items

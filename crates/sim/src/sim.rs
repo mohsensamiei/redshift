@@ -25,6 +25,7 @@ use crate::unit::{
     ARRIVAL_TOLERANCE, FIRING_ARC, HarvestStage, MAX_SEPARATION_STEP, MOVE_ALIGNMENT, Order,
     SEPARATION_EPSILON, Unit,
 };
+use crate::vision::Visibility;
 use crate::{TICKS_PER_SECOND, Tick};
 
 /// Node expansions all pathfinding may spend in a single tick, across every
@@ -283,6 +284,7 @@ pub struct Sim {
     stats: StatTable,
     treasury: Treasury,
     power: PowerGrid,
+    visibility: Visibility,
     /// Reused between ticks so separation does not allocate every frame.
     #[serde(skip)]
     separation_buckets: Vec<Vec<EntityId>>,
@@ -334,6 +336,7 @@ impl Sim {
             units.insert(unit);
         }
         let workspace = PathWorkspace::new(map.cell_count());
+        let (map_width, map_height) = (map.width() as u16, map.height() as u16);
         let mut sim = Sim {
             tick: 0,
             map,
@@ -345,6 +348,7 @@ impl Sim {
             separation_buckets: Vec::new(),
             treasury: Treasury::new(factions.len(), STARTING_CREDITS),
             power: PowerGrid::new(factions.len()),
+            visibility: Visibility::new(map_width, map_height, factions.len()),
             rules: setup.rules,
             stats,
             players: setup.players,
@@ -353,6 +357,7 @@ impl Sim {
         // that reported no power until something ticked would show the player
         // a blackout on the frame they started the match.
         sim.recompute_power();
+        sim.update_vision();
         sim
     }
 
@@ -430,6 +435,10 @@ impl Sim {
         let hits = self.acquire_and_fire();
         self.resolve_damage(&hits);
         self.remove_the_dead();
+        // After deaths, for the same reason the power grid is: a destroyed
+        // scout should stop revealing ground on the tick it dies, not the one
+        // after.
+        self.update_vision();
         // After the deaths, so the grid describes the world as it stands at the
         // end of the tick — which is the world anyone looking at it will see.
         // Recomputing at the start instead left it a tick stale: a base whose
@@ -437,6 +446,56 @@ impl Sim {
         self.recompute_power();
 
         self.tick += 1;
+    }
+
+    // -- Vision --------------------------------------------------------------
+
+    /// Rebuilds what each player can see.
+    ///
+    /// From scratch each tick rather than updated as units move. Incremental
+    /// updates would mean clearing an old vision circle and stamping a new one
+    /// on every step of every unit, and one missed clear leaves a permanently
+    /// visible patch that nobody can account for. Explored ground is cumulative
+    /// and never cleared, so only the visible layer is rebuilt.
+    fn update_vision(&mut self) {
+        if !self.visibility.is_enabled() {
+            return;
+        }
+        self.visibility.begin_tick();
+        for (_, unit) in self.units.iter() {
+            if !unit.is_alive() {
+                continue;
+            }
+            let stats = self.stats.get(unit.owner, unit.kind);
+            if stats.vision <= Fx::ZERO {
+                continue;
+            }
+            self.visibility
+                .reveal(unit.owner, unit.cell(), stats.vision);
+        }
+    }
+
+    /// What each player can see.
+    pub fn visibility(&self) -> &Visibility {
+        &self.visibility
+    }
+
+    /// Reveals the whole map to everyone.
+    ///
+    /// For replays and spectators, which should not be watching through one
+    /// player's eyes.
+    pub fn reveal_all(&mut self) {
+        self.visibility.reveal_all();
+    }
+
+    /// Whether `player` can currently see `unit`.
+    ///
+    /// Used by targeting as well as by the interface, which is why it lives
+    /// here: a unit that fired at something it could not see would be both
+    /// unfair and — since the interface and the simulation would be working
+    /// from different answers — a source of desyncs.
+    pub fn can_see(&self, player: PlayerId, unit: &Unit) -> bool {
+        self.visibility.is_visible(player, unit.cell())
     }
 
     // -- Power ---------------------------------------------------------------
@@ -964,11 +1023,25 @@ impl Sim {
 
             // Keep the current target if it is still worth shooting at, so a
             // unit does not flicker between two equally close enemies.
+            // Only what the owner can see. Firing through fog would be both
+            // unfair and a source of desyncs, since the interface and the
+            // simulation would be working from different answers about what is
+            // there.
+            let visible = |other: &Unit| self.can_see(unit.owner, other);
+
             let keep = unit.combat.target.filter(|t| {
                 combat::target_is_valid(unit, *t, &weapon, &self.units, &Self::are_allied)
+                    && self.units.get(*t).is_some_and(&visible)
             });
             let target = keep.or_else(|| {
-                combat::choose_target(attacker, unit, &weapon, &self.units, &Self::are_allied)
+                combat::choose_target_where(
+                    attacker,
+                    unit,
+                    &weapon,
+                    &self.units,
+                    &Self::are_allied,
+                    &visible,
+                )
             });
 
             // Aim before firing. A turret traverses on its own; without one the

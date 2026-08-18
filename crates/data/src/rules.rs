@@ -402,6 +402,24 @@ impl Rules {
         let armour_classes: Vec<&str> = self.armour.classes.iter().map(|s| s.as_str()).collect();
 
         for (_, entity) in self.entities() {
+            // Something that can shoot but cannot see never fires a shot, and
+            // does so silently — it simply sits there while everything around
+            // it fights. Far better caught here than puzzled over in a match.
+            let armed = entity
+                .traits
+                .iter()
+                .any(|t| matches!(t, Trait::Armed { .. }));
+            let sighted = entity
+                .traits
+                .iter()
+                .any(|t| matches!(t, Trait::Vision { .. }));
+            if armed && !sighted {
+                problems.push(format!(
+                    "{}: has a weapon but no Vision, so it can never acquire a target",
+                    entity.id
+                ));
+            }
+
             let mut seen: BTreeMap<&str, u32> = BTreeMap::new();
             for t in &entity.traits {
                 *seen.entry(t.name()).or_insert(0) += 1;

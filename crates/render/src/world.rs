@@ -182,7 +182,11 @@ fn flat_material(colour: Color) -> StandardMaterial {
 /// Raised cells get their side faces as well as their top. Emitting only the
 /// top leaves a gap at every step that the background shows through, which
 /// reads as a black crack along every wall.
-pub fn build_terrain_mesh(map: &Map) -> Mesh {
+pub fn build_terrain_mesh(
+    map: &Map,
+    visibility: &redshift_sim::Visibility,
+    viewer: redshift_sim::PlayerId,
+) -> Mesh {
     use bevy::asset::RenderAssetUsages;
     use bevy::render::mesh::{Indices, PrimitiveTopology};
 
@@ -206,6 +210,11 @@ pub fn build_terrain_mesh(map: &Map) -> Mesh {
             // visibly thin the patch out over a run rather than flipping cells
             // to bare earth one at a time.
             let ore = map.ore(cell) as f32 / redshift_sim::map::MAX_ORE_PER_CELL as f32;
+            // Fog is baked into the terrain colours rather than drawn as an
+            // overlay. An overlay would be a second full-map mesh — the single
+            // most expensive thing this scene could add — and the terrain mesh
+            // has to be rebuilt when the fog moves anyway.
+            let sight = visibility.sight(viewer, cell);
             let colour = match terrain {
                 Terrain::Ground if ore > 0.0 => {
                     let mix = ore.clamp(0.0, 1.0);
@@ -223,8 +232,13 @@ pub fn build_terrain_mesh(map: &Map) -> Mesh {
 
             // Impassable rock stands proud of the ground so obstacles read as
             // obstacles rather than as a change of colour.
-            let height = match terrain {
-                Terrain::Rock => 0.5,
+            //
+            // Flattened where the player has never looked. Blackening the
+            // colour alone still left the ridges catching the light, which drew
+            // a map of every cliff on ground nobody had scouted.
+            let height = match (terrain, sight) {
+                (_, redshift_sim::Sight::Unseen) => 0.0,
+                (Terrain::Rock, _) => 0.5,
                 _ => 0.0,
             };
 
@@ -237,6 +251,17 @@ pub fn build_terrain_mesh(map: &Map) -> Mesh {
                 [fx + 1.0, height, fy + 1.0],
                 [fx, height, fy + 1.0],
             ]);
+            // Unexplored ground is black and fogged ground is dimmed. Doing it
+            // to the vertex colour keeps it free: no extra geometry, no extra
+            // pass, no extra draw call.
+            let colour = match sight {
+                redshift_sim::Sight::Unseen => [0.02, 0.02, 0.03, 1.0],
+                redshift_sim::Sight::Fogged => {
+                    [colour[0] * 0.38, colour[1] * 0.38, colour[2] * 0.42, 1.0]
+                }
+                redshift_sim::Sight::Visible => colour,
+            };
+
             normals.extend_from_slice(&[[0.0, 1.0, 0.0]; 4]);
             uvs.extend_from_slice(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
             colours.extend_from_slice(&[colour; 4]);
@@ -315,6 +340,50 @@ pub fn build_terrain_mesh(map: &Map) -> Mesh {
     mesh
 }
 
+/// Marks the terrain, so the fog pass can find it again.
+#[derive(Component)]
+pub struct TerrainMesh;
+
+/// Tracks which simulation tick the terrain was last built for.
+#[derive(Resource, Default)]
+pub struct TerrainBuiltAt(pub Option<u32>);
+
+/// Rebuilds the terrain when the fog has moved.
+///
+/// Once per simulation tick, not once per frame: the fog only changes when the
+/// simulation advances, and at 60 Hz against a 20 Hz simulation two rebuilds in
+/// three would produce an identical mesh.
+///
+/// Rebuilding the whole map is affordable at the sizes here — a 48×48 map is
+/// about two thousand quads — but it does scale with map area, so a much larger
+/// map will want the terrain split into chunks that can be rebuilt
+/// individually. Noted rather than solved, since solving it now would be
+/// guessing at a size nobody has asked for.
+pub fn rebuild_terrain(
+    session: Res<Session>,
+    mut built_at: ResMut<TerrainBuiltAt>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    terrain: Query<&Mesh3d, With<TerrainMesh>>,
+) {
+    let tick = session.sim().tick_number();
+    if built_at.0 == Some(tick) {
+        return;
+    }
+    built_at.0 = Some(tick);
+
+    let Ok(handle) = terrain.single() else {
+        return;
+    };
+    let fresh = build_terrain_mesh(
+        session.sim().map(),
+        session.sim().visibility(),
+        session.local_player(),
+    );
+    if let Some(mut slot) = meshes.get_mut(&handle.0) {
+        *slot = fresh;
+    }
+}
+
 /// Creates and destroys drawn units to match the simulation.
 ///
 /// The simulation is the authority: this only ever mirrors it.
@@ -329,7 +398,13 @@ pub fn sync_units(
         drawn.insert(view.0, entity);
     }
 
+    let viewer = session.local_player();
     for (id, unit) in session.sim().view().units() {
+        // Anything in fog is simply not drawn. Drawing it dimmed would show the
+        // player exactly what they are not supposed to know.
+        if !session.sim().can_see(viewer, unit) {
+            continue;
+        }
         if drawn.remove(&id).is_some() {
             continue;
         }

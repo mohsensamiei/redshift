@@ -73,6 +73,9 @@ fn rules() -> Rules {
                     turn_rate: 3600,
                     locomotor: Locomotor::Foot,
                 },
+                Trait::Vision {
+                    range: Hundredths(900),
+                },
             ];
             if let Some(w) = weapon {
                 t.push(Trait::Armed {

@@ -279,11 +279,16 @@ fn a_missing_weapon_is_refused_with_a_useful_message() {
     let result = Rules::from_parts(
         vec![entity_with(
             "ghost",
-            vec![Trait::Armed {
-                weapon: "nonexistent".into(),
-                turret: false,
-                turret_rate: 0,
-            }],
+            vec![
+                Trait::Vision {
+                    range: redshift_data::value::Hundredths(500),
+                },
+                Trait::Armed {
+                    weapon: "nonexistent".into(),
+                    turret: false,
+                    turret_rate: 0,
+                },
+            ],
         )],
         Vec::new(),
         minimal_armour(),
@@ -383,11 +388,16 @@ fn every_problem_is_reported_not_just_the_first() {
             ),
             entity_with(
                 "b",
-                vec![Trait::Armed {
-                    weapon: "missing".into(),
-                    turret: false,
-                    turret_rate: 0,
-                }],
+                vec![
+                    Trait::Vision {
+                        range: redshift_data::value::Hundredths(500),
+                    },
+                    Trait::Armed {
+                        weapon: "missing".into(),
+                        turret: false,
+                        turret_rate: 0,
+                    },
+                ],
             ),
         ],
         Vec::new(),

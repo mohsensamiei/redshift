@@ -111,6 +111,7 @@ impl Plugin for RedshiftRenderPlugin {
         .init_resource::<input::Selection>()
         .init_resource::<input::DragState>()
         .init_resource::<overlay::OverlayState>()
+        .init_resource::<world::TerrainBuiltAt>()
         .insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
         .add_systems(Startup, setup)
         .add_systems(
@@ -125,7 +126,12 @@ impl Plugin for RedshiftRenderPlugin {
                     input::handle_hotkeys,
                 ),
                 session::advance_session,
-                (world::sync_units, world::interpolate_units).chain(),
+                (
+                    world::rebuild_terrain,
+                    world::sync_units,
+                    world::interpolate_units,
+                )
+                    .chain(),
                 (input::sync_selection_rings, input::move_selection_rings).chain(),
                 (health::sync_health_bars, health::update_health_bars).chain(),
                 (
@@ -190,7 +196,11 @@ fn setup(
         rig.focus = focus;
     }
 
-    let terrain_mesh = meshes.add(world::build_terrain_mesh(map));
+    let terrain_mesh = meshes.add(world::build_terrain_mesh(
+        map,
+        session.sim().visibility(),
+        session.local_player(),
+    ));
     let terrain_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         perceptual_roughness: 1.0,
@@ -202,6 +212,7 @@ fn setup(
         Mesh3d(terrain_mesh),
         MeshMaterial3d(terrain_material),
         Transform::IDENTITY,
+        world::TerrainMesh,
     ));
 
     let assets = world::build_assets(

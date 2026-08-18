@@ -41,6 +41,7 @@ pub mod rng;
 pub mod sim;
 pub mod stats;
 pub mod unit;
+pub mod vision;
 
 mod trig_table;
 
@@ -55,6 +56,7 @@ pub use power::PowerGrid;
 pub use production::{ProductionItem, ProductionQueue};
 pub use rng::SimRng;
 pub use stats::{StatTable, UnitStats};
+pub use vision::{Sight, Visibility};
 
 // Re-exported so the renderer and other consumers can read rules without
 // depending on redshift-data directly. The data crate is an implementation

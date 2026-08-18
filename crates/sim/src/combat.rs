@@ -219,6 +219,24 @@ pub fn choose_target(
     units: &crate::arena::Arena<Unit>,
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
 ) -> Option<EntityId> {
+    choose_target_where(attacker, attacker_unit, weapon, units, alliance, &|_| true)
+}
+
+/// As [`choose_target`], but only considering targets `can_see` accepts.
+///
+/// The filter is a parameter rather than being folded in, so that the tie-break
+/// logic has exactly one implementation. A second copy that also checked
+/// visibility would be one edit away from breaking ties differently — and a
+/// tie-break that differs between two code paths is a desync waiting for the
+/// right battle.
+pub fn choose_target_where(
+    attacker: EntityId,
+    attacker_unit: &Unit,
+    weapon: &WeaponStats,
+    units: &crate::arena::Arena<Unit>,
+    alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
+    can_see: &dyn Fn(&Unit) -> bool,
+) -> Option<EntityId> {
     let mut best: Option<(EntityId, FxWide)> = None;
 
     for (id, other) in units.iter() {
@@ -226,6 +244,9 @@ pub fn choose_target(
             continue;
         }
         if alliance(attacker_unit.owner, other.owner) {
+            continue;
+        }
+        if !can_see(other) {
             continue;
         }
         let dx = other.pos.x - attacker_unit.pos.x;
@@ -431,6 +452,9 @@ mod tests {
                         turn_rate: 360,
                         locomotor: Locomotor::Foot,
                     },
+                    Trait::Vision {
+                        range: Hundredths(800),
+                    },
                     Trait::Armed {
                         weapon: "rifle".into(),
                         turret: false,
@@ -452,6 +476,9 @@ mod tests {
                         speed: Hundredths(450),
                         turn_rate: 90,
                         locomotor: Locomotor::Tracked,
+                    },
+                    Trait::Vision {
+                        range: Hundredths(800),
                     },
                     Trait::Armed {
                         weapon: "cannon".into(),

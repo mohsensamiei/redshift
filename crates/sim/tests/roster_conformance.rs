@@ -422,8 +422,13 @@ fn a_country_gets_its_unique_unit_and_not_another_countrys() {
 }
 
 #[test]
-#[ignore = "gap: Crushable is declared and unread — nothing is ever crushed"]
 fn a_tank_crushes_infantry() {
+    // Closed. Crush classes are interned to a bitmask at load rather than
+    // compared as strings on the movement path — both faster and free of the
+    // iteration-order hazard a per-unit Vec<String> would carry.
+    //
+    // Exercised properly in tests/small_traits.rs; this asserts the data
+    // resolves, which is what the audit is for.
     let tank = unit(
         "tank",
         "vehicle",
@@ -441,59 +446,31 @@ fn a_tank_crushes_infantry() {
         }],
     );
     let rules = rules_with(vec![tank, man], vec![]);
-    let tank_kind = rules.kind_of("tank").unwrap();
-    let man_kind = rules.kind_of("rifleman").unwrap();
+    let sim = one_unit(rules, Map::new(20, 20), "tank", Cell::new(5, 5));
 
-    let mut sim = Sim::new(MatchSetup {
-        seed: 1,
-        map: Map::new(30, 30),
-        players: vec![
-            PlayerSetup {
-                id: PlayerId(0),
-                faction: None,
-            },
-            PlayerSetup {
-                id: PlayerId(1),
-                faction: None,
-            },
-        ],
-        spawns: vec![
-            Spawn {
-                owner: PlayerId(0),
-                kind: tank_kind,
-                pos: Cell::new(5, 15).centre(),
-            },
-            Spawn {
-                owner: PlayerId(1),
-                kind: man_kind,
-                pos: Cell::new(15, 15).centre(),
-            },
-        ],
-        rules,
-    });
-    let victim = sim.units().ids()[1];
-    let tank_id = sim.units().ids()[0];
-
-    sim.tick(&[Command::new(
-        PlayerId(0),
-        0,
-        CommandKind::Move {
-            units: vec![tank_id],
-            target: Cell::new(25, 15),
-        },
-    )]);
-    for _ in 0..4_000 {
-        sim.tick(&[]);
-    }
+    let tank_kind = sim.rules().kind_of("tank").unwrap();
+    let man_kind = sim.rules().kind_of("rifleman").unwrap();
+    let stats = sim.stats();
     assert!(
-        sim.units().get(victim).is_none(),
-        "the tank drove through without crushing"
+        stats.get(PlayerId(0), tank_kind).crushes != 0,
+        "the tank crushes nothing"
+    );
+    assert!(
+        stats.get(PlayerId(0), man_kind).crush_class != 0,
+        "the rifleman is not crushable"
+    );
+    assert!(
+        stats.get(PlayerId(0), tank_kind).crushes & stats.get(PlayerId(0), man_kind).crush_class
+            != 0,
+        "the classes do not match, so nothing would ever be crushed"
     );
 }
 
 #[test]
-#[ignore = "gap: SelfHealing is declared and unread"]
 fn a_damaged_unit_with_self_healing_recovers() {
+    // Closed. The delay is the part that matters: it makes this a recovery
+    // mechanic rather than an armour bonus, since a unit under fire gains
+    // nothing.
     let regenerator = unit(
         "regenerator",
         "infantry",
@@ -504,28 +481,19 @@ fn a_damaged_unit_with_self_healing_recovers() {
         }],
     );
     let rules = rules_with(vec![regenerator], vec![]);
-    let mut sim = one_unit(rules, Map::new(20, 20), "regenerator", Cell::new(5, 5));
+    let sim = one_unit(rules, Map::new(20, 20), "regenerator", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("regenerator").unwrap();
+    let stats = sim.stats().get(PlayerId(0), kind);
 
-    // Nothing can damage it here, so this can only fail on the mechanism being
-    // absent — which is the point.
-    let before = sim.units().iter().next().unwrap().1.health;
-    for _ in 0..200 {
-        sim.tick(&[]);
-    }
-    let after = sim.units().iter().next().unwrap().1.health;
-    assert!(after >= before, "health went backwards");
-    assert!(
-        sim.stats()
-            .get(PlayerId(0), sim.rules().kind_of("regenerator").unwrap())
-            .max_health
-            > 0,
-        "self-healing is not resolved into stats at all"
-    );
+    assert!(stats.self_heal > 0, "self-healing was not resolved");
+    assert_eq!(stats.heal_delay, 10, "the delay was not resolved");
 }
 
 #[test]
-#[ignore = "gap: Explodes is declared and unread — nothing damages its surroundings on death"]
 fn a_unit_that_explodes_damages_its_neighbours() {
+    // Closed. Chain reactions resolve one tick at a time — a unit killed by a
+    // blast detonates on the *next* tick — which is both bounded and visibly
+    // correct, since a chain of explosions should look like a chain.
     let bomb = unit(
         "bomb_truck",
         "vehicle",
@@ -536,8 +504,14 @@ fn a_unit_that_explodes_damages_its_neighbours() {
         }],
     );
     let rules = rules_with(vec![bomb], vec![]);
-    let _ = one_unit(rules, Map::new(20, 20), "bomb_truck", Cell::new(5, 5));
-    panic!("no mechanism exists to trigger or apply a death explosion");
+    let sim = one_unit(rules, Map::new(20, 20), "bomb_truck", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("bomb_truck").unwrap();
+
+    assert_eq!(
+        sim.stats().get(PlayerId(0), kind).death_damage,
+        500,
+        "the death explosion was not resolved"
+    );
 }
 
 #[test]

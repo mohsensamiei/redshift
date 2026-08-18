@@ -57,6 +57,22 @@ pub struct UnitStats {
     /// Ticks to produce.
     pub build_time: u32,
     pub can_crush: bool,
+    /// Classes this can drive over and kill.
+    pub crushes: u8,
+    /// The class this belongs to for crushing. Zero means it cannot be crushed.
+    pub crush_class: u8,
+    /// Health regained per tick, in hundredths.
+    pub self_heal: u32,
+    /// Ticks of quiet before self-healing starts.
+    pub heal_delay: u32,
+    /// Damage dealt to its surroundings when destroyed.
+    ///
+    /// The warhead lives in the combat table, where warhead names are interned.
+    /// Resolving it here would need a second, independent index, and two
+    /// indexes that disagreed would be far worse than the small split.
+    pub death_damage: u32,
+    /// How many passengers this can carry.
+    pub capacity: u8,
     /// Whether this kind can move at all. Structures cannot.
     pub mobile: bool,
     /// How much ore this can carry, if it harvests at all.
@@ -112,6 +128,12 @@ impl Default for UnitStats {
             cost: 0,
             build_time: 0,
             can_crush: false,
+            crushes: 0,
+            crush_class: 0,
+            self_heal: 0,
+            heal_delay: 0,
+            death_damage: 0,
+            capacity: 0,
             mobile: false,
             harvest_capacity: None,
             gather_rate: 0,
@@ -143,6 +165,12 @@ impl StateHash for UnitStats {
         h.write_u32(self.cost);
         h.write_u32(self.build_time);
         h.write_bool(self.can_crush);
+        h.write_u8(self.crushes);
+        h.write_u8(self.crush_class);
+        h.write_u32(self.self_heal);
+        h.write_u32(self.heal_delay);
+        h.write_u32(self.death_damage);
+        h.write_u8(self.capacity);
         h.write_bool(self.mobile);
         h.write_i32(self.radius.raw());
         h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
@@ -224,6 +252,22 @@ impl StateHash for StatTable {
     }
 }
 
+/// Interns crush class names to a bitmask.
+///
+/// The original's classes are few and fixed, so a bitmask is both faster than
+/// string comparison on the movement path and free of the iteration-order
+/// hazard a per-unit `Vec<String>` would carry.
+fn crush_mask(classes: &[String]) -> u8 {
+    classes.iter().fold(0u8, |acc, c| {
+        acc | match c.as_str() {
+            "infantry" => 1,
+            "light" => 2,
+            "heavy" => 4,
+            _ => 8,
+        }
+    })
+}
+
 fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitStats {
     let def = rules.entity(kind);
 
@@ -257,7 +301,26 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             }
             Trait::Vision { range } => stats.vision = Fx::from_raw(range.to_fx_raw()),
             Trait::Selectable { priority } => stats.selection_priority = *priority,
-            Trait::Crushes { classes } => stats.can_crush = !classes.is_empty(),
+            // Crush classes are interned to a bitmask at load. The alternative
+            // is comparing strings on the movement hot path, which is both slow
+            // and — because the comparison order would come from a Vec built
+            // per unit — a determinism hazard waiting to be introduced.
+            Trait::Crushes { classes } => {
+                stats.can_crush = !classes.is_empty();
+                stats.crushes = crush_mask(classes);
+            }
+            Trait::Crushable { class } => {
+                stats.crush_class = crush_mask(std::slice::from_ref(class))
+            }
+            Trait::SelfHealing {
+                per_tick,
+                delay_after_damage,
+            } => {
+                stats.self_heal = per_tick.0.max(0) as u32;
+                stats.heal_delay = delay_after_damage.0;
+            }
+            Trait::Explodes { damage, .. } => stats.death_damage = *damage,
+            Trait::Transport { capacity, .. } => stats.capacity = *capacity,
             Trait::Harvester {
                 capacity,
                 gather_rate,

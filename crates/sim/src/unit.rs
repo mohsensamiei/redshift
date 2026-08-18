@@ -244,6 +244,11 @@ pub struct Unit {
     pub production: Option<crate::production::ProductionQueue>,
     /// Kills to this unit's name.
     pub kills: u32,
+    /// Ticks since it last took damage.
+    ///
+    /// Counted up like [`Unit::since_fired`], so a unit that has never been hit
+    /// is not perpetually one tick away from an event that already fired.
+    pub since_damaged: u32,
     /// Ticks since it last fired.
     ///
     /// Counted up rather than down, so a unit that never fires is not
@@ -268,6 +273,7 @@ impl Unit {
             health: max_health,
             order: Order::Idle,
             kills: 0,
+            since_damaged: u32::MAX,
             since_fired: u32::MAX,
             harvest: None,
             production: None,
@@ -290,6 +296,9 @@ impl Unit {
     /// unkillable in a way that looks like a rendering glitch.
     pub fn take_damage(&mut self, amount: u32) {
         self.health = self.health.saturating_sub(amount);
+        if amount > 0 {
+            self.since_damaged = 0;
+        }
     }
 }
 
@@ -315,6 +324,7 @@ impl StateHash for Unit {
             None => h.write_u8(0),
         }
         h.write_u32(self.kills);
+        h.write_u32(self.since_damaged);
         h.write_u32(self.since_fired);
         h.write(&self.combat);
         match &self.order {

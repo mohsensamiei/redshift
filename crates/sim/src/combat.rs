@@ -383,6 +383,11 @@ pub fn armour_of(
 pub struct CombatTable {
     weapons: Vec<Option<WeaponStats>>,
     armour: Vec<ArmourId>,
+    /// Warhead of each kind's death explosion, resolved here because this is
+    /// where warhead names are interned. A second index built elsewhere could
+    /// disagree with this one, and a damage lookup that silently used the wrong
+    /// warhead would be very hard to see.
+    death_warhead: Vec<WarheadId>,
     damage: DamageTable,
 }
 
@@ -399,14 +404,25 @@ impl CombatTable {
 
         let mut weapons = Vec::with_capacity(rules.entity_count());
         let mut armour = Vec::with_capacity(rules.entity_count());
-        for (kind, _) in rules.entities() {
+        let mut death_warhead = Vec::with_capacity(rules.entity_count());
+        for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index));
             armour.push(armour_of(rules, kind, &armour_index));
+            death_warhead.push(
+                def.traits
+                    .iter()
+                    .find_map(|t| match t {
+                        Trait::Explodes { warhead, .. } => Some(warhead_index(warhead)),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+            );
         }
 
         CombatTable {
             weapons,
             armour,
+            death_warhead,
             damage: DamageTable::build(rules),
         }
     }
@@ -414,6 +430,15 @@ impl CombatTable {
     #[inline]
     pub fn weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
         self.weapons.get(kind.0 as usize).and_then(|w| w.as_ref())
+    }
+
+    /// The warhead of a kind's death explosion.
+    #[inline]
+    pub fn death_warhead(&self, kind: EntityKind) -> WarheadId {
+        self.death_warhead
+            .get(kind.0 as usize)
+            .copied()
+            .unwrap_or_default()
     }
 
     #[inline]
@@ -467,6 +492,9 @@ impl StateHash for CombatTable {
         }
         for a in &self.armour {
             h.write_u16(a.0);
+        }
+        for w in &self.death_warhead {
+            h.write_u16(w.0);
         }
         h.write(&self.damage);
     }

@@ -266,6 +266,12 @@ const BUILD_RADIUS: i32 = 8;
 /// would be indistinguishable from attack-move.
 const GUARD_LEASH: i32 = 4;
 
+/// How far a death explosion reaches, in cells.
+///
+/// A single figure for now. The original varies it by warhead, which is where
+/// it belongs once weapons carry their own blast radius for this purpose.
+const DEATH_BLAST_RADIUS: Fx = Fx::from_frac(150, 100);
+
 /// How far around a refinery a harvester will look for somewhere to pull up.
 ///
 /// Wider than the largest footprint, so a harvester can always find the edge of
@@ -451,6 +457,10 @@ impl Sim {
         let hits = self.acquire_and_fire();
         self.resolve_damage(&landed);
         self.resolve_damage(&hits);
+        self.crush_underfoot();
+        self.regenerate();
+        let blasts = self.detonate_the_dying();
+        self.resolve_damage(&blasts);
         self.remove_the_dead();
         // After deaths, for the same reason the power grid is: a destroyed
         // scout should stop revealing ground on the tick it dies, not the one
@@ -463,6 +473,116 @@ impl Sim {
         self.recompute_power();
 
         self.tick += 1;
+    }
+
+    // -- Crushing, healing and death throes ----------------------------------
+
+    /// Kills anything driven over by something heavy enough.
+    ///
+    /// Run after movement, so a unit is crushed where the tank ended up rather
+    /// than where it started. Only enemies are crushed: driving over your own
+    /// infantry would make large armies unmanageable, and the original did not
+    /// do it either.
+    fn crush_underfoot(&mut self) {
+        let mut crushed: Vec<EntityId> = Vec::new();
+
+        for (id, unit) in self.units.iter() {
+            let stats = self.stats.get(unit.owner, unit.kind);
+            if stats.crushes == 0 || !stats.mobile {
+                continue;
+            }
+            let cell = unit.cell();
+
+            for (other_id, other) in self.units.iter() {
+                if other_id == id || !other.is_alive() {
+                    continue;
+                }
+                if Self::are_allied(unit.owner, other.owner) {
+                    continue;
+                }
+                let other_stats = self.stats.get(other.owner, other.kind);
+                // Nothing to crush, or not a class this can crush.
+                if other_stats.crush_class == 0 || stats.crushes & other_stats.crush_class == 0 {
+                    continue;
+                }
+                // Underfoot means the same cell, not merely nearby: a tank
+                // squeezing past should not kill what it brushed.
+                if other.cell() == cell {
+                    crushed.push(other_id);
+                }
+            }
+        }
+
+        for id in crushed {
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.health = 0;
+            }
+        }
+    }
+
+    /// Regenerates units that have been left alone.
+    ///
+    /// The delay is what makes it a recovery mechanic rather than an armour
+    /// bonus: a unit under fire heals nothing, and one pulled out of a fight
+    /// comes back.
+    fn regenerate(&mut self) {
+        // Advanced here rather than in the firing pass, which only visits armed
+        // units — an unarmed thing that healed only when something nearby
+        // happened to be shooting would be a memorable bug.
+        for (_, unit) in self.units.iter_mut() {
+            unit.since_damaged = unit.since_damaged.saturating_add(1);
+        }
+
+        let healing: Vec<(EntityId, u32, u32)> = self
+            .units
+            .iter()
+            .filter_map(|(id, unit)| {
+                let stats = self.stats.get(unit.owner, unit.kind);
+                if stats.self_heal == 0 || !unit.is_alive() {
+                    return None;
+                }
+                if unit.since_damaged < stats.heal_delay {
+                    return None;
+                }
+                Some((id, stats.self_heal, stats.max_health))
+            })
+            .collect();
+
+        for (id, per_tick, max) in healing {
+            if let Some(unit) = self.units.get_mut(id) {
+                // Hundredths, accumulated by integer division rather than a
+                // fractional carry: a unit healing 0.5 a tick gains 1 every
+                // other tick, identically on every peer.
+                let gain = (per_tick + (unit.since_damaged % 100)) / 100;
+                unit.health = (unit.health + gain).min(max);
+            }
+        }
+    }
+
+    /// Collects the blasts from everything that is about to be removed.
+    ///
+    /// Chain reactions resolve one tick at a time: a unit killed by a blast
+    /// detonates on the *next* tick rather than immediately. That is both
+    /// bounded — no recursion to run away with — and visibly correct, since a
+    /// chain of explosions should be a chain rather than a single event.
+    fn detonate_the_dying(&mut self) -> Vec<PendingHit> {
+        self.units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter_map(|(id, unit)| {
+                let stats = self.stats.get(unit.owner, unit.kind);
+                (stats.death_damage > 0).then(|| PendingHit {
+                    attacker: id,
+                    // No primary target: a blast is entirely splash, and hits
+                    // whatever happens to be standing there.
+                    target: EntityId::NONE,
+                    damage: stats.death_damage,
+                    warhead: self.combat.death_warhead(unit.kind),
+                    splash_radius: DEATH_BLAST_RADIUS,
+                    at: unit.pos,
+                })
+            })
+            .collect()
     }
 
     // -- Vision --------------------------------------------------------------

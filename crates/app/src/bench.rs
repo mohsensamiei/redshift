@@ -187,6 +187,9 @@ fn bench_rules() -> Rules {
             projectile_speed: Hundredths::ZERO,
             homing: false,
             targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
         },
         WeaponDef {
             id: "cannon".into(),
@@ -198,6 +201,9 @@ fn bench_rules() -> Rules {
             projectile_speed: Hundredths(2000),
             homing: false,
             targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
         },
     ];
 

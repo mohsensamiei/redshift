@@ -34,6 +34,9 @@ fn rules() -> Rules {
         projectile_speed: Hundredths::ZERO,
         homing: false,
         targets: vec![],
+        instant_kill: false,
+        ammo: 0,
+        intercepts: false,
     }];
 
     let unit = |id: &str, vision: i32| EntityDef {

@@ -68,6 +68,19 @@ pub struct WeaponDef {
     /// Cells the damage spreads over. Zero for a single target.
     #[serde(default)]
     pub splash_radius: crate::value::Hundredths,
+    /// Kills its target outright, whatever its health.
+    ///
+    /// Not the same as very high damage: a sniper kills any infantryman and
+    /// does nothing at all to a tank, whereas a huge damage number would make
+    /// it excellent against both.
+    #[serde(default)]
+    pub instant_kill: bool,
+    /// Shots before it must rearm. Zero means unlimited.
+    #[serde(default)]
+    pub ammo: u32,
+    /// Whether this weapon can shoot down projectiles in flight.
+    #[serde(default)]
+    pub intercepts: bool,
     /// Which layers this weapon can engage.
     ///
     /// Empty means ground only, which is what almost every weapon wants and

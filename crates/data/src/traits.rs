@@ -118,6 +118,18 @@ pub enum Trait {
         layer: Option<Layer>,
     },
 
+    /// Carries an additional weapon.
+    ///
+    /// A second `Armed` would be a data error, since a unit has one primary
+    /// weapon and the code needs to know which. This is the other one: an
+    /// Apocalypse fires a cannon at the ground and missiles at the air, and it
+    /// needs both at once rather than choosing.
+    Secondary {
+        weapon: String,
+        turret: bool,
+        turret_rate: u32,
+    },
+
     /// Carries a weapon.
     Armed {
         weapon: String,
@@ -270,6 +282,7 @@ impl Trait {
             Trait::Health { .. } => "Health",
             Trait::Mobile { .. } => "Mobile",
             Trait::Armed { .. } => "Armed",
+            Trait::Secondary { .. } => "Secondary",
             Trait::Vision { .. } => "Vision",
             Trait::Detector => "Detector",
             Trait::Cloakable { .. } => "Cloakable",
@@ -301,7 +314,9 @@ impl Trait {
     pub fn references(&self) -> Vec<(&'static str, String)> {
         match self {
             Trait::Health { armour, .. } => vec![("armour", armour.clone())],
-            Trait::Armed { weapon, .. } => vec![("weapon", weapon.clone())],
+            Trait::Armed { weapon, .. } | Trait::Secondary { weapon, .. } => {
+                vec![("weapon", weapon.clone())]
+            }
             Trait::Buildable {
                 prerequisites,
                 produced_by,

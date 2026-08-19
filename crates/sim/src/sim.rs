@@ -11,10 +11,10 @@ use redshift_data::rules::{EntityKind, Rules};
 
 use crate::arena::{Arena, EntityId};
 use crate::boons::Boons;
-use crate::combat::{self, CombatTable, PendingHit};
+use crate::combat::{self, CombatTable, PendingHit, WeaponStats};
 use crate::command::{Command, CommandKind, PlayerId};
 use crate::economy::{self, Treasury};
-use crate::fx::{Angle, Fx};
+use crate::fx::{Angle, Fx, FxWide};
 use crate::hash::StateHasher;
 use crate::map::{Cell, Locomotor, Map, SurfaceMask, WorldPos};
 use crate::path::{self, DEFAULT_NODE_BUDGET, PathResult, PathWorkspace};
@@ -478,6 +478,7 @@ impl Sim {
         self.service_path_requests();
         self.move_units();
         self.separate_units();
+        self.intercept_projectiles();
         let landed = self.advance_projectiles();
         let hits = self.acquire_and_fire();
         self.resolve_damage(&landed);
@@ -612,6 +613,7 @@ impl Sim {
                 let stats = self.stats.get(unit.owner, unit.kind);
                 (stats.death_damage > 0).then(|| PendingHit {
                     attacker: id,
+                    instant_kill: false,
                     // No primary target: a blast is entirely splash, and hits
                     // whatever happens to be standing there.
                     target: EntityId::NONE,
@@ -783,6 +785,11 @@ impl Sim {
                 self.boons.grant(unit.owner, effect);
             }
         }
+    }
+
+    /// The resolved weapon and armour tables.
+    pub fn combat(&self) -> &CombatTable {
+        &self.combat
     }
 
     /// Each player's standing modifiers.
@@ -1341,8 +1348,33 @@ impl Sim {
             if !unit.is_alive() || unit.is_aboard() {
                 continue;
             }
-            let Some(weapon) = self.combat.weapon(unit.kind).copied() else {
+            // Targeting considers *both* weapons: a unit with a ground cannon
+            // and an anti-air missile looks for anything either can reach, and
+            // then uses whichever one reaches it. Consulting only the primary
+            // would leave the secondary resolved and never fired.
+            let reach = {
+                let primary = self.combat.weapon(unit.kind).map(|w| w.targets.raw());
+                let secondary = self.combat.secondary(unit.kind).map(|w| w.targets.raw());
+                match (primary, secondary) {
+                    (None, None) => continue,
+                    (a, b) => combat::LayerMask::from_raw(a.unwrap_or(0) | b.unwrap_or(0)),
+                }
+            };
+            // The longer of the two, for the search radius.
+            let kind_of_attacker = unit.kind;
+            let Some(weapon) = self
+                .combat
+                .weapon(unit.kind)
+                .into_iter()
+                .chain(self.combat.secondary(unit.kind))
+                .max_by_key(|w| w.range_sq)
+                .copied()
+            else {
                 continue;
+            };
+            let weapon = WeaponStats {
+                targets: reach,
+                ..weapon
             };
             // A defence with no power does not shoot. This is most of what
             // makes cutting an enemy's power worth doing.
@@ -1411,6 +1443,17 @@ impl Sim {
                     .and_then(|a| a.pos.heading_to(other.pos))
             });
 
+            // Which of the unit's weapons actually engages the chosen target,
+            // resolved before the mutable borrow below. A unit with a cannon
+            // and a missile fires whichever reaches, and the reload and
+            // ammunition it spends belong to that weapon rather than to the
+            // primary.
+            let firing_weapon = target
+                .and_then(|t| self.units.get(t))
+                .map(|t| self.stats.get(t.owner, t.kind).layer)
+                .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
+                .unwrap_or(weapon);
+
             let Some(unit) = self.units.get_mut(attacker) else {
                 continue;
             };
@@ -1444,39 +1487,48 @@ impl Sim {
             if unit.combat.reload_remaining > 0 {
                 continue;
             }
+            // Out of ammunition. The unit holds fire until it rearms, which is
+            // what makes an aircraft a sortie rather than a flying gun — and
+            // the rule is general, not an aircraft special case.
+            if weapon.ammo > 0 && unit.combat.shots_fired >= weapon.ammo {
+                continue;
+            }
 
             let Some(target) = target else { continue };
             let owner = unit.owner;
             let firing_from = unit.pos;
-            unit.combat.reload_remaining = weapon.reload;
+            unit.combat.reload_remaining = firing_weapon.reload;
+            unit.combat.shots_fired = unit.combat.shots_fired.saturating_add(1);
             // Firing gives a cloaked unit away.
             unit.since_fired = 0;
             let at = self.units.get(target).map(|t| t.pos);
 
             if let Some(at) = at {
-                if weapon.projectile_speed > Fx::ZERO {
+                if firing_weapon.projectile_speed > Fx::ZERO {
                     // Slow enough to be worth watching fly. Launched now and
                     // resolved when it lands, which is what lets it be dodged.
                     launched.push(Projectile {
                         attacker,
                         owner,
-                        target: weapon.homing.then_some(target),
+                        target: firing_weapon.homing.then_some(target),
                         aim: at,
                         pos: firing_from,
-                        speed: weapon.projectile_speed,
-                        damage: weapon.damage,
-                        warhead: weapon.warhead,
-                        splash_radius: weapon.splash_radius,
+                        speed: firing_weapon.projectile_speed,
+                        damage: firing_weapon.damage,
+                        warhead: firing_weapon.warhead,
+                        splash_radius: firing_weapon.splash_radius,
+                        instant_kill: firing_weapon.instant_kill,
                         fuse: crate::projectile::MAX_FLIGHT_TICKS,
                     });
                 } else {
                     // A rifle. Instant, exactly as before.
                     hits.push(PendingHit {
                         attacker,
+                        instant_kill: firing_weapon.instant_kill,
                         target,
-                        damage: weapon.damage,
-                        warhead: weapon.warhead,
-                        splash_radius: weapon.splash_radius,
+                        damage: firing_weapon.damage,
+                        warhead: firing_weapon.warhead,
+                        splash_radius: firing_weapon.splash_radius,
                         at,
                     });
                 }
@@ -1491,6 +1543,39 @@ impl Sim {
     /// Run before targeting, so a shot fired last tick lands before this tick's
     /// shots are chosen — otherwise a unit would keep firing at something the
     /// shell already in the air is about to kill.
+    /// Shoots down projectiles that pass within reach of an interceptor.
+    ///
+    /// Runs before flight, so a shot is stopped where it is rather than after
+    /// it has moved. Three units in the original exist largely to do this, and
+    /// two exist to fire the missiles they stop.
+    fn intercept_projectiles(&mut self) {
+        if self.projectiles.is_empty() {
+            return;
+        }
+        let interceptors: Vec<(PlayerId, WorldPos, FxWide)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+            .filter_map(|(_, u)| {
+                let weapon = self.combat.weapon(u.kind)?;
+                weapon
+                    .intercepts
+                    .then_some((u.owner, u.pos, weapon.range_sq))
+            })
+            .collect();
+        if interceptors.is_empty() {
+            return;
+        }
+
+        self.projectiles.retain(|shot| {
+            !interceptors.iter().any(|(owner, pos, range_sq)| {
+                // Nobody shoots down their own shots.
+                *owner != shot.owner
+                    && Fx::dist_sq(shot.pos.x - pos.x, shot.pos.y - pos.y) <= *range_sq
+            })
+        });
+    }
+
     fn advance_projectiles(&mut self) -> Vec<PendingHit> {
         let mut hits = Vec::new();
         let mut still_flying = Vec::with_capacity(self.projectiles.len());
@@ -1513,6 +1598,7 @@ impl Sim {
             if arrived {
                 hits.push(PendingHit {
                     attacker: shot.attacker,
+                    instant_kill: shot.instant_kill,
                     // A homing shot damages what it was following; a ballistic
                     // one damages whatever is standing where it landed, which
                     // the splash pass works out.
@@ -1548,6 +1634,15 @@ impl Sim {
                 let damage = self
                     .rank_of(target)
                     .resist(attacker_rank.map_or(base, |r| r.scale(base)));
+                // An instant-kill weapon kills whatever it can hurt at all, and
+                // does nothing to what it cannot. Expressing it as enormous
+                // damage would make a sniper excellent against tanks, which is
+                // exactly wrong.
+                let damage = if hit.instant_kill && damage > 0 {
+                    target.health
+                } else {
+                    damage
+                };
                 let killed = target.is_alive() && target.health <= damage;
                 // Read before the mutable borrow below, since the target is
                 // about to be modified and may then be gone.

@@ -49,6 +49,8 @@ pub struct Projectile {
     pub damage: u32,
     pub warhead: WarheadId,
     pub splash_radius: Fx,
+    /// Whether the shot kills outright on arrival.
+    pub instant_kill: bool,
     /// Ticks left before it is given up on.
     ///
     /// A homing shot chasing something faster than itself would otherwise fly
@@ -122,6 +124,7 @@ impl StateHash for Projectile {
         h.write_u32(self.damage);
         h.write_u16(self.warhead.0);
         h.write_i32(self.splash_radius.raw());
+        h.write_bool(self.instant_kill);
         h.write_u32(self.fuse);
     }
 }
@@ -142,6 +145,7 @@ mod tests {
             damage: 50,
             warhead: WarheadId(0),
             splash_radius: Fx::ZERO,
+            instant_kill: false,
             fuse: MAX_FLIGHT_TICKS,
         }
     }

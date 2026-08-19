@@ -66,19 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when build limits, delivered units and country rosters landed.
-/// Determinism was confirmed first across every suite.
+/// Re-recorded when secondary weapons, instant kills, ammunition and
+/// interception landed. Combat state carries a shot count and weapon stats
+/// carry three new flags. Determinism was confirmed first across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xdba94e3fa18f65f7),
-    (50, 0x3e5b8597ee21fed1),
-    (100, 0x9ae36cbdb8c8c892),
-    (200, 0xec9000f871f08ea8),
-    (400, 0x87b620652bedb181),
+    (10, 0x28f1fc629e0bc507),
+    (50, 0xa321d8d0a4232d31),
+    (100, 0x4941e96f74408642),
+    (200, 0xf160d41133ca8058),
+    (400, 0x837292b73fb57781),
 ];
 
 #[test]

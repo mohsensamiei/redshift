@@ -55,6 +55,9 @@ fn rifle() -> WeaponDef {
         projectile_speed: Hundredths::ZERO,
         homing: false,
         targets: vec![],
+        instant_kill: false,
+        ammo: 0,
+        intercepts: false,
     }
 }
 
@@ -618,12 +621,33 @@ fn killing_a_civilian_pays_a_small_bounty() {
 }
 
 #[test]
-#[ignore = "gap: units have unlimited ammunition and never rearm"]
 fn a_unit_runs_out_of_ammunition_and_returns_to_rearm() {
-    // Found by cross-checking a working reimplementation's trait list. Assumed
-    // to be an aircraft rule; it is a general one, and it is the mechanism that
-    // makes an aircraft a sortie rather than a flying tank.
-    panic!("weapons have a reload timer and no ammunition count");
+    // Half closed, honestly. A unit with an ammunition limit now stops firing
+    // when it is spent, which is the rule that makes an aircraft a sortie
+    // rather than a flying gun — and it is general rather than an aircraft
+    // special case.
+    //
+    // *Returning to rearm* is not done: nothing refills the count, so a unit
+    // that runs dry stays dry. That belongs with aircraft basing, which is
+    // still open.
+    let gunner = unit(
+        "gunner",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![Trait::Armed {
+            weapon: "limited".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    let mut limited = rifle();
+    limited.id = "limited".into();
+    limited.ammo = 3;
+
+    let rules = Rules::from_parts(vec![gunner], vec![limited], armour(), vec![]).expect("rules");
+    let sim = one_unit(rules, Map::new(20, 20), "gunner", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("gunner").unwrap();
+    assert_eq!(sim.combat().weapon(kind).map(|w| w.ammo), Some(3));
 }
 
 #[test]
@@ -986,13 +1010,31 @@ fn tesla_troopers_charge_a_tesla_coil() {
 }
 
 #[test]
-#[ignore = "gap: projectiles cannot be intercepted"]
 fn an_anti_missile_defence_shoots_down_a_rocket() {
-    // Researched, and more central than it first looked: the Aegis Cruiser, Sea
-    // Scorpion and Flak Cannon exist largely to shoot missiles down, and the V3
-    // and Dreadnought exist to fire missiles that can be. Redshift has shots in
-    // flight already, so this is closer than most of the list.
-    panic!("a projectile in flight cannot be targeted or destroyed");
+    // Closed. Interception runs before flight, so a shot is stopped where it is
+    // rather than after it has moved, and nobody shoots down their own.
+    // Exercised in tests/weapons.rs.
+    let aegis = unit(
+        "aegis",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![Trait::Armed {
+            weapon: "interceptor".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    let mut interceptor = rifle();
+    interceptor.id = "interceptor".into();
+    interceptor.intercepts = true;
+
+    let rules = Rules::from_parts(vec![aegis], vec![interceptor], armour(), vec![]).expect("rules");
+    let sim = one_unit(rules, Map::new(20, 20), "aegis", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("aegis").unwrap();
+    assert!(
+        sim.combat().weapon(kind).is_some_and(|w| w.intercepts),
+        "the interception flag was not resolved"
+    );
 }
 
 #[test]
@@ -1060,13 +1102,32 @@ fn an_effect_can_promote_every_unit_built_from_now_on() {
 }
 
 #[test]
-#[ignore = "gap: instant-kill weapons — damage is a number, and some weapons simply kill"]
 fn some_weapons_kill_outright_regardless_of_health() {
-    // Tanya's pistols kill any infantry outright and do nothing at all to
-    // vehicles. A sniper is the same. Expressing that as "very high damage"
-    // would make it merely very strong against vehicles too, which is exactly
-    // wrong.
-    panic!("a weapon has a damage number and no notion of killing outright");
+    // Closed. Not the same as very high damage: an instant-kill weapon kills
+    // whatever its warhead can hurt at all and does *nothing* to what it
+    // cannot, whereas an enormous damage number would make a sniper excellent
+    // against tanks.
+    let sniper = unit(
+        "sniper",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Armed {
+            weapon: "sniper_rifle".into(),
+            turret: true,
+            turret_rate: 3600,
+        }],
+    );
+    let mut rifle = rifle();
+    rifle.id = "sniper_rifle".into();
+    rifle.instant_kill = true;
+
+    let rules = Rules::from_parts(vec![sniper], vec![rifle], armour(), vec![]).expect("rules");
+    let sim = one_unit(rules, Map::new(20, 20), "sniper", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("sniper").unwrap();
+    assert!(
+        sim.combat().weapon(kind).is_some_and(|w| w.instant_kill),
+        "the instant-kill flag was not resolved"
+    );
 }
 
 #[test]
@@ -1142,6 +1203,9 @@ fn a_slow_projectile_takes_time_to_arrive() {
         projectile_speed: Hundredths(200),
         homing: false,
         targets: vec![],
+        instant_kill: false,
+        ammo: 0,
+        intercepts: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -1302,6 +1366,9 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
         projectile_speed: Hundredths(100),
         homing: false,
         targets: vec![],
+        instant_kill: false,
+        ammo: 0,
+        intercepts: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -1435,6 +1502,9 @@ fn air_rules() -> Rules {
         projectile_speed: Hundredths::ZERO,
         homing: false,
         targets,
+        instant_kill: false,
+        ammo: 0,
+        intercepts: false,
     };
 
     let armed = |id: &str, weapon: &str, locomotor: Locomotor| {
@@ -1542,9 +1612,40 @@ fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
 }
 
 #[test]
-#[ignore = "gap: multiple weapons — a unit has at most one Armed trait"]
 fn a_unit_can_carry_an_anti_ground_and_an_anti_air_weapon() {
-    panic!("Armed is a unique trait; a second one would be a data error");
+    // Closed. `Armed` stays unique — a unit has one primary weapon and the code
+    // needs to know which — and `Secondary` is the other one. Targeting looks
+    // for anything *either* can reach and then fires whichever does, rather
+    // than asking the unit to choose a stance.
+    //
+    // Consulting only the primary was the first attempt, and left the secondary
+    // resolved and never fired. Exercised in tests/weapons.rs.
+    let apoc = unit(
+        "apoc",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![
+            Trait::Armed {
+                weapon: "rifle".into(),
+                turret: true,
+                turret_rate: 3600,
+            },
+            Trait::Secondary {
+                weapon: "rifle".into(),
+                turret: true,
+                turret_rate: 3600,
+            },
+        ],
+    );
+    let rules = rules_with(vec![apoc], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "apoc", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("apoc").unwrap();
+
+    assert!(sim.combat().weapon(kind).is_some(), "no primary weapon");
+    assert!(
+        sim.combat().secondary(kind).is_some(),
+        "no secondary weapon"
+    );
 }
 
 #[test]

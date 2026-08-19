@@ -165,7 +165,7 @@ and reasoning in docs/08-roster.md.
 - [ ] Deploy — unit↔structure, and stance toggling
 - [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
-- [ ] Multiple weapons per unit — anti-ground and anti-air on one chassis
+- [x] Multiple weapons per unit — targeting considers both, firing picks one
 - [ ] **A unit chooses between actions by what it is aimed at** — Tanya shoots
       units and demolishes buildings; a tank fires and crushes. Capability is a
       list, not a slot
@@ -174,7 +174,7 @@ and reasoning in docs/08-roster.md.
 - [ ] Spy infiltration — an effect table keyed on the building entered
 - [ ] Tech structures — neutral, capturable, unsellable, extend the build radius
 - [x] Persistent production modifiers — one mechanism, three effects
-- [ ] Instant-kill weapons — some weapons kill outright rather than dealing damage
+- [x] Instant-kill weapons
 - [ ] A unit's weapon depending on its cargo — the IFV's 24 turret modes
 - [ ] Build limits — only one commando at a time, two with a cloning vat
 - [ ] Wandering civilians — autonomous, purposeless movement
@@ -194,7 +194,7 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, twenty-five gaps, each an ignored test with its reason attached.
+confirmed, twenty-one gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up

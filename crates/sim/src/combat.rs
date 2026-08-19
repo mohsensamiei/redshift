@@ -50,6 +50,12 @@ pub struct WeaponStats {
     pub projectile_speed: Fx,
     /// Layers this weapon can engage.
     pub targets: LayerMask,
+    /// Kills outright rather than dealing damage.
+    pub instant_kill: bool,
+    /// Shots before rearming. Zero means unlimited.
+    pub ammo: u32,
+    /// Whether this can shoot down projectiles in flight.
+    pub intercepts: bool,
     /// Whether the shot follows its target.
     ///
     /// A missile hits what it was aimed at; a shell flies to where the target
@@ -79,6 +85,12 @@ impl LayerMask {
             Layer::Ground => 1,
             Layer::Air => 2,
         }
+    }
+
+    /// Wraps a raw mask. For combining two weapons' reach.
+    #[inline]
+    pub const fn from_raw(raw: u8) -> LayerMask {
+        LayerMask(raw)
     }
 
     pub fn from_layers(layers: &[Layer]) -> LayerMask {
@@ -186,6 +198,11 @@ pub struct CombatState {
     pub target: Option<EntityId>,
     /// Where the turret points. Equals the hull facing when there is no turret.
     pub turret_facing: crate::fx::Angle,
+    /// Shots fired since last rearming.
+    ///
+    /// Counted up rather than down so that a unit created before its kind had
+    /// an ammunition limit is not born empty.
+    pub shots_fired: u32,
 }
 
 impl StateHash for CombatState {
@@ -200,6 +217,7 @@ impl StateHash for CombatState {
             None => h.write_u8(0),
         }
         h.write_u16(self.turret_facing.raw());
+        h.write_u32(self.shots_fired);
     }
 }
 
@@ -214,6 +232,8 @@ impl StateHash for CombatState {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PendingHit {
     pub attacker: EntityId,
+    /// Whether this shot kills outright rather than dealing damage.
+    pub instant_kill: bool,
     pub target: EntityId,
     pub damage: u32,
     pub warhead: WarheadId,
@@ -236,8 +256,20 @@ pub fn weapon_of(
         } => Some((weapon, *turret, *turret_rate)),
         _ => None,
     })?;
-    let weapon: &WeaponDef = rules.weapon(weapon_id)?;
+    build_weapon(rules.weapon(weapon_id)?, turret, turret_rate, warhead_index)
+}
 
+/// Turns a weapon definition into resolved stats.
+///
+/// Shared by the primary and secondary lookups rather than written twice: two
+/// copies would be one edit away from a unit's second weapon behaving subtly
+/// differently from its first.
+fn build_weapon(
+    weapon: &WeaponDef,
+    turret: bool,
+    turret_rate: u32,
+    warhead_index: &dyn Fn(&str) -> WarheadId,
+) -> Option<WeaponStats> {
     let range = Fx::from_raw(weapon.range.to_fx_raw());
     Some(WeaponStats {
         damage: weapon.damage,
@@ -250,6 +282,9 @@ pub fn weapon_of(
             weapon.projectile_speed.to_fx_raw() / crate::TICKS_PER_SECOND as i32,
         ),
         homing: weapon.homing,
+        instant_kill: weapon.instant_kill,
+        ammo: weapon.ammo,
+        intercepts: weapon.intercepts,
         targets: if weapon.targets.is_empty() {
             // Ground only. The default almost every weapon wants, and the one
             // that keeps every existing rules file working unchanged.
@@ -260,6 +295,24 @@ pub fn weapon_of(
         turret,
         turret_rate: crate::stats::degrees_per_second_to_tick(turret_rate),
     })
+}
+
+/// Resolves a kind's secondary weapon, if it declares one.
+pub fn secondary_of(
+    rules: &Rules,
+    kind: EntityKind,
+    warhead_index: &dyn Fn(&str) -> WarheadId,
+) -> Option<WeaponStats> {
+    let def = rules.entity(kind);
+    let (weapon_id, turret, turret_rate) = def.traits.iter().find_map(|t| match t {
+        Trait::Secondary {
+            weapon,
+            turret,
+            turret_rate,
+        } => Some((weapon, *turret, *turret_rate)),
+        _ => None,
+    })?;
+    build_weapon(rules.weapon(weapon_id)?, turret, turret_rate, warhead_index)
 }
 
 /// Picks a target for one unit.
@@ -383,6 +436,8 @@ pub fn armour_of(
 pub struct CombatTable {
     weapons: Vec<Option<WeaponStats>>,
     armour: Vec<ArmourId>,
+    /// A second weapon, for units that need one for ground and one for air.
+    secondary: Vec<Option<WeaponStats>>,
     /// Warhead of each kind's death explosion, resolved here because this is
     /// where warhead names are interned. A second index built elsewhere could
     /// disagree with this one, and a damage lookup that silently used the wrong
@@ -404,10 +459,12 @@ impl CombatTable {
 
         let mut weapons = Vec::with_capacity(rules.entity_count());
         let mut armour = Vec::with_capacity(rules.entity_count());
+        let mut secondary = Vec::with_capacity(rules.entity_count());
         let mut death_warhead = Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index));
             armour.push(armour_of(rules, kind, &armour_index));
+            secondary.push(secondary_of(rules, kind, &warhead_index));
             death_warhead.push(
                 def.traits
                     .iter()
@@ -422,6 +479,7 @@ impl CombatTable {
         CombatTable {
             weapons,
             armour,
+            secondary,
             death_warhead,
             damage: DamageTable::build(rules),
         }
@@ -439,6 +497,23 @@ impl CombatTable {
             .get(kind.0 as usize)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// A kind's second weapon, if it has one.
+    #[inline]
+    pub fn secondary(&self, kind: EntityKind) -> Option<&WeaponStats> {
+        self.secondary.get(kind.0 as usize).and_then(|w| w.as_ref())
+    }
+
+    /// The weapon this kind would use against a target in `layer`.
+    ///
+    /// Primary first, then the secondary. A unit with an anti-air missile and a
+    /// ground cannon uses whichever reaches, rather than being asked to choose
+    /// a stance.
+    pub fn weapon_for(&self, kind: EntityKind, layer: Layer) -> Option<&WeaponStats> {
+        self.weapon(kind)
+            .filter(|w| w.targets.engages(layer))
+            .or_else(|| self.secondary(kind).filter(|w| w.targets.engages(layer)))
     }
 
     #[inline]
@@ -484,6 +559,9 @@ impl StateHash for CombatTable {
                     h.write_i32(w.projectile_speed.raw());
                     h.write_bool(w.homing);
                     h.write_u8(w.targets.raw());
+                    h.write_bool(w.instant_kill);
+                    h.write_u32(w.ammo);
+                    h.write_bool(w.intercepts);
                     h.write_bool(w.turret);
                     h.write_u16(w.turret_rate);
                 }
@@ -533,6 +611,9 @@ mod tests {
                 projectile_speed: Hundredths::ZERO,
                 homing: false,
                 targets: vec![],
+                instant_kill: false,
+                ammo: 0,
+                intercepts: false,
             },
             WeaponDef {
                 id: "cannon".into(),
@@ -544,6 +625,9 @@ mod tests {
                 projectile_speed: Hundredths(2000),
                 homing: false,
                 targets: vec![],
+                instant_kill: false,
+                ammo: 0,
+                intercepts: false,
             },
         ];
 

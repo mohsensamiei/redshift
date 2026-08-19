@@ -37,6 +37,9 @@ fn rules() -> Rules {
             projectile_speed: Hundredths::ZERO,
             homing: false,
             targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
         },
         WeaponDef {
             id: "cannon".into(),
@@ -48,6 +51,9 @@ fn rules() -> Rules {
             projectile_speed: Hundredths::ZERO,
             homing: false,
             targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
         },
         WeaponDef {
             id: "mortar".into(),
@@ -60,6 +66,9 @@ fn rules() -> Rules {
             projectile_speed: Hundredths(800),
             homing: false,
             targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
         },
     ];
 

@@ -163,6 +163,19 @@ pub enum Trait {
     /// Produces other things.
     Produces { categories: Vec<String> },
 
+    /// At most this many may exist at once, per player.
+    ///
+    /// A commando is unique; a superweapon is one per base. Distinct from a
+    /// prerequisite, which asks what you *have* rather than how many.
+    BuildLimit { max: u8 },
+
+    /// Comes with these units when it is built.
+    ///
+    /// A refinery arrives with a miner, and that is not a nicety — it is why a
+    /// refinery is the first thing built, and an economy balanced without it
+    /// would be wrong from the start.
+    Delivers { units: Vec<String> },
+
     /// Pays whoever destroys it.
     ///
     /// Small, and not only flavour: it is why shooting a civilian is a decision
@@ -265,6 +278,8 @@ impl Trait {
             Trait::Footprint { .. } => "Footprint",
             Trait::Buildable { .. } => "Buildable",
             Trait::Produces { .. } => "Produces",
+            Trait::BuildLimit { .. } => "BuildLimit",
+            Trait::Delivers { .. } => "Delivers",
             Trait::Bounty { .. } => "Bounty",
             Trait::Grants { .. } => "Grants",
             Trait::PowerSupply { .. } => "PowerSupply",
@@ -300,6 +315,7 @@ impl Trait {
                 out
             }
             Trait::Explodes { warhead, .. } => vec![("warhead", warhead.clone())],
+            Trait::Delivers { units } => units.iter().map(|u| ("delivered", u.clone())).collect(),
             Trait::Transport { allowed, .. } => allowed
                 .iter()
                 .map(|a| ("transportable", a.clone()))

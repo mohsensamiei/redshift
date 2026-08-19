@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn ore_is_never_scattered_into_water() {
         // A field no harvester could reach would look like a bug in the
-        // harvester rather than in the map.
+        // harvester rather than in the map.d;d
         let mut map = Map::new(40, 40);
         map.fill_rect(Cell::new(18, 18), Cell::new(22, 22), Terrain::Water);
         map.add_ore_field(Cell::new(20, 20), 5, 400);

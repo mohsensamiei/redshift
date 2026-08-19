@@ -87,6 +87,10 @@
             side: "allied",
             category: "structure",
             traits: [
+                // Arrives with a harvester. Researched: this is why a refinery
+                // is the first thing built, and an economy balanced without it
+                // would be wrong from the start.
+                Delivers(units: ["harvester"]),
                 Health(max: 900, armour: "concrete"),
                 Footprint(width: 3, height: 2),
                 Vision(range: 350),

@@ -874,6 +874,21 @@ impl Sim {
         // A structure is not delivered anywhere: it waits for the player to
         // choose a site. Placing it automatically would remove base layout as a
         // decision, which is a large part of what the genre is.
+        // Anything the new thing brings with it. A refinery arrives with a
+        // miner, which is why a refinery is the first thing built.
+        let delivered_with: Vec<EntityKind> = self
+            .rules
+            .entity(kind)
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                redshift_data::traits::Trait::Delivers { units } => Some(units.clone()),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|id| self.rules.kind_of(&id))
+            .collect();
+
         if !produced.mobile {
             if let Some(queue) = self
                 .units
@@ -892,6 +907,7 @@ impl Sim {
         match spot {
             Some(cell) => {
                 let delivered = self.spawn_unit(owner, kind, cell.centre());
+                self.deliver_extras(owner, cell, &delivered_with);
                 // Off to the rally point, if one is set. Without this a factory
                 // builds a wall of its own units in front of its exit.
                 if let Some(rally) = self.units.get(building).and_then(|b| b.rally)
@@ -1785,6 +1801,17 @@ impl Sim {
         if !self.prerequisites_met(player, kind) {
             return;
         }
+        // A commando is unique; a superweapon is one per base. Queued items
+        // count, or a player could fill a queue with commandos and get every
+        // one of them — the limit would bite only on the last.
+        if !self.within_build_limit(player, kind) {
+            return;
+        }
+        // A country's roster. Another country's unique unit is not available,
+        // and a country that gives one up does not get it back.
+        if !self.available_to(player, kind) {
+            return;
+        }
 
         let stats = self.stats.get(player, kind);
         let item = ProductionItem::new(kind, stats.cost, stats.build_time);
@@ -2236,6 +2263,20 @@ impl Sim {
             at.y + (footprint.1 as i32 - 1) / 2,
         );
         self.spawn_unit(player, kind, centre.centre());
+        // Whatever the structure brings with it — a refinery's miner.
+        let extras: Vec<EntityKind> = self
+            .rules
+            .entity(kind)
+            .traits
+            .iter()
+            .filter_map(|t| match t {
+                redshift_data::traits::Trait::Delivers { units } => Some(units.clone()),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|id| self.rules.kind_of(&id))
+            .collect();
+        self.deliver_extras(player, centre, &extras);
 
         if let Some(queue) = self
             .units
@@ -2305,6 +2346,80 @@ impl Sim {
             (unit.owner == player && unit.is_alive() && self.can_produce(unit.kind, kind))
                 .then_some(id)
         })
+    }
+
+    /// Places whatever a newly built thing arrives with.
+    ///
+    /// Beside it rather than inside it, and skipped if there is nowhere to
+    /// stand — a free miner is a bonus, not a reason to fail a build.
+    fn deliver_extras(&mut self, owner: PlayerId, near: Cell, kinds: &[EntityKind]) {
+        for kind in kinds {
+            let movement = self.stats.get(owner, *kind).movement;
+            if let Some(cell) = self.free_cell_near(near, movement, EXIT_SEARCH_RADIUS) {
+                self.spawn_unit(owner, *kind, cell.centre());
+            }
+        }
+    }
+
+    /// Whether a player's country lets them build this at all.
+    ///
+    /// `unique_units` and `removes_units` were declared in the data and checked
+    /// at load, and nothing read them — so every country could build every
+    /// other country's unique unit. This is what they were for.
+    ///
+    /// A unit named as unique by *any* country is available only to that
+    /// country. That is what makes it unique, and it means a country needs no
+    /// list of things it cannot have.
+    pub fn available_to(&self, player: PlayerId, kind: EntityKind) -> bool {
+        let id = &self.rules.entity(kind).id;
+        let faction = self
+            .players
+            .iter()
+            .find(|p| p.id == player)
+            .and_then(|p| p.faction.as_deref());
+
+        for other in self.rules.factions() {
+            if other.unique_units.iter().any(|u| u == id) {
+                // Someone's unique unit: only theirs.
+                return faction == Some(other.id.as_str());
+            }
+        }
+
+        // Not unique to anyone. Available unless this player's country gave it
+        // up in exchange for something else.
+        match faction.and_then(|f| self.rules.faction(f)) {
+            Some(mine) => !mine.removes_units.iter().any(|u| u == id),
+            None => true,
+        }
+    }
+
+    /// How many of a kind a player has, counting what is already queued.
+    ///
+    /// Queued items count, or a player could fill a queue with commandos and
+    /// get every one of them — the limit would only bite on the last.
+    pub fn count_of(&self, player: PlayerId, kind: EntityKind) -> usize {
+        let standing = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.owner == player && u.is_alive() && u.kind == kind)
+            .count();
+        let queued: usize = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.owner == player)
+            .filter_map(|(_, u)| u.production.as_ref())
+            .map(|q| {
+                q.items().iter().filter(|i| i.kind == kind).count()
+                    + usize::from(q.ready == Some(kind))
+            })
+            .sum();
+        standing + queued
+    }
+
+    /// Whether a player may build another of this kind.
+    pub fn within_build_limit(&self, player: PlayerId, kind: EntityKind) -> bool {
+        let limit = self.stats.get(player, kind).build_limit;
+        limit == 0 || self.count_of(player, kind) < limit as usize
     }
 
     /// Whether a producer of `producer_kind` makes things of `kind`.

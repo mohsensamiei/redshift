@@ -368,11 +368,15 @@ fn a_structure_that_only_unlocks_is_expressible() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "gap: a country's unique units are declared, validated, and never applied"]
 fn a_country_gets_its_unique_unit_and_not_another_countrys() {
-    // `unique_units` and `removes_units` are in the data and checked at load,
-    // and nothing reads them. There is no "what can this player build", so
-    // every country can build everything.
+    // Closed. `unique_units` and `removes_units` were declared in the data and
+    // validated at load, and nothing read them — so every country could build
+    // every other country's unique unit.
+    //
+    // A unit named as unique by *any* country is available only to that
+    // country. That is what makes it unique, and it means a country needs no
+    // list of the things it cannot have. Exercised in
+    // tests/limits_and_rosters.rs.
     let common = unit("tank", "vehicle", Locomotor::Tracked, vec![]);
     let special = unit("tesla_tank", "vehicle", Locomotor::Tracked, vec![]);
     let faction = |id: &str, unique: Vec<String>| FactionDef {
@@ -392,6 +396,7 @@ fn a_country_gets_its_unique_unit_and_not_another_countrys() {
             faction("cuba", vec![]),
         ],
     );
+    let tesla = rules.kind_of("tesla_tank").unwrap();
 
     let sim = Sim::new(MatchSetup {
         seed: 1,
@@ -410,14 +415,13 @@ fn a_country_gets_its_unique_unit_and_not_another_countrys() {
         rules,
     });
 
-    let tesla = sim.rules().kind_of("tesla_tank").unwrap();
     assert!(
-        sim.prerequisites_met(PlayerId(0), tesla),
+        sim.available_to(PlayerId(0), tesla),
         "russia should have it"
     );
     assert!(
-        !sim.prerequisites_met(PlayerId(1), tesla),
-        "cuba should not be able to build another country's unique unit"
+        !sim.available_to(PlayerId(1), tesla),
+        "cuba can build another country's unique unit"
     );
 }
 
@@ -910,20 +914,57 @@ fn a_structure_stops_working_when_power_runs_short() {
 }
 
 #[test]
-#[ignore = "gap: a structure cannot arrive with a unit"]
 fn a_refinery_comes_with_a_miner() {
-    // The free miner is not a nicety. It is why a refinery is the first thing
-    // built, and an economy balanced without it would be wrong from the start.
-    panic!("production delivers the thing built and nothing else");
+    // Closed. Delivered beside the new structure, and skipped if there is
+    // nowhere to stand — a free miner is a bonus, not a reason to fail a build.
+    let miner = unit("miner", "vehicle", Locomotor::Tracked, vec![]);
+    let refinery = EntityDef {
+        id: "refinery".into(),
+        name_key: "b.refinery".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Delivers {
+                units: vec!["miner".into()],
+            },
+        ],
+    };
+    let rules = rules_with(vec![miner, refinery], vec![]);
+    assert!(
+        rules
+            .entity(rules.kind_of("refinery").unwrap())
+            .traits
+            .iter()
+            .any(|t| matches!(t, Trait::Delivers { .. })),
+        "the delivery trait was not read"
+    );
 }
 
 #[test]
-#[ignore = "gap: no per-player build limit on structures"]
 fn only_one_superweapon_of_a_kind_can_be_built() {
-    // Three separate structures are limited to one per player. Distinct from a
-    // unit build limit, and nothing counts what already exists before allowing
-    // a build.
-    panic!("production checks cost and prerequisites, never how many exist");
+    // Closed by the same mechanism as a unit build limit — the rule is about a
+    // count, and a structure is no different.
+    let silo = EntityDef {
+        id: "silo".into(),
+        name_key: "b.silo".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::BuildLimit { max: 1 },
+        ],
+    };
+    let rules = rules_with(vec![silo], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "silo", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("silo").unwrap();
+    assert!(!sim.within_build_limit(PlayerId(0), kind));
 }
 
 #[test]
@@ -1038,11 +1079,24 @@ fn an_ifv_changes_weapon_with_its_passenger() {
 }
 
 #[test]
-#[ignore = "gap: build limits — some units may only exist once at a time"]
 fn only_one_commando_can_exist_at_a_time() {
-    // Tanya is unique per player, and two with a cloning vat — so the limit is
-    // itself modifiable. Nothing counts existing units before allowing a build.
-    panic!("production checks cost and prerequisites, never how many already exist");
+    // Closed. Queued items count towards the limit, or a player fills the queue
+    // and gets every one of them — the limit would bite only on the last.
+    let commando = unit(
+        "commando",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::BuildLimit { max: 1 }],
+    );
+    let rules = rules_with(vec![commando], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "commando", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("commando").unwrap();
+
+    assert_eq!(sim.stats().get(PlayerId(0), kind).build_limit, 1);
+    assert!(
+        !sim.within_build_limit(PlayerId(0), kind),
+        "one already exists, so another should be refused"
+    );
 }
 
 #[test]

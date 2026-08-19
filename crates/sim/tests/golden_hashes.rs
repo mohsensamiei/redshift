@@ -66,8 +66,7 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when rally points, selling and bounties landed. Buildings carry
-/// a rally cell and stats carry a bounty, so the hash covers different bytes.
+/// Re-recorded when build limits, delivered units and country rosters landed.
 /// Determinism was confirmed first across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
@@ -75,11 +74,11 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x2e59e02d228c99db),
-    (50, 0x2656ad0f6ce6a285),
-    (100, 0x10a51a98470375ba),
-    (200, 0xab635dd58dd9d6a8),
-    (400, 0x48b2da02ad344dcb),
+    (10, 0xdba94e3fa18f65f7),
+    (50, 0x3e5b8597ee21fed1),
+    (100, 0x9ae36cbdb8c8c892),
+    (200, 0xec9000f871f08ea8),
+    (400, 0x87b620652bedb181),
 ];
 
 #[test]

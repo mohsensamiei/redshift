@@ -22,6 +22,25 @@ use crate::map::Cell;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub struct PlayerId(pub u8);
 
+impl PlayerId {
+    /// The side that owns civilians, tech buildings and anything else on the
+    /// map that belongs to nobody.
+    ///
+    /// A real player slot rather than an `Option`, because everything that
+    /// touches ownership — targeting, capture, vision, the stat table — already
+    /// works in terms of a `PlayerId`, and threading a null case through all of
+    /// them would be far more invasive than reserving a number.
+    ///
+    /// 255 rather than 0, so it is out of the way of real slots and obvious in
+    /// a dump.
+    pub const NEUTRAL: PlayerId = PlayerId(255);
+
+    #[inline]
+    pub const fn is_neutral(self) -> bool {
+        self.0 == PlayerId::NEUTRAL.0
+    }
+}
+
 impl StateHash for PlayerId {
     fn state_hash(&self, h: &mut StateHasher) {
         h.write_u8(self.0);
@@ -65,6 +84,11 @@ pub enum CommandKind {
     },
     /// Put a transport's passengers back on the ground.
     Unload { transport: EntityId, at: Cell },
+    /// Send engineers into a building to capture or repair it.
+    EnterBuilding {
+        units: Vec<EntityId>,
+        target: EntityId,
+    },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -153,6 +177,16 @@ impl StateHash for Command {
                     h.write_u32(u.index());
                     h.write_u32(u.generation());
                 }
+            }
+            CommandKind::EnterBuilding { units, target } => {
+                h.write_u8(10);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
+                h.write_u32(target.index());
+                h.write_u32(target.generation());
             }
             CommandKind::Load { units, transport } => {
                 h.write_u8(8);

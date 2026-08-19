@@ -545,9 +545,40 @@ fn a_transport_carries_and_unloads_passengers() {
 }
 
 #[test]
-#[ignore = "gap: Capturable is declared and unread — engineers cannot capture"]
 fn an_engineer_captures_a_neutral_structure() {
-    panic!("no capture command, and no neutral player to own the structure");
+    // Closed. One action with three outcomes decided by whose building it is —
+    // capture what is not yours, repair what is, and be consumed either way.
+    // The original never asked a player to choose between capture and repair;
+    // they chose a building.
+    //
+    // Exercised properly in tests/capture.rs.
+    let engineer = unit(
+        "engineer",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Engineer { consumed: true }],
+    );
+    let derrick = EntityDef {
+        id: "derrick".into(),
+        name_key: "b.derrick".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Capturable,
+        ],
+    };
+    let rules = rules_with(vec![engineer, derrick], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "engineer", Cell::new(5, 5));
+
+    let e = sim.rules().kind_of("engineer").unwrap();
+    let d = sim.rules().kind_of("derrick").unwrap();
+    assert!(sim.stats().get(PlayerId(0), e).is_engineer);
+    assert!(sim.stats().get(PlayerId(0), e).consumed_on_use);
+    assert!(sim.stats().get(PlayerId(0), d).capturable);
 }
 
 #[test]
@@ -892,9 +923,30 @@ fn only_one_commando_can_exist_at_a_time() {
 }
 
 #[test]
-#[ignore = "gap: no neutral player — civilians and neutral structures have no owner"]
 fn a_neutral_structure_belongs_to_nobody_and_is_hostile_to_nobody() {
-    panic!("every player is hostile to every other; there is no neutral side");
+    // Closed. `PlayerId::NEUTRAL` is a real slot rather than an `Option`,
+    // because everything that touches ownership already works in terms of a
+    // `PlayerId` and threading a null case through all of it would be far more
+    // invasive than reserving a number.
+    //
+    // Automatic targeting skips neutrals — civilians beside an army start
+    // nothing — while a deliberate attack order still works, which is the
+    // distinction the original drew.
+    assert!(PlayerId::NEUTRAL.is_neutral());
+    assert!(!PlayerId(0).is_neutral());
+
+    // The stat table has a row for it. Without one, every neutral unit
+    // resolved to zero maximum health and died on the tick it was created.
+    let rules = rules_with(
+        vec![unit("civilian", "infantry", Locomotor::Foot, vec![])],
+        vec![],
+    );
+    let kind = rules.kind_of("civilian").unwrap();
+    let sim = one_unit(rules, Map::new(20, 20), "civilian", Cell::new(5, 5));
+    assert!(
+        sim.stats().get(PlayerId::NEUTRAL, kind).max_health > 0,
+        "the neutral side has no stats, so its units would die instantly"
+    );
 }
 
 #[test]

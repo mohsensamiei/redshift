@@ -269,6 +269,9 @@ const GUARD_LEASH: i32 = 4;
 /// How close a passenger must get to a transport to climb aboard.
 const BOARDING_RANGE: i32 = 2;
 
+/// How close an engineer must get to a building to enter it.
+const ENTRY_RANGE: i32 = 2;
+
 /// How far around a transport passengers are set down.
 const UNLOAD_SPREAD: i32 = 4;
 
@@ -1195,6 +1198,16 @@ impl Sim {
     /// function so that teams and alliances slot in here later rather than
     /// being threaded through targeting after the fact.
     fn are_allied(a: PlayerId, b: PlayerId) -> bool {
+        // Neutral things are nobody's enemy. Civilians standing next to an army
+        // must not start a battle, and a tech building must not be shot at
+        // simply for being there.
+        //
+        // This governs *automatic* targeting only. A player who deliberately
+        // orders an attack on a civilian gets one, which is the distinction the
+        // original drew and the reason this is not an ownership rule.
+        if a.is_neutral() || b.is_neutral() {
+            return true;
+        }
         a == b
     }
 
@@ -1239,6 +1252,27 @@ impl Sim {
             let visible = |other: &Unit| self.can_see(unit.owner, other);
             let layer_of = |other: &Unit| self.stats.get(other.owner, other.kind).layer;
 
+            // An explicit attack order names its target, and that target stands
+            // even when automatic acquisition would refuse it — which is how a
+            // player kills a civilian. Without this the order is accepted, the
+            // unit walks over, and then never fires, because auto-targeting
+            // skips neutrals.
+            let ordered = match unit.order {
+                Order::Attack { target, .. } => self
+                    .units
+                    .get(target)
+                    .filter(|v| v.is_alive() && !v.is_aboard())
+                    .filter(|v| {
+                        let dx = v.pos.x - unit.pos.x;
+                        let dy = v.pos.y - unit.pos.y;
+                        Fx::dist_sq(dx, dy) <= weapon.range_sq
+                            && weapon.targets.engages(layer_of(v))
+                            && self.can_see(unit.owner, v)
+                    })
+                    .map(|_| target),
+                _ => None,
+            };
+
             let keep = unit.combat.target.filter(|t| {
                 combat::target_is_valid(
                     unit,
@@ -1249,7 +1283,7 @@ impl Sim {
                     &layer_of,
                 ) && self.units.get(*t).is_some_and(&visible)
             });
-            let target = keep.or_else(|| {
+            let target = ordered.or(keep).or_else(|| {
                 combat::choose_target_where(
                     attacker,
                     unit,
@@ -1552,6 +1586,36 @@ impl Sim {
                         }
                     }
                 }
+                CommandKind::EnterBuilding { units, target } => {
+                    for &id in units {
+                        if !self.owned_by(id, command.player) {
+                            continue;
+                        }
+                        // A building in fog cannot be entered, for the same
+                        // reason it cannot be attacked: a client with the fog
+                        // switched off would otherwise be issuing orders its
+                        // peers would refuse.
+                        let visible = self
+                            .units
+                            .get(*target)
+                            .is_some_and(|b| b.is_alive() && self.can_see(command.player, b));
+                        if !visible {
+                            continue;
+                        }
+                        let Some(cell) = self.units.get(*target).map(|b| b.cell()) else {
+                            continue;
+                        };
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Enter {
+                                target: *target,
+                                approach: Travel::to(cell, DEFAULT_NODE_BUDGET),
+                            };
+                        }
+                        if !self.path_queue.contains(&id) {
+                            self.path_queue.push(id);
+                        }
+                    }
+                }
                 CommandKind::Load { units, transport } => {
                     for &id in units {
                         if !self.owned_by(id, command.player)
@@ -1785,7 +1849,121 @@ impl Sim {
                     }
                 }
 
+                Order::Enter { target, approach } => {
+                    let building = self.units.get(target);
+                    if building.is_none_or(|b| !b.is_alive()) {
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.order = Order::Idle;
+                        }
+                        continue;
+                    }
+                    let Some(target_cell) = building.map(|b| b.cell()) else {
+                        continue;
+                    };
+
+                    if unit.cell().chebyshev_to(target_cell) <= ENTRY_RANGE {
+                        self.enter_building(id, target);
+                    } else if approach.destination != target_cell {
+                        if let Some(unit) = self.units.get_mut(id)
+                            && let Order::Enter { approach, .. } = &mut unit.order
+                        {
+                            *approach = Travel::to(target_cell, DEFAULT_NODE_BUDGET);
+                        }
+                        if !self.path_queue.contains(&id) {
+                            self.path_queue.push(id);
+                        }
+                    }
+                }
+
                 Order::AttackMove(_) | Order::Move(_) | Order::Idle => {}
+            }
+        }
+    }
+
+    /// An engineer enters a building.
+    ///
+    /// One action with three outcomes, decided by whose building it is. The
+    /// original never asked the player to choose between "capture" and
+    /// "repair" — they chose a building, and the engineer did the appropriate
+    /// thing. Splitting it into two commands would invent a decision the game
+    /// does not have.
+    fn enter_building(&mut self, engineer: EntityId, target: EntityId) {
+        let (Some(unit), Some(building)) = (self.units.get(engineer), self.units.get(target))
+        else {
+            return;
+        };
+        let stats = self.stats.get(unit.owner, unit.kind);
+        if !stats.is_engineer {
+            return;
+        }
+
+        let owner = unit.owner;
+        let building_owner = building.owner;
+        let building_stats = self.stats.get(building_owner, building.kind);
+        let damaged = building.health < building_stats.max_health;
+
+        let acted = if building_owner == owner {
+            // Own building: repaired outright, and only if it needed it.
+            // Consuming an engineer on an undamaged building would be a pure
+            // loss with nothing to show for it.
+            if damaged {
+                if let Some(b) = self.units.get_mut(target) {
+                    b.health = building_stats.max_health;
+                }
+                true
+            } else {
+                false
+            }
+        } else if building_stats.capturable {
+            // Anyone else's, including a neutral tech building. Health carries
+            // over: capturing a wreck gives a wreck.
+            self.change_owner(target, owner);
+            true
+        } else {
+            false
+        };
+
+        if !acted {
+            if let Some(unit) = self.units.get_mut(engineer) {
+                unit.order = Order::Idle;
+            }
+            return;
+        }
+
+        // Consumed. That is what makes an engineer a considered purchase rather
+        // than a tool you keep.
+        if stats.consumed_on_use {
+            if let Some(unit) = self.units.get_mut(engineer) {
+                unit.health = 0;
+            }
+        } else if let Some(unit) = self.units.get_mut(engineer) {
+            unit.order = Order::Idle;
+        }
+    }
+
+    /// Transfers a unit to another player.
+    ///
+    /// Ownership is read from a great many places — targeting, vision, power,
+    /// the stat table — so this exists to make the transfer one operation
+    /// rather than a field assignment that someone forgets to accompany.
+    ///
+    /// Power and vision are rebuilt from scratch every tick, so both follow a
+    /// capture on their own. A captured power plant supplies its new owner on
+    /// the next tick with nothing here to arrange it.
+    pub fn change_owner(&mut self, id: EntityId, owner: PlayerId) {
+        let Some(unit) = self.units.get_mut(id) else {
+            return;
+        };
+        unit.owner = owner;
+        // Orders and targets belonged to the previous owner's intent.
+        unit.order = Order::Idle;
+        unit.combat.target = None;
+        // Anything it was carrying changes hands with it, since a transport's
+        // passengers cannot be somewhere else.
+        let cargo = unit.cargo.clone();
+        for passenger in cargo {
+            if let Some(p) = self.units.get_mut(passenger) {
+                p.owner = owner;
             }
         }
     }
@@ -2305,12 +2483,24 @@ impl Sim {
             };
             if at_destination || !needs_repath {
                 // Arrived, or walked a route that was known to be complete.
-                // A guard keeps its post rather than forgetting it.
+                //
+                // Only a plain move is *finished* by arriving. The others own
+                // their own lifetimes and are ended in `update_engagements`
+                // when their reason to exist goes away — the target dies, the
+                // transport fills up, the building is entered.
+                //
+                // Getting this wrong was subtle: holding position by clearing
+                // the path made the movement pass think the unit had arrived,
+                // so an attack order was wiped the instant it came into range
+                // and the unit stood there having been told to shoot something.
                 unit.order = match &unit.order {
                     Order::Guard { post, .. } => Order::Guard {
                         post: *post,
                         returning: None,
                     },
+                    Order::Attack { .. } | Order::Board { .. } | Order::Enter { .. } => {
+                        unit.order.clone()
+                    }
                     _ => Order::Idle,
                 };
             } else if !self.path_queue.contains(&id) {

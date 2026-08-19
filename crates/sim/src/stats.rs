@@ -73,6 +73,12 @@ pub struct UnitStats {
     pub death_damage: u32,
     /// How many passengers this can carry.
     pub capacity: u8,
+    /// Whether this can be taken over by walking an engineer into it.
+    pub capturable: bool,
+    /// Whether this can enter a building to capture or repair it.
+    pub is_engineer: bool,
+    /// Whether entering destroys it.
+    pub consumed_on_use: bool,
     /// Whether this kind can move at all. Structures cannot.
     pub mobile: bool,
     /// How much ore this can carry, if it harvests at all.
@@ -134,6 +140,9 @@ impl Default for UnitStats {
             heal_delay: 0,
             death_damage: 0,
             capacity: 0,
+            capturable: false,
+            is_engineer: false,
+            consumed_on_use: false,
             mobile: false,
             harvest_capacity: None,
             gather_rate: 0,
@@ -171,6 +180,9 @@ impl StateHash for UnitStats {
         h.write_u32(self.heal_delay);
         h.write_u32(self.death_damage);
         h.write_u8(self.capacity);
+        h.write_bool(self.capturable);
+        h.write_bool(self.is_engineer);
+        h.write_bool(self.consumed_on_use);
         h.write_bool(self.mobile);
         h.write_i32(self.radius.raw());
         h.write_u32(self.harvest_capacity.unwrap_or(u32::MAX));
@@ -198,6 +210,16 @@ impl StateHash for UnitStats {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct StatTable {
     per_player: Vec<Vec<UnitStats>>,
+    /// Stats for the neutral side.
+    ///
+    /// A row of its own rather than a slot in `per_player`, because the neutral
+    /// player's id is deliberately out of the way of real slots and sizing a
+    /// dense vector to reach it would allocate 255 unused rows.
+    ///
+    /// Its absence was a real bug: a neutral unit resolved to `UnitStats`
+    /// default, which has zero maximum health, so every civilian and tech
+    /// building died on the tick it was created.
+    neutral: Vec<UnitStats>,
 }
 
 impl StatTable {
@@ -215,7 +237,16 @@ impl StatTable {
                     .collect()
             })
             .collect();
-        StatTable { per_player }
+        // The neutral side takes no faction modifiers — it has no country.
+        let neutral = rules
+            .entities()
+            .map(|(kind, _)| resolve_one(rules, kind, None))
+            .collect();
+
+        StatTable {
+            per_player,
+            neutral,
+        }
     }
 
     /// Stats for a player's copy of a kind.
@@ -224,6 +255,13 @@ impl StatTable {
     /// panicking: a stale entity id can outlive its owner, and a crash there
     /// would be a far worse failure than a unit that briefly cannot move.
     pub fn get(&self, player: PlayerId, kind: EntityKind) -> UnitStats {
+        if player.is_neutral() {
+            return self
+                .neutral
+                .get(kind.0 as usize)
+                .copied()
+                .unwrap_or_default();
+        }
         self.per_player
             .get(player.0 as usize)
             .and_then(|row| row.get(kind.0 as usize))
@@ -248,6 +286,10 @@ impl StateHash for StatTable {
             for stats in row {
                 h.write(stats);
             }
+        }
+        h.write_u32(self.neutral.len() as u32);
+        for stats in &self.neutral {
+            h.write(stats);
         }
     }
 }
@@ -321,6 +363,11 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             }
             Trait::Explodes { damage, .. } => stats.death_damage = *damage,
             Trait::Transport { capacity, .. } => stats.capacity = *capacity,
+            Trait::Capturable => stats.capturable = true,
+            Trait::Engineer { consumed } => {
+                stats.is_engineer = true;
+                stats.consumed_on_use = *consumed;
+            }
             Trait::Harvester {
                 capacity,
                 gather_rate,

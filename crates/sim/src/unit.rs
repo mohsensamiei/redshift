@@ -145,6 +145,11 @@ pub enum Order {
         transport: EntityId,
         approach: Travel,
     },
+    /// Walking into a building to capture or repair it.
+    ///
+    /// One order rather than two, because the original made it one action: the
+    /// engineer enters, and what happens depends on whose building it was.
+    Enter { target: EntityId, approach: Travel },
 }
 
 /// Where a unit is going and how far it has got.
@@ -198,7 +203,9 @@ impl Order {
     pub fn travel(&self) -> Option<&Travel> {
         match self {
             Order::Move(t) | Order::AttackMove(t) => Some(t),
-            Order::Attack { approach, .. } | Order::Board { approach, .. } => Some(approach),
+            Order::Attack { approach, .. }
+            | Order::Board { approach, .. }
+            | Order::Enter { approach, .. } => Some(approach),
             Order::Guard { returning, .. } => returning.as_ref(),
             Order::Idle => None,
         }
@@ -207,7 +214,9 @@ impl Order {
     pub fn travel_mut(&mut self) -> Option<&mut Travel> {
         match self {
             Order::Move(t) | Order::AttackMove(t) => Some(t),
-            Order::Attack { approach, .. } | Order::Board { approach, .. } => Some(approach),
+            Order::Attack { approach, .. }
+            | Order::Board { approach, .. }
+            | Order::Enter { approach, .. } => Some(approach),
             Order::Guard { returning, .. } => returning.as_mut(),
             Order::Idle => None,
         }
@@ -383,6 +392,12 @@ impl StateHash for Unit {
             }
             Order::Attack { target, approach } => {
                 h.write_u8(3);
+                h.write_u32(target.index());
+                h.write_u32(target.generation());
+                h.write(approach);
+            }
+            Order::Enter { target, approach } => {
+                h.write_u8(6);
                 h.write_u32(target.index());
                 h.write_u32(target.generation());
                 h.write(approach);

@@ -150,11 +150,11 @@ and reasoning in docs/08-roster.md.
 
 - [ ] Capture — `Capturable` exists and nothing reads it
 - [ ] Repair — a structure that heals what comes to it
-- [ ] Consumed on use — the engineer disappearing into the building
+- [x] Consumed on use — and whether it happens is data, not a rule
 - [ ] Walls — one-cell structures that connect to their neighbours
 - [ ] Map reveal — a one-off effect on the visibility layers
 - [ ] Economy modifiers on a structure
-- [ ] A neutral player — owns things, commands nothing, hostile to nobody
+- [x] A neutral player — owns things, commands nothing, hostile to nobody
 - [ ] Instant-kill weapons — sniper, attack dog
 - [ ] Placement rules per structure — a naval yard must touch water
 
@@ -194,7 +194,7 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, thirty-six gaps, each an ignored test with its reason attached.
+confirmed, thirty-four gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up

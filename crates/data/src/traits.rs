@@ -18,6 +18,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{Hundredths, Percent, Ticks};
 
+/// Serde default for flags that are true unless stated otherwise.
+pub(crate) fn yes() -> bool {
+    true
+}
+
 /// Which layer a thing occupies for the purpose of being shot at.
 ///
 /// Separate from its surfaces, because they answer different questions.
@@ -189,8 +194,21 @@ pub enum Trait {
     /// Damages its surroundings when destroyed.
     Explodes { warhead: WarheadId, damage: u32 },
 
-    /// Can be captured by an engineer-like unit.
+    /// Can be captured by walking an engineer into it.
     Capturable,
+
+    /// Can walk into a building to capture or repair it.
+    ///
+    /// One trait rather than two, because the original made it one action: the
+    /// engineer enters, and what happens depends on whose building it was. A
+    /// player never chooses between "capture" and "repair" — they choose a
+    /// building.
+    Engineer {
+        /// Whether entering destroys the unit. It did in the original, which is
+        /// what makes an engineer a considered purchase rather than a tool.
+        #[serde(default = "crate::traits::yes")]
+        consumed: bool,
+    },
 
     /// Carries other units.
     Transport { capacity: u8, allowed: Vec<String> },
@@ -228,6 +246,7 @@ impl Trait {
             Trait::SelfHealing { .. } => "SelfHealing",
             Trait::Explodes { .. } => "Explodes",
             Trait::Capturable => "Capturable",
+            Trait::Engineer { .. } => "Engineer",
             Trait::Transport { .. } => "Transport",
             Trait::Veterancy { .. } => "Veterancy",
             Trait::Selectable { .. } => "Selectable",

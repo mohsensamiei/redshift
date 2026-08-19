@@ -273,6 +273,12 @@ const BOARDING_RANGE: i32 = 2;
 /// How close an engineer must get to a building to enter it.
 const ENTRY_RANGE: i32 = 2;
 
+/// What proportion of a structure's cost selling returns, as a percentage.
+///
+/// Not verified against the original, and flagged in TODO.md with the other
+/// unverified rates.
+const SELL_REFUND_PERCENT: u32 = 50;
+
 /// Health per tick, in hundredths, granted by a repair-everywhere effect.
 ///
 /// Not verified against the original, and flagged in TODO.md with the other
@@ -886,6 +892,13 @@ impl Sim {
         match spot {
             Some(cell) => {
                 let delivered = self.spawn_unit(owner, kind, cell.centre());
+                // Off to the rally point, if one is set. Without this a factory
+                // builds a wall of its own units in front of its exit.
+                if let Some(rally) = self.units.get(building).and_then(|b| b.rally)
+                    && self.stats.get(owner, kind).mobile
+                {
+                    self.order_move(owner, delivered, rally);
+                }
                 // A player whose barracks has been infiltrated, or who holds
                 // whatever else grants it, gets everything promoted on arrival
                 // rather than having to earn it.
@@ -1520,17 +1533,27 @@ impl Sim {
                     .rank_of(target)
                     .resist(attacker_rank.map_or(base, |r| r.scale(base)));
                 let killed = target.is_alive() && target.health <= damage;
+                // Read before the mutable borrow below, since the target is
+                // about to be modified and may then be gone.
+                let bounty = self.stats.get(target.owner, target.kind).bounty;
 
                 if let Some(target) = self.units.get_mut(hit.target) {
                     target.take_damage(damage);
                 }
                 // Credited on the killing blow only. Anything else and a unit
                 // promotes for as long as it keeps firing at a body.
-                if killed
-                    && hit.attacker != hit.target
-                    && let Some(attacker) = self.units.get_mut(hit.attacker)
-                {
-                    attacker.kills = attacker.kills.saturating_add(1);
+                if killed && hit.attacker != hit.target {
+                    // The bounty goes to the owner, and is read before the
+                    // attacker is looked up: a shell already in the air still
+                    // pays out even if the unit that fired it has since died.
+                    if bounty > 0
+                        && let Some(owner) = self.units.get(hit.attacker).map(|a| a.owner)
+                    {
+                        self.treasury.deposit(owner, bounty);
+                    }
+                    if let Some(attacker) = self.units.get_mut(hit.attacker) {
+                        attacker.kills = attacker.kills.saturating_add(1);
+                    }
                 }
             }
 
@@ -1663,6 +1686,17 @@ impl Sim {
                             };
                         }
                     }
+                }
+                CommandKind::SetRally { building, at } => {
+                    if self.owned_by(*building, command.player)
+                        && self.map.contains(*at)
+                        && let Some(unit) = self.units.get_mut(*building)
+                    {
+                        unit.rally = Some(*at);
+                    }
+                }
+                CommandKind::Sell { building } => {
+                    self.sell(command.player, *building);
                 }
                 CommandKind::EnterBuilding { units, target } => {
                     for &id in units {
@@ -1955,6 +1989,38 @@ impl Sim {
 
                 Order::AttackMove(_) | Order::Move(_) | Order::Idle => {}
             }
+        }
+    }
+
+    /// Demolishes a structure for part of its cost back.
+    ///
+    /// Only structures. Selling a tank would be an odd thing to allow and a
+    /// very easy way to convert an army into cash mid-battle.
+    fn sell(&mut self, player: PlayerId, building: EntityId) {
+        if !self.owned_by(building, player) {
+            return;
+        }
+        let Some(unit) = self.units.get(building) else {
+            return;
+        };
+        let stats = self.stats.get(unit.owner, unit.kind);
+        if stats.mobile || stats.cost == 0 {
+            return;
+        }
+
+        // Paid on the building's condition, not its full price. A wreck is
+        // worth less than a fresh one, which stops selling from being a way to
+        // launder damage into money.
+        let condition = if stats.max_health > 0 {
+            (unit.health as u64 * 100) / stats.max_health as u64
+        } else {
+            0
+        };
+        let refund = ((stats.cost as u64 * SELL_REFUND_PERCENT as u64 * condition) / 10_000) as u32;
+        self.treasury.deposit(player, refund);
+
+        if let Some(unit) = self.units.get_mut(building) {
+            unit.health = 0;
         }
     }
 

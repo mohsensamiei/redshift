@@ -73,6 +73,8 @@ pub struct UnitStats {
     pub death_damage: u32,
     /// How many passengers this can carry.
     pub capacity: u8,
+    /// Credits paid to whoever destroys this.
+    pub bounty: u32,
     /// Whether this can be taken over by walking an engineer into it.
     pub capturable: bool,
     /// Whether this can enter a building to capture or repair it.
@@ -140,6 +142,7 @@ impl Default for UnitStats {
             heal_delay: 0,
             death_damage: 0,
             capacity: 0,
+            bounty: 0,
             capturable: false,
             is_engineer: false,
             consumed_on_use: false,
@@ -180,6 +183,7 @@ impl StateHash for UnitStats {
         h.write_u32(self.heal_delay);
         h.write_u32(self.death_damage);
         h.write_u8(self.capacity);
+        h.write_u32(self.bounty);
         h.write_bool(self.capturable);
         h.write_bool(self.is_engineer);
         h.write_bool(self.consumed_on_use);
@@ -363,6 +367,7 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             }
             Trait::Explodes { damage, .. } => stats.death_damage = *damage,
             Trait::Transport { capacity, .. } => stats.capacity = *capacity,
+            Trait::Bounty { credits } => stats.bounty = *credits,
             Trait::Capturable => stats.capturable = true,
             Trait::Engineer { consumed } => {
                 stats.is_engineer = true;

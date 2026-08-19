@@ -163,6 +163,12 @@ pub enum Trait {
     /// Produces other things.
     Produces { categories: Vec<String> },
 
+    /// Pays whoever destroys it.
+    ///
+    /// Small, and not only flavour: it is why shooting a civilian is a decision
+    /// with an upside rather than only spite. Any unit may carry a payout.
+    Bounty { credits: u32 },
+
     /// Grants a standing effect to its owner while it stands.
     ///
     /// A shape the original uses repeatedly and that has no other home: an ore
@@ -259,6 +265,7 @@ impl Trait {
             Trait::Footprint { .. } => "Footprint",
             Trait::Buildable { .. } => "Buildable",
             Trait::Produces { .. } => "Produces",
+            Trait::Bounty { .. } => "Bounty",
             Trait::Grants { .. } => "Grants",
             Trait::PowerSupply { .. } => "PowerSupply",
             Trait::PowerDraw { .. } => "PowerDraw",

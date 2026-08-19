@@ -194,7 +194,7 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, thirty-two gaps, each an ignored test with its reason attached.
+confirmed, twenty-nine gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -285,6 +285,7 @@ docs/adr/0005-faithful-remaster-scope.md for why.
       and 135%, chosen by feel. Promotion on kills is faithful; the numbers are
       not verified.
 - [ ] **Repair-everywhere rate.** `sim::BOON_REPAIR_RATE` is a guess.
+- [ ] **Sell refund rate.** `sim::SELL_REFUND_PERCENT` is 50%, a guess.
 - [ ] **Build radius.** `sim::BUILD_RADIUS` is 8 cells, chosen by feel. The
       constraint is faithful; the distance is not verified against the original.
 - [ ] **Low-power slowdown ratio.** `power::LOW_POWER_DIVISOR` is set to 4 by

@@ -262,6 +262,12 @@ pub struct Unit {
     pub production: Option<crate::production::ProductionQueue>,
     /// Kills to this unit's name.
     pub kills: u32,
+    /// Where units built here are sent, if anywhere.
+    ///
+    /// On the building rather than on its production queue, because a rally
+    /// point outlives any particular thing being built and a player expects it
+    /// to persist across an empty queue.
+    pub rally: Option<Cell>,
     /// The transport this is riding in, if any.
     ///
     /// A unit aboard something is still in the arena — it keeps its identity,
@@ -301,6 +307,7 @@ impl Unit {
             health: max_health,
             order: Order::Idle,
             kills: 0,
+            rally: None,
             carrier: None,
             cargo: Vec::new(),
             since_damaged: u32::MAX,
@@ -364,6 +371,13 @@ impl StateHash for Unit {
             None => h.write_u8(0),
         }
         h.write_u32(self.kills);
+        match self.rally {
+            Some(cell) => {
+                h.write_u8(1);
+                h.write(&cell);
+            }
+            None => h.write_u8(0),
+        }
         match self.carrier {
             Some(id) => {
                 h.write_u8(1);

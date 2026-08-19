@@ -89,6 +89,10 @@ pub enum CommandKind {
         units: Vec<EntityId>,
         target: EntityId,
     },
+    /// Send everything built here to a place.
+    SetRally { building: EntityId, at: Cell },
+    /// Demolish a structure for part of its cost back.
+    Sell { building: EntityId },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -177,6 +181,17 @@ impl StateHash for Command {
                     h.write_u32(u.index());
                     h.write_u32(u.generation());
                 }
+            }
+            CommandKind::SetRally { building, at } => {
+                h.write_u8(11);
+                h.write_u32(building.index());
+                h.write_u32(building.generation());
+                h.write(at);
+            }
+            CommandKind::Sell { building } => {
+                h.write_u8(12);
+                h.write_u32(building.index());
+                h.write_u32(building.generation());
             }
             CommandKind::EnterBuilding { units, target } => {
                 h.write_u8(10);

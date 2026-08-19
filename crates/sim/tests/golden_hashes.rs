@@ -66,20 +66,20 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when standing player modifiers landed. The world carries a
-/// per-player boon table, so the hash covers different bytes. Determinism was
-/// confirmed first across every suite.
+/// Re-recorded when rally points, selling and bounties landed. Buildings carry
+/// a rally cell and stats carry a bounty, so the hash covers different bytes.
+/// Determinism was confirmed first across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xaca6258898c23f35),
-    (50, 0x69bd0af0db9737c5),
-    (100, 0xa7747c1d48f6ae5c),
-    (200, 0x256f7797c35b8d16),
-    (400, 0x0bd2d9921f5888eb),
+    (10, 0x2e59e02d228c99db),
+    (50, 0x2656ad0f6ce6a285),
+    (100, 0x10a51a98470375ba),
+    (200, 0xab635dd58dd9d6a8),
+    (400, 0x48b2da02ad344dcb),
 ];
 
 #[test]

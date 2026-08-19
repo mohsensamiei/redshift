@@ -591,12 +591,26 @@ fn a_destroyed_building_leaves_rubble() {
 }
 
 #[test]
-#[ignore = "gap: no bounty — killing something pays nothing"]
 fn killing_a_civilian_pays_a_small_bounty() {
-    // Civilians are worth a few credits each. Small, but it means shooting them
-    // is a decision with an upside rather than only spite — and any unit may
-    // carry a payout.
-    panic!("credits come from ore and refunds only");
+    // Closed. Any unit may carry a payout, and it goes to the owner of whatever
+    // landed the killing blow — read before the attacker is looked up, so a
+    // shell already in the air still pays out even if the unit that fired it
+    // has since died.
+    let civilian = unit(
+        "civilian",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Bounty { credits: 5 }],
+    );
+    let rules = rules_with(vec![civilian], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "civilian", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("civilian").unwrap();
+
+    assert_eq!(
+        sim.stats().get(PlayerId(0), kind).bounty,
+        5,
+        "the bounty was not resolved"
+    );
 }
 
 #[test]
@@ -617,17 +631,76 @@ fn a_destroyed_vehicle_ejects_its_crew() {
 }
 
 #[test]
-#[ignore = "gap: no rally points — new units stop beside the factory"]
 fn newly_built_units_walk_to_a_rally_point() {
-    panic!("a produced unit is placed next to its factory and left there");
+    // Closed. Set on the building rather than on its production queue, because
+    // a rally point outlives any particular thing being built and a player
+    // expects it to survive an empty queue. Exercised in
+    // tests/rally_sell_bounty.rs.
+    let rules = factory_rules();
+    let mut sim = one_unit(rules, Map::new(40, 40), "factory", Cell::new(20, 20));
+    let factory = sim.units().ids()[0];
+
+    sim.tick(&[Command::new(
+        PlayerId(0),
+        0,
+        CommandKind::SetRally {
+            building: factory,
+            at: Cell::new(30, 30),
+        },
+    )]);
+    assert_eq!(
+        sim.units().get(factory).unwrap().rally,
+        Some(Cell::new(30, 30)),
+        "the rally point was not recorded"
+    );
 }
 
 #[test]
-#[ignore = "gap: structures cannot be sold"]
 fn a_structure_can_be_sold_for_a_refund() {
-    // And for the Cloning Vats, selling units is a deliberate way of turning
-    // spare infantry into cash.
-    panic!("no sell command; a structure can only be destroyed");
+    // Closed. Paid on the building's condition rather than its full price, so
+    // selling cannot be used to launder damage into money, and refused for
+    // anything mobile — selling a tank would be a very easy way to turn an army
+    // into cash mid-battle.
+    // The factory in `factory_rules` has no cost, and a structure worth nothing
+    // is correctly worth nothing to sell — so this needs one with a price.
+    let priced = EntityDef {
+        id: "depot".into(),
+        name_key: "b.depot".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Buildable {
+                cost: 1000,
+                build_time: Ticks(10),
+                prerequisites: vec![],
+                produced_by: "depot".into(),
+            },
+        ],
+    };
+    let rules = rules_with(vec![priced], vec![]);
+    let mut sim = one_unit(rules, Map::new(40, 40), "depot", Cell::new(20, 20));
+    let factory = sim.units().ids()[0];
+    let before = sim.treasury().credits(PlayerId(0));
+
+    sim.tick(&[Command::new(
+        PlayerId(0),
+        0,
+        CommandKind::Sell { building: factory },
+    )]);
+    sim.tick(&[]);
+
+    assert!(
+        sim.units().get(factory).is_none(),
+        "the structure was not demolished"
+    );
+    assert!(
+        sim.treasury().credits(PlayerId(0)) > before,
+        "selling paid nothing"
+    );
 }
 
 #[test]

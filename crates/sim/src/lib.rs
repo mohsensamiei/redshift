@@ -28,6 +28,7 @@
 //! See `docs/02-simulation.md` and `docs/adr/0003-deterministic-lockstep.md`.
 
 pub mod arena;
+pub mod boons;
 pub mod combat;
 pub mod command;
 pub mod economy;
@@ -48,6 +49,7 @@ pub mod vision;
 mod trig_table;
 
 pub use arena::{Arena, EntityId};
+pub use boons::Boons;
 pub use combat::{ArmourId, CombatState, CombatTable, DamageTable, WarheadId, WeaponStats};
 pub use command::{Command, CommandKind, PlayerId};
 pub use economy::Treasury;

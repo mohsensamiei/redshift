@@ -683,12 +683,40 @@ fn a_gap_generator_hides_a_base_from_the_enemy() {
 }
 
 #[test]
-#[ignore = "gap: no standing economy modifiers on a player"]
 fn an_ore_purifier_increases_the_value_of_every_load() {
-    // A quarter more credits from every delivery, for as long as the building
-    // stands. Same shape as the spy-in-a-barracks effect: a modifier that lives
-    // on the player rather than on a unit, and there is nowhere to put one.
-    panic!("credits are paid at a fixed rate with no per-player modifier");
+    // Closed, along with the shape it shares with two other gaps: a modifier
+    // that lives on the *player* rather than on a unit, held for as long as its
+    // source stands.
+    //
+    // Ore value multiplies rather than overwrites, so a second purifier is
+    // worth building. A source with no power grants nothing, or cutting an
+    // enemy's power would matter much less. Exercised in tests/boons_loop.rs.
+    use redshift_data::traits::PlayerEffect;
+    use redshift_data::value::Percent;
+
+    let purifier = EntityDef {
+        id: "purifier".into(),
+        name_key: "b.purifier".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Grants {
+                effect: PlayerEffect::OreValue(Percent(125)),
+            },
+        ],
+    };
+    let rules = rules_with(vec![purifier], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "purifier", Cell::new(5, 5));
+
+    assert_eq!(
+        sim.boons().ore_value(PlayerId(0)).0,
+        125,
+        "a standing grant was not applied"
+    );
 }
 
 #[test]
@@ -887,12 +915,34 @@ fn a_captured_tech_structure_extends_the_build_radius() {
 }
 
 #[test]
-#[ignore = "gap: persistent production modifiers — an effect that changes everything built afterwards"]
 fn an_effect_can_promote_every_unit_built_from_now_on() {
-    // A spy in a barracks, and a tech machine shop repairing every vehicle you
-    // own anywhere on the map. Neither is a one-off event nor a per-unit trait:
-    // they are standing modifiers on a player, and there is nowhere to put one.
-    panic!("effects are instantaneous; a player carries no standing modifiers");
+    // Closed by the same mechanism. A spy in a barracks and a captured machine
+    // shop are the same shape: neither is an event nor a per-unit trait, and
+    // both needed somewhere on the *player* to live.
+    use redshift_data::traits::PlayerEffect;
+
+    let barracks = EntityDef {
+        id: "barracks".into(),
+        name_key: "b.barracks".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 500,
+                armour: "none".into(),
+            },
+            Trait::Grants {
+                effect: PlayerEffect::VeteranProduction,
+            },
+        ],
+    };
+    let rules = rules_with(vec![barracks], vec![]);
+    let sim = one_unit(rules, Map::new(20, 20), "barracks", Cell::new(5, 5));
+
+    assert!(
+        sim.boons().veteran_production(PlayerId(0)),
+        "a standing production modifier was not applied"
+    );
 }
 
 #[test]

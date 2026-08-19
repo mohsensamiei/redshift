@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use redshift_data::rules::{EntityKind, Rules};
 
 use crate::arena::{Arena, EntityId};
+use crate::boons::Boons;
 use crate::combat::{self, CombatTable, PendingHit};
 use crate::command::{Command, CommandKind, PlayerId};
 use crate::economy::{self, Treasury};
@@ -272,6 +273,12 @@ const BOARDING_RANGE: i32 = 2;
 /// How close an engineer must get to a building to enter it.
 const ENTRY_RANGE: i32 = 2;
 
+/// Health per tick, in hundredths, granted by a repair-everywhere effect.
+///
+/// Not verified against the original, and flagged in TODO.md with the other
+/// unverified rates.
+const BOON_REPAIR_RATE: u32 = 50;
+
 /// How far around a transport passengers are set down.
 const UNLOAD_SPREAD: i32 = 4;
 
@@ -312,6 +319,7 @@ pub struct Sim {
     /// Shots between firing and landing.
     projectiles: Vec<Projectile>,
     power: PowerGrid,
+    boons: Boons,
     visibility: Visibility,
     /// Reused between ticks so separation does not allocate every frame.
     #[serde(skip)]
@@ -377,6 +385,7 @@ impl Sim {
             treasury: Treasury::new(factions.len(), STARTING_CREDITS),
             projectiles: Vec::new(),
             power: PowerGrid::new(factions.len()),
+            boons: Boons::new(factions.len()),
             visibility: Visibility::new(map_width, map_height, factions.len()),
             rules: setup.rules,
             stats,
@@ -386,6 +395,7 @@ impl Sim {
         // that reported no power until something ticked would show the player
         // a blackout on the frame they started the match.
         sim.recompute_power();
+        sim.recompute_boons();
         sim.update_vision();
         sim
     }
@@ -480,6 +490,7 @@ impl Sim {
         // Recomputing at the start instead left it a tick stale: a base whose
         // only plant had just been destroyed still reported itself powered.
         self.recompute_power();
+        self.recompute_boons();
 
         self.tick += 1;
     }
@@ -550,13 +561,23 @@ impl Sim {
             .iter()
             .filter_map(|(id, unit)| {
                 let stats = self.stats.get(unit.owner, unit.kind);
-                if stats.self_heal == 0 || !unit.is_alive() {
+                if !unit.is_alive() {
                     return None;
                 }
+                // A player holding the repair boon heals everything they own,
+                // whether or not the unit can normally repair itself. That is
+                // the whole point of a captured machine shop.
+                let rate = if stats.self_heal > 0 {
+                    stats.self_heal
+                } else if self.boons.repair_everywhere(unit.owner) {
+                    BOON_REPAIR_RATE
+                } else {
+                    return None;
+                };
                 if unit.since_damaged < stats.heal_delay {
                     return None;
                 }
-                Some((id, stats.self_heal, stats.max_health))
+                Some((id, rate, stats.max_health))
             })
             .collect();
 
@@ -725,6 +746,44 @@ impl Sim {
         &self.projectiles
     }
 
+    /// Rebuilds each player's standing modifiers from what is standing.
+    ///
+    /// From scratch every tick, like the power grid and for the same reason: a
+    /// running total would need correcting on every spawn, death, capture and
+    /// sale, and one missed correction leaves a player permanently and
+    /// invisibly wrong about their own economy.
+    fn recompute_boons(&mut self) {
+        self.boons.clear();
+        for (_, unit) in self.units.iter() {
+            if !unit.is_alive() || unit.is_aboard() {
+                continue;
+            }
+            // A source with no power grants nothing. An ore purifier that keeps
+            // paying while blacked out would make cutting an enemy's power much
+            // less worth doing.
+            if self.is_unpowered(unit) {
+                continue;
+            }
+            for effect in self
+                .rules
+                .entity(unit.kind)
+                .traits
+                .iter()
+                .filter_map(|t| match t {
+                    redshift_data::traits::Trait::Grants { effect } => Some(*effect),
+                    _ => None,
+                })
+            {
+                self.boons.grant(unit.owner, effect);
+            }
+        }
+    }
+
+    /// Each player's standing modifiers.
+    pub fn boons(&self) -> &Boons {
+        &self.boons
+    }
+
     /// The power grid, for the interface.
     pub fn power(&self) -> &PowerGrid {
         &self.power
@@ -826,7 +885,21 @@ impl Sim {
 
         match spot {
             Some(cell) => {
-                self.spawn_unit(owner, kind, cell.centre());
+                let delivered = self.spawn_unit(owner, kind, cell.centre());
+                // A player whose barracks has been infiltrated, or who holds
+                // whatever else grants it, gets everything promoted on arrival
+                // rather than having to earn it.
+                if self.boons.veteran_production(owner)
+                    && let Some(unit) = self.units.get_mut(delivered)
+                {
+                    let veteran_at = self
+                        .stats
+                        .get(owner, kind)
+                        .veterancy
+                        .map(|(v, _)| v)
+                        .unwrap_or(0);
+                    unit.kills = unit.kills.max(veteran_at);
+                }
             }
             None => {
                 if let Some(queue) = self
@@ -965,8 +1038,13 @@ impl Sim {
                         <= UNLOAD_RANGE.sq();
 
                     if reached {
-                        self.treasury
-                            .deposit(owner, state.load * economy::CREDITS_PER_ORE);
+                        self.treasury.deposit(
+                            owner,
+                            self.boons
+                                .ore_value(owner)
+                                .apply((state.load * economy::CREDITS_PER_ORE) as i32)
+                                .max(0) as u32,
+                        );
                         self.set_harvest(id, |h| h.load = 0);
                         self.assign_field(id, cell, &claimed);
                     } else if !travelling {
@@ -2534,6 +2612,7 @@ impl Sim {
         // whenever the difference happens to matter.
         h.write_u64(self.rules.hash());
         h.write(&self.stats);
+        h.write(&self.boons);
         // Shots in flight are world state: two peers that disagree about a
         // shell already in the air will disagree about who is alive a second
         // later, and the divergence would surface with nothing visibly wrong

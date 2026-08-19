@@ -38,6 +38,17 @@ pub enum Layer {
     Air,
 }
 
+/// A standing effect on a player, lasting while its source stands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum PlayerEffect {
+    /// Every load of ore delivered is worth this percentage of its usual value.
+    OreValue(Percent),
+    /// Everything this player builds arrives one rank higher.
+    VeteranProduction,
+    /// Every vehicle this player owns repairs itself, wherever it is.
+    RepairEverywhere,
+}
+
 /// A surface a unit may occupy.
 ///
 /// Declared per unit rather than inferred from its locomotor. See
@@ -152,6 +163,15 @@ pub enum Trait {
     /// Produces other things.
     Produces { categories: Vec<String> },
 
+    /// Grants a standing effect to its owner while it stands.
+    ///
+    /// A shape the original uses repeatedly and that has no other home: an ore
+    /// purifier makes every load worth more, a machine shop repairs every
+    /// vehicle anywhere, a spy in a barracks promotes everything built
+    /// afterwards. None of those are events, and none belong to a unit — they
+    /// are modifiers on a *player*.
+    Grants { effect: PlayerEffect },
+
     /// Supplies power to the grid.
     PowerSupply { output: u32 },
 
@@ -239,6 +259,7 @@ impl Trait {
             Trait::Footprint { .. } => "Footprint",
             Trait::Buildable { .. } => "Buildable",
             Trait::Produces { .. } => "Produces",
+            Trait::Grants { .. } => "Grants",
             Trait::PowerSupply { .. } => "PowerSupply",
             Trait::PowerDraw { .. } => "PowerDraw",
             Trait::Harvester { .. } => "Harvester",

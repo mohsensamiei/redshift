@@ -61,6 +61,27 @@
             ],
         ),
         (
+            id: "ore_purifier",
+            name_key: "building.ore_purifier",
+            side: Some("allied"),
+            category: "structure",
+            traits: [
+                Health(max: 700, armour: "concrete"),
+                // A quarter more from every load, for as long as it stands.
+                // Researched: docs/08-roster.md.
+                Grants(effect: OreValue(125)),
+                Vision(range: 400),
+                Footprint(width: 3, height: 3),
+                PowerDraw(amount: 200, works_unpowered: false),
+                Buildable(
+                    cost: 2500,
+                    build_time: 100,
+                    prerequisites: ["refinery"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
             id: "refinery",
             name_key: "building.refinery",
             side: "allied",

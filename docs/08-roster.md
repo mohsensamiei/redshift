@@ -528,7 +528,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 23 capabilities confirmed, 34 gaps.**
+**As of the last run: 25 capabilities confirmed, 32 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched

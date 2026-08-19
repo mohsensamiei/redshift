@@ -173,7 +173,7 @@ and reasoning in docs/08-roster.md.
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
 - [ ] Spy infiltration — an effect table keyed on the building entered
 - [ ] Tech structures — neutral, capturable, unsellable, extend the build radius
-- [ ] Persistent production modifiers — an effect that changes what is built later
+- [x] Persistent production modifiers — one mechanism, three effects
 - [ ] Instant-kill weapons — some weapons kill outright rather than dealing damage
 - [ ] A unit's weapon depending on its cargo — the IFV's 24 turret modes
 - [ ] Build limits — only one commando at a time, two with a cloning vat
@@ -194,7 +194,7 @@ and reasoning in docs/08-roster.md.
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, thirty-four gaps, each an ignored test with its reason attached.
+confirmed, thirty-two gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -284,6 +284,7 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 - [ ] **Veterancy bonuses.** `rank::VETERAN_BONUS` and `ELITE_BONUS` are 115%
       and 135%, chosen by feel. Promotion on kills is faithful; the numbers are
       not verified.
+- [ ] **Repair-everywhere rate.** `sim::BOON_REPAIR_RATE` is a guess.
 - [ ] **Build radius.** `sim::BUILD_RADIUS` is 8 cells, chosen by feel. The
       constraint is faithful; the distance is not verified against the original.
 - [ ] **Low-power slowdown ratio.** `power::LOW_POWER_DIVISOR` is set to 4 by

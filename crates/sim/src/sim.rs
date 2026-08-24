@@ -332,6 +332,21 @@ pub struct Sim {
     projectiles: Vec<Projectile>,
     power: PowerGrid,
     boons: Boons,
+    /// Effects a player keeps for the rest of the match.
+    ///
+    /// [`Boons`] is rebuilt from scratch every tick from the buildings a player
+    /// owns, which is right for a machine shop and wrong for a spy: the spy is
+    /// consumed and the barracks stays the victim's, so there is no standing
+    /// source to rebuild from. These are replayed into the boons after each
+    /// rebuild.
+    ///
+    /// A `Vec` per player, kept sorted and deduplicated, because it is hashed.
+    standing: Vec<Vec<redshift_data::traits::PlayerEffect>>,
+    /// The tick each player's blackout ends. Zero means none.
+    blackout_until: Vec<Tick>,
+    /// Kinds each player may build regardless of their own tech tree, having
+    /// stolen the technology. Sorted, and hashed.
+    unlocked: Vec<Vec<EntityKind>>,
     visibility: Visibility,
     /// Reused between ticks so separation does not allocate every frame.
     #[serde(skip)]
@@ -398,6 +413,9 @@ impl Sim {
             projectiles: Vec::new(),
             power: PowerGrid::new(factions.len()),
             boons: Boons::new(factions.len()),
+            standing: vec![Vec::new(); factions.len()],
+            blackout_until: vec![0; factions.len()],
+            unlocked: vec![Vec::new(); factions.len()],
             visibility: Visibility::new(map_width, map_height, factions.len()),
             rules: setup.rules,
             stats,
@@ -864,6 +882,16 @@ impl Sim {
                 self.power.add_draw(unit.owner, stats.power_draw);
             }
         }
+
+        // Last, because it cuts supply to nothing and adding plants afterwards
+        // would undo it. A sabotaged player is short of power however many
+        // reactors they own, which is what makes a spy in a power plant worth
+        // the thousand credits.
+        for (index, until) in self.blackout_until.iter().enumerate() {
+            if self.tick < *until {
+                self.power.black_out(PlayerId(index as u8));
+            }
+        }
     }
 
     /// Shots currently in the air.
@@ -895,12 +923,33 @@ impl Sim {
                 .traits
                 .iter()
                 .filter_map(|t| match t {
-                    redshift_data::traits::Trait::Grants { effect } => Some(*effect),
+                    redshift_data::traits::Trait::Grants { effect } => Some(effect.clone()),
                     _ => None,
                 })
             {
                 self.boons.grant(unit.owner, effect);
             }
+        }
+
+        // Replayed after the rebuild, because these have no standing source to
+        // be rebuilt from — the spy that won them is gone and the building it
+        // entered is still the victim's.
+        for (index, effects) in self.standing.iter().enumerate() {
+            for effect in effects {
+                self.boons.grant(PlayerId(index as u8), effect.clone());
+            }
+        }
+    }
+
+    /// Grants a player an effect for the rest of the match.
+    fn grant_standing(&mut self, player: PlayerId, effect: redshift_data::traits::PlayerEffect) {
+        let Some(list) = self.standing.get_mut(player.0 as usize) else {
+            return;
+        };
+        // Sorted and deduplicated, because it is hashed and because "promoted"
+        // and "promoted twice" are the same thing.
+        if let Err(at) = list.binary_search(&effect) {
+            list.insert(at, effect);
         }
     }
 
@@ -1042,7 +1091,13 @@ impl Sim {
                 // A player whose barracks has been infiltrated, or who holds
                 // whatever else grants it, gets everything promoted on arrival
                 // rather than having to earn it.
-                if self.boons.veteran_production(owner)
+                // Keyed on category, because the original keys it on one: a
+                // spy in a barracks promotes infantry, a spy in a war factory
+                // promotes vehicles. One flag for both would be a better deal
+                // than the game offers.
+                if self
+                    .boons
+                    .veteran_production(owner, &self.rules.entity(kind).category)
                     && let Some(unit) = self.units.get_mut(delivered)
                 {
                     let veteran_at = self
@@ -2329,7 +2384,15 @@ impl Sim {
                         // a damaged tank driving on is a stay, resolved a
                         // little each tick until it is whole or the money runs
                         // out.
-                        if !self.garrison(id, target) && !self.service_repair(id, target) {
+                        // Four things arriving at a building can mean, tried
+                        // in order of how specific they are. Each declines by
+                        // returning false, which keeps the decision in the data
+                        // — a spy is a spy because it says so, not because of
+                        // where this branch happens to sit.
+                        if !self.garrison(id, target)
+                            && !self.infiltrate(id, target)
+                            && !self.service_repair(id, target)
+                        {
                             self.enter_building(id, target);
                         }
                     } else if approach.destination != walk_to {
@@ -2458,6 +2521,102 @@ impl Sim {
         if let Some(unit) = self.units.get_mut(building) {
             unit.health = 0;
         }
+    }
+
+    /// A spy reaches an enemy building and takes what it holds.
+    ///
+    /// Returns whether this pairing was an infiltration, so the caller can fall
+    /// through to the other things arriving at a building can mean.
+    ///
+    /// The effect is read from the *building*, not from the spy. Infiltration
+    /// is not one effect aimed at a target — it is a table keyed on what was
+    /// entered, which is why an Allied lab yields something different from a
+    /// Soviet one with no code knowing either exists.
+    fn infiltrate(&mut self, spy: EntityId, building: EntityId) -> bool {
+        use redshift_data::traits::{InfiltrationEffect, PlayerEffect, Trait};
+
+        let (Some(u), Some(b)) = (self.units.get(spy), self.units.get(building)) else {
+            return false;
+        };
+        if !u.is_alive() || !b.is_alive() || u.is_aboard() {
+            return false;
+        }
+        let consumed = self
+            .rules
+            .entity(u.kind)
+            .traits
+            .iter()
+            .find_map(|t| match t {
+                Trait::Infiltrator { consumed } => Some(*consumed),
+                _ => None,
+            });
+        let Some(consumed) = consumed else {
+            return false;
+        };
+        // Somebody else's. Infiltrating your own barracks would be a strange
+        // way to promote your infantry, and infiltrating a neutral building is
+        // what an engineer is for.
+        if b.owner == u.owner || b.owner.is_neutral() {
+            return false;
+        }
+        let (owner, victim) = (u.owner, b.owner);
+        let effect = self
+            .rules
+            .entity(b.kind)
+            .traits
+            .iter()
+            .find_map(|t| match t {
+                Trait::Infiltrated { effect } => Some(effect.clone()),
+                _ => None,
+            });
+        // A spy that reached a building with nothing to steal has wasted
+        // itself, exactly as in the original. Returning true rather than
+        // falling through matters: without it the spy would try to capture the
+        // building instead.
+        let Some(effect) = effect else {
+            if let Some(u) = self.units.get_mut(spy) {
+                u.order = Order::Idle;
+            }
+            return true;
+        };
+
+        match effect {
+            InfiltrationEffect::Promotes { category } => {
+                self.grant_standing(owner, PlayerEffect::VeteranProduction(category));
+            }
+            InfiltrationEffect::Blackout { ticks } => {
+                if let Some(until) = self.blackout_until.get_mut(victim.0 as usize) {
+                    // Extended from now rather than added to what is left, so
+                    // a second spy during a blackout is worth sending and yet
+                    // two spies are not worth twice one.
+                    *until = (*until).max(self.tick + ticks);
+                }
+            }
+            InfiltrationEffect::StealsFunds { percent } => {
+                let held = self.treasury.credits(victim);
+                let taken = (held as u64 * percent.min(100) as u64 / 100) as u32;
+                if self.treasury.try_spend(victim, taken) {
+                    self.treasury.deposit(owner, taken);
+                }
+            }
+            InfiltrationEffect::Unlocks { unit } => {
+                if let Some(kind) = self.rules.kind_of(&unit)
+                    && let Some(list) = self.unlocked.get_mut(owner.0 as usize)
+                    && let Err(at) = list.binary_search(&kind)
+                {
+                    list.insert(at, kind);
+                }
+            }
+        }
+
+        if consumed {
+            if let Some(u) = self.units.get_mut(spy) {
+                u.health = 0;
+            }
+        } else if let Some(u) = self.units.get_mut(spy) {
+            u.order = Order::Idle;
+        }
+        true
     }
 
     /// Infantry occupy a building and fight from inside it.
@@ -3053,6 +3212,17 @@ impl Sim {
     /// living entity of that kind. Buildings under construction do not count —
     /// they are not yet entities.
     pub fn prerequisites_met(&self, player: PlayerId, kind: EntityKind) -> bool {
+        // Stolen technology answers for itself. A Soviet player who spied an
+        // Allied lab builds an Allied commando, and no arrangement of their own
+        // buildings could ever satisfy its prerequisites — that is exactly why
+        // it is worth stealing.
+        if self
+            .unlocked
+            .get(player.0 as usize)
+            .is_some_and(|list| list.binary_search(&kind).is_ok())
+        {
+            return true;
+        }
         let needed: Vec<&String> = self
             .rules
             .entity(kind)
@@ -3403,6 +3573,39 @@ impl Sim {
         h.write_u64(self.rules.hash());
         h.write(&self.stats);
         h.write(&self.boons);
+        // The three pieces of player state that are *not* rebuilt each tick,
+        // and so are not implied by anything else already hashed. A blackout
+        // that had run out on one peer and not the other would be a divergence
+        // nothing else could see.
+        for until in &self.blackout_until {
+            h.write_u32(*until);
+        }
+        for effects in &self.standing {
+            h.write_u32(effects.len() as u32);
+            for effect in effects {
+                // Written out by hand rather than through `Debug`. A derived
+                // format is not a contract: a field renamed for clarity would
+                // silently change every peer's hash, and the desync would
+                // arrive with nothing in the diff to explain it.
+                match effect {
+                    redshift_data::traits::PlayerEffect::OreValue(percent) => {
+                        h.write_u8(0);
+                        h.write_i32(percent.0);
+                    }
+                    redshift_data::traits::PlayerEffect::VeteranProduction(category) => {
+                        h.write_u8(1);
+                        h.write_bytes(category.as_bytes());
+                    }
+                    redshift_data::traits::PlayerEffect::RepairEverywhere => h.write_u8(2),
+                }
+            }
+        }
+        for kinds in &self.unlocked {
+            h.write_u32(kinds.len() as u32);
+            for kind in kinds {
+                h.write_u32(kind.0 as u32);
+            }
+        }
         // Shots in flight are world state: two peers that disagree about a
         // shell already in the air will disagree about who is alive a second
         // later, and the divergence would surface with nothing visibly wrong

@@ -25,6 +25,29 @@
             ],
         ),
         (
+            // No disguise yet — that is still a gap — so this is a spy that
+            // walks in openly. Everything it does *once inside* is here, and
+            // what it gets is read from whatever it entered.
+            id: "spy",
+            name_key: "unit.spy",
+            side: "allied",
+            category: "infantry",
+            traits: [
+                Health(max: 100, armour: "none"),
+                Mobile(speed: 400, turn_rate: 90, locomotor: Foot),
+                Vision(range: 600),
+                Infiltrator(consumed: true),
+                Crushable(class: "infantry"),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 1000,
+                    build_time: 40,
+                    prerequisites: ["barracks"],
+                    produced_by: "barracks",
+                ),
+            ],
+        ),
+        (
             id: "grizzly_tank",
             name_key: "unit.grizzly_tank",
             side: "allied",

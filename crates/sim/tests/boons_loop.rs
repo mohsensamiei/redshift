@@ -48,7 +48,7 @@ fn base(buildings: &[(&str, i32, i32)]) -> Sim {
 fn a_player_with_nothing_gets_the_baseline() {
     let sim = base(&[]);
     assert_eq!(sim.boons().ore_value(PlayerId(0)).0, 100);
-    assert!(!sim.boons().veteran_production(PlayerId(0)));
+    assert!(!sim.boons().veteran_production(PlayerId(0), "infantry"));
 }
 
 #[test]

@@ -70,6 +70,18 @@ impl PowerGrid {
         }
     }
 
+    /// Cuts a player's supply to nothing, whatever they are generating.
+    ///
+    /// Sabotage, expressed as a fact about the grid rather than as an exception
+    /// at each of the dozen places that ask "is this powered". A sabotaged base
+    /// then behaves exactly like one whose reactors were bombed, which is the
+    /// whole point of sabotaging it.
+    pub fn black_out(&mut self, player: PlayerId) {
+        if let Some(slot) = self.supply.get_mut(player.0 as usize) {
+            *slot = 0;
+        }
+    }
+
     #[inline]
     pub fn supply(&self, player: PlayerId) -> u32 {
         self.supply.get(player.0 as usize).copied().unwrap_or(0)

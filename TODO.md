@@ -162,6 +162,10 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] Spy infiltration — an effect table keyed on what was entered, declared on
+      the **building** rather than on the spy. All five rows: promotion by
+      category, a timed blackout, theft of a share of the funds, and stolen
+      technology. They are four different mechanisms, not one with a parameter.
 - [x] Garrison — infantry occupying a civilian building and fighting from
       inside it. The building fires with **its own** weapon, not its occupants'
       — the exact opposite of an IFV, and the thing most easily got backwards.
@@ -185,7 +189,6 @@ and reasoning in docs/08-roster.md.
       list, not a slot
 - [ ] Placed charges — armed now, detonating later
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
-- [ ] Spy infiltration — an effect table keyed on the building entered
 - [ ] Tech structures — neutral, capturable, unsellable, extend the build radius
 - [x] Persistent production modifiers — one mechanism, three effects
 - [x] Instant-kill weapons
@@ -210,8 +213,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Forty-two capabilities
-confirmed, sixteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Forty-three capabilities
+confirmed, fifteen gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up

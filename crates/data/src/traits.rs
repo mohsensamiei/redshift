@@ -38,15 +38,56 @@ pub enum Layer {
     Air,
 }
 
-/// A standing effect on a player, lasting while its source stands.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+/// A standing effect on a player.
+///
+/// Usually lasting while its source stands — an ore purifier, a captured
+/// machine shop. Infiltration grants some of these permanently instead, since
+/// the spy is consumed and the building it entered stays the victim's.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub enum PlayerEffect {
     /// Every load of ore delivered is worth this percentage of its usual value.
     OreValue(Percent),
-    /// Everything this player builds arrives one rank higher.
-    VeteranProduction,
+    /// Everything this player builds *of this category* arrives one rank
+    /// higher.
+    ///
+    /// Keyed on a category because the original keys it on one: a spy in a
+    /// barracks promotes your infantry, and a spy in a war factory promotes
+    /// your vehicles and aircraft. A single flag would make either spy do both,
+    /// which is a much better deal than the game offers.
+    VeteranProduction(String),
     /// Every vehicle this player owns repairs itself, wherever it is.
     RepairEverywhere,
+}
+
+/// What infiltrating one building yields.
+///
+/// Five rows, and they are genuinely five different mechanisms rather than one
+/// with a parameter — which is the finding that made this worth writing down.
+/// A single "infiltration effect" number would have hidden that.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+pub enum InfiltrationEffect {
+    /// Everything of a category the infiltrator builds from now on arrives
+    /// promoted. A barracks gives infantry, a war factory vehicles.
+    ///
+    /// Persistent, and does not stack: this is a production modifier that lasts
+    /// the rest of the match, not an event.
+    Promotes { category: String },
+    /// The victim loses power for a while, however many plants they own.
+    ///
+    /// The only row with a duration, which is why the timer lives on the
+    /// player rather than on the building.
+    Blackout { ticks: u32 },
+    /// The infiltrator takes this percentage of the victim's funds.
+    ///
+    /// The only row that is a one-off with no lasting state at all.
+    StealsFunds { percent: u32 },
+    /// The infiltrator may now build this, whatever their own tech tree says.
+    ///
+    /// Keyed on the building, which is what makes an Allied lab yield a Chrono
+    /// Commando and a Soviet one a Chrono Ivan. The unit is unlocked for
+    /// whoever sent the spy — so a Soviet player who spies an Allied lab builds
+    /// an Allied commando, which is exactly the point of doing it.
+    Unlocks { unit: String },
 }
 
 /// A surface a unit may occupy.
@@ -270,6 +311,26 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
+    /// What a spy gets for reaching this building.
+    ///
+    /// Declared on the **building**, not on the spy. Infiltration is not one
+    /// effect aimed at a target — it is a table keyed on what was entered, and
+    /// the table's rows belong with the things they describe. A new building
+    /// with a new infiltration effect is then a rules file, which is the whole
+    /// of ADR 0006.
+    Infiltrated { effect: InfiltrationEffect },
+
+    /// Can walk into an enemy building for whatever that building yields.
+    ///
+    /// Distinct from [`Trait::Engineer`], which takes a building rather than
+    /// robbing it, and which works on neutral and friendly ones too. A spy that
+    /// reached a building with no [`Trait::Infiltrated`] has wasted itself,
+    /// exactly as in the original.
+    Infiltrator {
+        #[serde(default = "crate::traits::yes")]
+        consumed: bool,
+    },
+
     /// Can be occupied by infantry, who fight from inside it.
     ///
     /// Researched, and more specific than "infantry can garrison buildings".
@@ -425,6 +486,8 @@ impl Trait {
             Trait::Repairs { .. } => "Repairs",
             Trait::Infests { .. } => "Infests",
             Trait::Garrisonable { .. } => "Garrisonable",
+            Trait::Infiltrated { .. } => "Infiltrated",
+            Trait::Infiltrator { .. } => "Infiltrator",
             Trait::Selectable { .. } => "Selectable",
         }
     }
@@ -458,6 +521,9 @@ impl Trait {
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
             Trait::Infests { warhead, .. } => vec![("warhead", warhead.clone())],
             Trait::Garrisonable { weapon, .. } => vec![("weapon", weapon.clone())],
+            Trait::Infiltrated {
+                effect: InfiltrationEffect::Unlocks { unit },
+            } => vec![("unlocked unit", unit.clone())],
             _ => Vec::new(),
         }
     }
@@ -526,6 +592,8 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Repairs",
     "Infests",
     "Garrisonable",
+    "Infiltrated",
+    "Infiltrator",
     // A unit with two deployed forms would silently pick one, and which one
     // depends on trait order in a RON file — a desync in waiting.
     "Deploys",

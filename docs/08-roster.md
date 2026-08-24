@@ -140,18 +140,24 @@ Verified, and considerably richer than "infiltration effects" suggested. Each
 building gives a different thing, and the spy has to reach a *specific* kind of
 building to get it.
 
-| Infiltrated | Effect |
-|---|---|
-| **Barracks** | All infantry you produce gain a rank. Does not stack |
-| **War Factory** | All vehicles and aircraft you produce gain a rank. Does not stack |
-| **Power Plant** | The victim loses power for about a minute |
-| **Ore Refinery** | Steals 20% of the victim's funds |
-| **Battle Lab** | Unlocks a commando built from the *victim's* technology |
+| Infiltrated | Effect | Engine |
+|---|---|---|
+| **Barracks** | All infantry you produce gain a rank. Does not stack | ✅ |
+| **War Factory** | All vehicles and aircraft you produce gain a rank. Does not stack | ✅ |
+| **Power Plant** | The victim loses power for about a minute | ✅ |
+| **Ore Refinery** | Steals 20% of the victim's funds | ✅ |
+| **Battle Lab** | Unlocks a commando built from the *victim's* technology | ✅ |
 
 The Battle Lab case is the interesting one. What you get depends on whose lab
 it was: an Allied lab gives a Chrono Commando, a Soviet lab a Chrono Ivan, a
 Yuri lab a Psi Commando. So infiltration is not one effect with a target — it
 is a table keyed on what was infiltrated.
+
+All five are implemented. The finding worth keeping is that they are genuinely
+**four different mechanisms** rather than one with a parameter: a persistent
+production modifier, a timed sabotage of the power grid, a one-off theft, and an
+addition to the tech tree. A single "infiltration effect" number would have
+hidden that, and would have had to be unpicked later.
 
 The veterancy effects are worth noting separately because they are **persistent
 production modifiers**, not one-off events: everything you build from then on
@@ -343,7 +349,7 @@ says whether Redshift can express the behaviour at all.
 | Rocketeer | A | 600 | Air HQ | Jet-pack infantry: flies, hits air and ground | ❌ flying infantry |
 | Sniper | GB | 600 | Air HQ | Kills infantry with **one shot** at long range | ❌ instant kill |
 | Navy SEAL | A | 1000 | Air HQ | Rifle plus **C4**; **crosses land and water** | ❌ charges, ✅ amphibious |
-| Spy | A | 1000 | Battle Lab | **Disguised** as enemy infantry; infiltrates for a per-building effect | ❌ disguise, ❌ infiltration |
+| Spy | A | 1000 | Battle Lab | **Disguised** as enemy infantry; infiltrates for a per-building effect | ❌ disguise, ✅ infiltration |
 | Tanya | A | 1000 | Battle Lab | **One-shot kills** infantry, **swims**, **C4** destroys buildings and ships | ❌ instant kill, ❌ charges |
 | Chrono Legionnaire | A | 1500 | Battle Lab | **Erases** a target progressively; **interrupting it undoes the erasure**; teleports | ❌ |
 | Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ❌ crush immunity, ❌ charging a structure |
@@ -539,7 +545,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 42 capabilities confirmed, 16 gaps.**
+**As of the last run: 43 capabilities confirmed, 15 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched

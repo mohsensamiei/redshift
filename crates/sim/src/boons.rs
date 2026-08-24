@@ -28,7 +28,10 @@ use crate::hash::{StateHash, StateHasher};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Boons {
     ore_value: Vec<Percent>,
-    veteran_production: Vec<bool>,
+    /// Categories each player builds promoted. Sorted, because it is read in
+    /// order and hashed, and an order that depended on which building was
+    /// visited first would be a desync.
+    veteran_production: Vec<Vec<String>>,
     repair_everywhere: Vec<bool>,
 }
 
@@ -36,7 +39,7 @@ impl Boons {
     pub fn new(player_count: usize) -> Boons {
         Boons {
             ore_value: vec![Percent::FULL; player_count],
-            veteran_production: vec![false; player_count],
+            veteran_production: vec![Vec::new(); player_count],
             repair_everywhere: vec![false; player_count],
         }
     }
@@ -48,7 +51,7 @@ impl Boons {
     /// like a rounding bug in the income graph.
     pub fn clear(&mut self) {
         self.ore_value.iter_mut().for_each(|v| *v = Percent::FULL);
-        self.veteran_production.iter_mut().for_each(|v| *v = false);
+        self.veteran_production.iter_mut().for_each(Vec::clear);
         self.repair_everywhere.iter_mut().for_each(|v| *v = false);
     }
 
@@ -66,7 +69,16 @@ impl Boons {
                 let current = self.ore_value[index];
                 self.ore_value[index] = Percent((current.0 * percent.0) / 100);
             }
-            PlayerEffect::VeteranProduction => self.veteran_production[index] = true,
+            PlayerEffect::VeteranProduction(category) => {
+                // "Promoted" and "promoted twice" are the same thing, so a
+                // category is recorded once. Kept sorted rather than appended
+                // to, so the order does not depend on which source was seen
+                // first.
+                let list = &mut self.veteran_production[index];
+                if let Err(at) = list.binary_search(&category) {
+                    list.insert(at, category);
+                }
+            }
             PlayerEffect::RepairEverywhere => self.repair_everywhere[index] = true,
         }
     }
@@ -84,9 +96,9 @@ impl Boons {
     }
 
     /// Whether everything this player builds arrives promoted.
-    pub fn veteran_production(&self, player: PlayerId) -> bool {
+    pub fn veteran_production(&self, player: PlayerId, category: &str) -> bool {
         self.index_of(player)
-            .is_some_and(|i| self.veteran_production[i])
+            .is_some_and(|i| self.veteran_production[i].iter().any(|c| c == category))
     }
 
     /// Whether this player's vehicles repair themselves anywhere.
@@ -102,8 +114,11 @@ impl StateHash for Boons {
         for v in &self.ore_value {
             h.write_i32(v.0);
         }
-        for v in &self.veteran_production {
-            h.write_bool(*v);
+        for categories in &self.veteran_production {
+            h.write_u32(categories.len() as u32);
+            for c in categories {
+                h.write_bytes(c.as_bytes());
+            }
         }
         for v in &self.repair_everywhere {
             h.write_bool(*v);
@@ -121,7 +136,7 @@ mod tests {
         // worthless until something granted otherwise.
         let boons = Boons::new(2);
         assert_eq!(boons.ore_value(PlayerId(0)), Percent::FULL);
-        assert!(!boons.veteran_production(PlayerId(0)));
+        assert!(!boons.veteran_production(PlayerId(0), "infantry"));
         assert!(!boons.repair_everywhere(PlayerId(0)));
     }
 
@@ -145,9 +160,28 @@ mod tests {
     #[test]
     fn flags_do_not_stack_because_there_is_nothing_to_stack() {
         let mut boons = Boons::new(1);
-        boons.grant(PlayerId(0), PlayerEffect::VeteranProduction);
-        boons.grant(PlayerId(0), PlayerEffect::VeteranProduction);
-        assert!(boons.veteran_production(PlayerId(0)));
+        boons.grant(
+            PlayerId(0),
+            PlayerEffect::VeteranProduction("infantry".into()),
+        );
+        boons.grant(
+            PlayerId(0),
+            PlayerEffect::VeteranProduction("infantry".into()),
+        );
+        assert!(boons.veteran_production(PlayerId(0), "infantry"));
+    }
+
+    #[test]
+    fn promotion_applies_only_to_the_category_it_was_granted_for() {
+        // A spy in a barracks promotes infantry. It does not also promote every
+        // tank you build, which a single flag would have let it do.
+        let mut boons = Boons::new(1);
+        boons.grant(
+            PlayerId(0),
+            PlayerEffect::VeteranProduction("infantry".into()),
+        );
+        assert!(boons.veteran_production(PlayerId(0), "infantry"));
+        assert!(!boons.veteran_production(PlayerId(0), "vehicle"));
     }
 
     #[test]
@@ -165,18 +199,24 @@ mod tests {
         // rounding bug in the income graph rather than a reset.
         let mut boons = Boons::new(1);
         boons.grant(PlayerId(0), PlayerEffect::OreValue(Percent(200)));
-        boons.grant(PlayerId(0), PlayerEffect::VeteranProduction);
+        boons.grant(
+            PlayerId(0),
+            PlayerEffect::VeteranProduction("infantry".into()),
+        );
         boons.clear();
         assert_eq!(boons.ore_value(PlayerId(0)), Percent::FULL);
-        assert!(!boons.veteran_production(PlayerId(0)));
+        assert!(!boons.veteran_production(PlayerId(0), "infantry"));
     }
 
     #[test]
     fn an_unknown_player_reads_as_the_baseline() {
         let mut boons = Boons::new(1);
-        boons.grant(PlayerId(9), PlayerEffect::VeteranProduction);
+        boons.grant(
+            PlayerId(9),
+            PlayerEffect::VeteranProduction("infantry".into()),
+        );
         assert_eq!(boons.ore_value(PlayerId(9)), Percent::FULL);
-        assert!(!boons.veteran_production(PlayerId(9)));
+        assert!(!boons.veteran_production(PlayerId(9), "infantry"));
     }
 
     #[test]
@@ -189,11 +229,11 @@ mod tests {
         let base = Boons::new(2);
         for effect in [
             PlayerEffect::OreValue(Percent(125)),
-            PlayerEffect::VeteranProduction,
+            PlayerEffect::VeteranProduction("infantry".into()),
             PlayerEffect::RepairEverywhere,
         ] {
             let mut changed = base.clone();
-            changed.grant(PlayerId(0), effect);
+            changed.grant(PlayerId(0), effect.clone());
             assert_ne!(hash(&changed), hash(&base), "{effect:?} is not in the hash");
         }
     }

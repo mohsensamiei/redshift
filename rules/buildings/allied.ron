@@ -31,6 +31,8 @@
                 Footprint(width: 2, height: 2),
                 Vision(range: 300),
                 PowerSupply(output: 100),
+                // A minute in the dark, at twenty ticks a second.
+                Infiltrated(effect: Blackout(ticks: 1200)),
                 Explodes(warhead: "explosive", damage: 120),
                 Capturable,
                 Selectable(priority: 5),
@@ -53,6 +55,9 @@
                 Vision(range: 300),
                 PowerDraw(amount: 20, works_unpowered: true),
                 Produces(categories: ["infantry"]),
+                // A spy here promotes every soldier you build from then on —
+                // and only soldiers. The war factory carries the vehicle row.
+                Infiltrated(effect: Promotes(category: "infantry")),
                 Capturable,
                 Selectable(priority: 5),
                 Buildable(
@@ -101,6 +106,9 @@
                 // economy rather than stopping it dead.
                 PowerDraw(amount: 30, works_unpowered: true),
                 Refinery(value_per_unit: 25),
+                // The researched figure: a spy takes a fifth of what the victim
+                // is holding.
+                Infiltrated(effect: StealsFunds(percent: 20)),
                 Capturable,
                 Selectable(priority: 5),
                 Buildable(
@@ -122,6 +130,7 @@
                 Vision(range: 350),
                 PowerDraw(amount: 50, works_unpowered: true),
                 Produces(categories: ["vehicle"]),
+                Infiltrated(effect: Promotes(category: "vehicle")),
                 Capturable,
                 Selectable(priority: 5),
                 Buildable(

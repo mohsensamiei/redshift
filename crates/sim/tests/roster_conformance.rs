@@ -1102,7 +1102,6 @@ fn a_submarine_surfaces_when_it_attacks_or_is_damaged() {
 }
 
 #[test]
-#[ignore = "gap: infiltration — no effect table keyed on what was entered"]
 fn a_spy_gets_a_different_effect_from_each_kind_of_building() {
     // Researched, and richer than "infiltration works": a barracks promotes
     // everything you build from then on, a refinery hands over a fifth of the
@@ -1110,9 +1109,66 @@ fn a_spy_gets_a_different_effect_from_each_kind_of_building() {
     // unlocks a commando built from *the victim's* technology.
     //
     // So this is a table keyed on the infiltrated building, not one effect with
-    // a target. Two of the entries are persistent production modifiers rather
-    // than events, which is a third shape again.
-    panic!("no infiltration action, and no per-building effect table");
+    // a target — and the rows are genuinely four different mechanisms rather
+    // than one with a parameter. The effect is therefore declared on the
+    // building, which is what lets an Allied lab yield something different from
+    // a Soviet one with no code knowing either exists.
+    //
+    // Exercised end to end in tests/infiltration.rs.
+    use redshift_data::traits::InfiltrationEffect;
+
+    let rows = [
+        (
+            "barracks",
+            InfiltrationEffect::Promotes {
+                category: "infantry".into(),
+            },
+        ),
+        ("plant", InfiltrationEffect::Blackout { ticks: 1_200 }),
+        ("refinery", InfiltrationEffect::StealsFunds { percent: 20 }),
+        ("lab", InfiltrationEffect::Unlocks { unit: "spy".into() }),
+    ];
+    let mut entities = vec![unit(
+        "spy",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Infiltrator { consumed: true }],
+    )];
+    for (id, effect) in rows {
+        let mut building = unit(
+            id,
+            "structure",
+            Locomotor::Foot,
+            vec![
+                Trait::Footprint {
+                    width: 3,
+                    height: 3,
+                },
+                Trait::Infiltrated { effect },
+            ],
+        );
+        building
+            .traits
+            .retain(|t| !matches!(t, Trait::Mobile { .. }));
+        entities.push(building);
+    }
+
+    let rules = rules_with(entities, vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "spy", Cell::new(5, 5));
+
+    // Every row resolves, and each is a different arm — which is the finding.
+    // A single "infiltration effect" number would have hidden that.
+    for id in ["barracks", "plant", "refinery", "lab"] {
+        let kind = sim.rules().kind_of(id).unwrap();
+        assert!(
+            sim.rules()
+                .entity(kind)
+                .traits
+                .iter()
+                .any(|t| matches!(t, Trait::Infiltrated { .. })),
+            "{id} yields nothing to a spy"
+        );
+    }
 }
 
 #[test]
@@ -1198,7 +1254,7 @@ fn an_effect_can_promote_every_unit_built_from_now_on() {
                 armour: "none".into(),
             },
             Trait::Grants {
-                effect: PlayerEffect::VeteranProduction,
+                effect: PlayerEffect::VeteranProduction("infantry".into()),
             },
         ],
     };
@@ -1206,7 +1262,7 @@ fn an_effect_can_promote_every_unit_built_from_now_on() {
     let sim = one_unit(rules, Map::new(20, 20), "barracks", Cell::new(5, 5));
 
     assert!(
-        sim.boons().veteran_production(PlayerId(0)),
+        sim.boons().veteran_production(PlayerId(0), "infantry"),
         "a standing production modifier was not applied"
     );
 }

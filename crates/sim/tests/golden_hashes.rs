@@ -66,9 +66,10 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when the Service Depot and the Terror Drone landed. Every unit
-/// now hashes whether something has burrowed into it, so every value moved even
-/// though this scenario contains neither. Determinism was confirmed first
+/// Re-recorded when spy infiltration landed. Three pieces of *persistent*
+/// player state joined the hash — a blackout timer, permanent grants, and
+/// stolen technology — none of which are rebuilt each tick and so none of which
+/// were implied by anything already hashed. Determinism was confirmed first
 /// across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
@@ -76,11 +77,11 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xe92d9dbe2c6b1b69),
-    (50, 0xf0d39ee80160ee41),
-    (100, 0x22dd0158525b85ec),
-    (200, 0x8926d86d12f22c2e),
-    (400, 0x4aa1431f5521d9c9),
+    (10, 0x9db2484cfb4ab241),
+    (50, 0x7c943e55d6968d39),
+    (100, 0xe9a22c97b59ada74),
+    (200, 0xf3accb1a87e6a0e6),
+    (400, 0xc3d9713f6efbe1c9),
 ];
 
 #[test]

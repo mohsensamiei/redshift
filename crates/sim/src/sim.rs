@@ -494,6 +494,9 @@ impl Sim {
         self.resolve_damage(&hits);
         self.resolve_damage(&bites);
         self.crush_underfoot();
+        // After damage and before deaths, so a building shot below the
+        // threshold this tick throws its garrison out this tick.
+        self.evict_broken_garrisons();
         self.regenerate();
         let blasts = self.detonate_the_dying();
         self.resolve_damage(&blasts);
@@ -1490,7 +1493,20 @@ impl Sim {
             // and an anti-air missile looks for anything either can reach, and
             // then uses whichever one reaches it. Consulting only the primary
             // would leave the secondary resolved and never fired.
-            let reach = {
+            // An occupied building shoots with *its own* weapon rather than
+            // its occupants' — the exact opposite of a vehicle whose gun
+            // changes with its passenger, and the thing most easily got
+            // backwards. An empty one has no weapon at all, which is what makes
+            // garrisoning a building do something.
+            let garrison = self
+                .combat
+                .garrison_weapon(unit.kind)
+                .filter(|_| !unit.cargo.is_empty())
+                .copied();
+
+            let reach = if let Some(w) = garrison {
+                w.targets
+            } else {
                 let primary = self.combat.weapon(unit.kind).map(|w| w.targets.raw());
                 let secondary = self.combat.secondary(unit.kind).map(|w| w.targets.raw());
                 match (primary, secondary) {
@@ -1501,14 +1517,14 @@ impl Sim {
             // The longer of the two, for the search radius.
             let kind_of_attacker = unit.kind;
             let ground_bonus = self.map.elevation_bonus(unit.cell());
-            let Some(weapon) = self
-                .combat
-                .weapon(unit.kind)
-                .into_iter()
-                .chain(self.combat.secondary(unit.kind))
-                .max_by_key(|w| w.range_sq)
-                .copied()
-            else {
+            let Some(weapon) = garrison.or_else(|| {
+                self.combat
+                    .weapon(unit.kind)
+                    .into_iter()
+                    .chain(self.combat.secondary(unit.kind))
+                    .max_by_key(|w| w.range_sq)
+                    .copied()
+            }) else {
                 continue;
             };
             // The search radius carries the hill's advantage too. If only the
@@ -1596,11 +1612,16 @@ impl Sim {
             // it lock onto something it then refused to shoot.
             let elevation = self.map.elevation_bonus(unit.cell());
 
-            let firing_weapon = target
-                .and_then(|t| self.units.get(t))
-                .map(|t| self.stats.get(t.owner, t.kind).layer)
-                .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
-                .unwrap_or(weapon);
+            let firing_weapon = if garrison.is_some() {
+                // A garrison has one weapon and no second choice to make.
+                weapon
+            } else {
+                target
+                    .and_then(|t| self.units.get(t))
+                    .map(|t| self.stats.get(t.owner, t.kind).layer)
+                    .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
+                    .unwrap_or(weapon)
+            };
             let firing_weapon = firing_weapon.with_range_percent(elevation);
             // Resolved here, before the mutable borrow below, for the same
             // reason `firing_weapon` is.
@@ -2308,7 +2329,7 @@ impl Sim {
                         // a damaged tank driving on is a stay, resolved a
                         // little each tick until it is whole or the money runs
                         // out.
-                        if !self.service_repair(id, target) {
+                        if !self.garrison(id, target) && !self.service_repair(id, target) {
                             self.enter_building(id, target);
                         }
                     } else if approach.destination != walk_to {
@@ -2436,6 +2457,85 @@ impl Sim {
 
         if let Some(unit) = self.units.get_mut(building) {
             unit.health = 0;
+        }
+    }
+
+    /// Infantry occupy a building and fight from inside it.
+    ///
+    /// Returns whether this pairing was a garrison at all, so the caller can
+    /// fall through to the other two things that arriving at a building can
+    /// mean.
+    ///
+    /// Only a *neutral* building can be occupied — the civilian ones scattered
+    /// across a map — and an emptied one goes back to neutral. That is what the
+    /// original does, and it is also what saves this from having to remember
+    /// who owned the building first: there is only ever one answer.
+    fn garrison(&mut self, occupant: EntityId, building: EntityId) -> bool {
+        if !self.may_garrison(occupant, building) {
+            return false;
+        }
+        let Some(owner) = self.units.get(occupant).map(|u| u.owner) else {
+            return false;
+        };
+        // The building fights for whoever is inside it. Ownership carries the
+        // vision, the targeting and the colour with it, which is why this is a
+        // transfer rather than a flag saying who to shoot for.
+        self.change_owner(building, owner);
+        self.board(occupant, building);
+        true
+    }
+
+    /// Whether this unit may occupy this building.
+    fn may_garrison(&self, occupant: EntityId, building: EntityId) -> bool {
+        let (Some(u), Some(b)) = (self.units.get(occupant), self.units.get(building)) else {
+            return false;
+        };
+        if !u.is_alive() || !b.is_alive() || u.is_aboard() {
+            return false;
+        }
+        let stats = self.stats.get(b.owner, b.kind);
+        if stats.garrison_capacity == 0 || b.cargo.len() >= stats.garrison_capacity as usize {
+            return false;
+        }
+        // Neutral, or already held by this player's own garrison. Anything else
+        // is somebody's building and is captured or shot, not moved into.
+        if !b.owner.is_neutral() && b.owner != u.owner {
+            return false;
+        }
+        // A GI or a Conscript, not a commando. Category-matched like everything
+        // else that asks "what sort of thing is this".
+        let category = &self.rules.entity(u.kind).category;
+        self.rules.entity(b.kind).traits.iter().any(|t| match t {
+            redshift_data::traits::Trait::Garrisonable { categories, .. } => {
+                categories.contains(category)
+            }
+            _ => false,
+        })
+    }
+
+    /// Throws a garrison out of a building that has been shot up badly enough.
+    ///
+    /// The rule that makes a garrisoned building worth attacking rather than
+    /// avoiding: clearing one means damaging it enough to evict, not destroying
+    /// it. Killing the occupants with the building would make a garrison a
+    /// death trap and nobody would ever use one.
+    fn evict_broken_garrisons(&mut self) {
+        let broken: Vec<(EntityId, Cell)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                if stats.garrison_capacity == 0 || u.cargo.is_empty() || !u.is_alive() {
+                    return false;
+                }
+                // Multiplied out rather than divided, so a small building with
+                // an odd maximum evicts at the same fraction as a large one.
+                u.health as u64 * 100 < stats.max_health as u64 * stats.evict_below_percent as u64
+            })
+            .map(|(id, u)| (id, u.cell()))
+            .collect();
+        for (building, at) in broken {
+            self.unload(building, at);
         }
     }
 
@@ -2693,6 +2793,19 @@ impl Sim {
             }
         }
         let _ = owner;
+
+        // An emptied garrison goes back to being nobody's. Here rather than at
+        // each call site, so an explicit "get out" order and a building shot
+        // below the eviction threshold reach the same end — a burnt-out
+        // civilian building must not keep fighting for whoever held it last.
+        //
+        // A transport has no garrison capacity, so this passes it by.
+        let emptied = self.units.get(transport).is_some_and(|t| {
+            t.cargo.is_empty() && self.stats.get(t.owner, t.kind).garrison_capacity > 0
+        });
+        if emptied {
+            self.change_owner(transport, PlayerId::NEUTRAL);
+        }
     }
 
     /// Whether a transport may take this passenger.

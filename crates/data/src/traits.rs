@@ -270,6 +270,41 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
+    /// Can be occupied by infantry, who fight from inside it.
+    ///
+    /// Researched, and more specific than "infantry can garrison buildings".
+    /// Four rules, and three of them are easy to get wrong:
+    ///
+    /// - The building fires with **its own** predetermined weapon, not the
+    ///   weapon of whoever is inside. This is the exact opposite of how an IFV
+    ///   works, and the two are easy to confuse.
+    /// - Only **basic** infantry may enter — a GI or a Conscript, not a
+    ///   commando. Hence a category list rather than "anything on foot".
+    /// - Capacity is a property of the **building**, since it follows from the
+    ///   building's size.
+    /// - The garrison is **forced out below a third health**, rather than dying
+    ///   with the building. A garrisoned building is therefore not a death
+    ///   trap, and clearing one means damaging it enough to evict rather than
+    ///   destroying it.
+    ///
+    /// Only a neutral building can be occupied, and an emptied one goes back to
+    /// being neutral. That is both what the original does — these are the
+    /// civilian buildings scattered across a map — and what saves this from
+    /// needing to remember who owned the building first.
+    Garrisonable {
+        /// How many may be inside at once.
+        capacity: u8,
+        /// Categories that may enter.
+        categories: Vec<String>,
+        /// The weapon the building fires while occupied. It has none while
+        /// empty.
+        weapon: String,
+        /// The fraction of full health below which the garrison is thrown out,
+        /// as a percentage.
+        #[serde(default = "crate::traits::a_third")]
+        evict_below_percent: u32,
+    },
+
     /// Burrows into an enemy unit and takes it apart from inside.
     ///
     /// The Terror Drone. It is not a weapon with a strange effect — the drone
@@ -389,6 +424,7 @@ impl Trait {
             Trait::Deploys { .. } => "Deploys",
             Trait::Repairs { .. } => "Repairs",
             Trait::Infests { .. } => "Infests",
+            Trait::Garrisonable { .. } => "Garrisonable",
             Trait::Selectable { .. } => "Selectable",
         }
     }
@@ -421,6 +457,7 @@ impl Trait {
                 .collect(),
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
             Trait::Infests { warhead, .. } => vec![("warhead", warhead.clone())],
+            Trait::Garrisonable { weapon, .. } => vec![("weapon", weapon.clone())],
             _ => Vec::new(),
         }
     }
@@ -466,6 +503,11 @@ impl Locomotor {
 ///
 /// Two `Health` traits is a data error, not an interesting combination, and the
 /// simulation would silently use whichever it found first.
+/// The researched eviction threshold: a third of full health.
+fn a_third() -> u32 {
+    33
+}
+
 pub const UNIQUE_TRAITS: &[&str] = &[
     "Health",
     "Mobile",
@@ -483,6 +525,7 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Cloakable",
     "Repairs",
     "Infests",
+    "Garrisonable",
     // A unit with two deployed forms would silently pick one, and which one
     // depends on trait order in a RON file — a desync in waiting.
     "Deploys",

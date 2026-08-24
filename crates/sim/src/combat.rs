@@ -465,6 +465,10 @@ pub struct CombatTable {
     /// `death_warhead`: this is where warhead names become indices, and a
     /// second index built somewhere else could quietly disagree with this one.
     infestation: Vec<Option<Infestation>>,
+    /// The weapon an occupied building fires with. Its own, not its occupants'
+    /// — the exact opposite of how a transport that changes weapon by cargo
+    /// would work, and the thing most easily got backwards.
+    garrison_weapon: Vec<Option<WeaponStats>>,
     damage: DamageTable,
 }
 
@@ -491,6 +495,8 @@ impl CombatTable {
         let mut secondary = Vec::with_capacity(rules.entity_count());
         let mut death_warhead = Vec::with_capacity(rules.entity_count());
         let mut infestation: Vec<Option<Infestation>> = Vec::with_capacity(rules.entity_count());
+        let mut garrison_weapon: Vec<Option<WeaponStats>> =
+            Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index));
             armour.push(armour_of(rules, kind, &armour_index));
@@ -513,6 +519,14 @@ impl CombatTable {
                 }),
                 _ => None,
             }));
+            garrison_weapon.push(def.traits.iter().find_map(|t| match t {
+                Trait::Garrisonable { weapon, .. } => {
+                    // No turret: a building does not traverse, it just shoots
+                    // out of whichever window faces the target.
+                    build_weapon(rules.weapon(weapon)?, false, 0, &warhead_index)
+                }
+                _ => None,
+            }));
         }
 
         CombatTable {
@@ -521,6 +535,7 @@ impl CombatTable {
             secondary,
             death_warhead,
             infestation,
+            garrison_weapon,
             damage: DamageTable::build(rules),
         }
     }
@@ -537,6 +552,11 @@ impl CombatTable {
             .get(kind.0 as usize)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// The weapon this fires while occupied, if it can be occupied at all.
+    pub fn garrison_weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
+        self.garrison_weapon.get(kind.0 as usize)?.as_ref()
     }
 
     /// What this kind does to a host it has burrowed into, if it does that.

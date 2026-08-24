@@ -101,6 +101,11 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
+    /// How many infantry may occupy this. Zero for anything that cannot be
+    /// garrisoned, which is nearly everything.
+    pub garrison_capacity: u8,
+    /// The fraction of full health below which a garrison is thrown out.
+    pub evict_below_percent: u32,
     /// Health per tick this restores to units sent into it, in hundredths.
     /// Zero for anything that is not a repair structure.
     pub repair_rate: u32,
@@ -167,6 +172,8 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
+            garrison_capacity: 0,
+            evict_below_percent: 0,
             repair_rate: 0,
             repair_cost_percent: 0,
             cures_infestation: false,
@@ -391,6 +398,14 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             // Validated at load, so a missing entity is a rules error rather
             // than a unit that silently refuses to deploy.
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),
+            Trait::Garrisonable {
+                capacity,
+                evict_below_percent,
+                ..
+            } => {
+                stats.garrison_capacity = *capacity;
+                stats.evict_below_percent = *evict_below_percent;
+            }
             Trait::Repairs {
                 rate,
                 cost_percent,

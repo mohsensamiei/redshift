@@ -162,6 +162,11 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] Garrison — infantry occupying a civilian building and fighting from
+      inside it. The building fires with **its own** weapon, not its occupants'
+      — the exact opposite of an IFV, and the thing most easily got backwards.
+      Only a neutral building can be occupied and an emptied one reverts, which
+      is both faithful and why nothing has to remember who owned it first.
 - [x] A structure that repairs what is sent into it — Service Depot, Naval
       Shipyard, Outpost. One trait with three lists of what it will service,
       billed on a running total so the price is exact whatever the step size.
@@ -173,7 +178,6 @@ and reasoning in docs/08-roster.md.
       so undeploying is deploying in the other direction. `G` in the client.
       Brought the Service Depot in with it, since the MCV needs it in the tech
       tree.
-- [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
 - [x] Multiple weapons per unit — targeting considers both, firing picks one
 - [ ] **A unit chooses between actions by what it is aimed at** — Tanya shoots
@@ -206,8 +210,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Forty capabilities
-confirmed, eighteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Forty-two capabilities
+confirmed, sixteen gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up

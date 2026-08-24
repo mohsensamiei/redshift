@@ -336,8 +336,8 @@ says whether Redshift can express the behaviour at all.
 
 | Unit | Side | Cost | Needs | What it actually does | Engine |
 |---|---|---|---|---|---|
-| GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ✅ deploy, ❌ garrison |
-| Conscript | S | 100 | — | Basic, cheap, slow. Also garrisons | ❌ garrison |
+| GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ✅ |
+| Conscript | S | 100 | — | Basic, cheap, slow. Also garrisons | ✅ garrison — one word in a category list |
 | Engineer | both | 500 | — | **Captures** enemy and neutral buildings, **repairs** friendly ones **and bridges**, **defuses bombs**, and is **consumed** | ❌ all of it |
 | Attack Dog | both | 200 | — | Kills infantry outright; **detects spies**; useless against vehicles and structures | ❌ instant kill, ❌ see through disguise |
 | Rocketeer | A | 600 | Air HQ | Jet-pack infantry: flies, hits air and ground | ❌ flying infantry |
@@ -539,7 +539,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 40 capabilities confirmed, 18 gaps.**
+**As of the last run: 42 capabilities confirmed, 16 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -590,7 +590,7 @@ Items are struck through as they close, so the history stays readable:
 
 ### Medium — real mechanics with interactions
 
-- **Garrison** — passengers firing from a building, evicted when it falls
+- ~~Garrison~~ — infantry firing from a building, thrown out when it is shot up
 - ~~Transports~~ — loading, unloading, passengers that fire
 - **A passenger that changes its carrier's weapon** — the IFV, still open
 - ~~Projectiles~~ — shots used to land instantly

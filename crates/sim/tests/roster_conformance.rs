@@ -821,7 +821,6 @@ fn an_ore_purifier_increases_the_value_of_every_load() {
 }
 
 #[test]
-#[ignore = "gap: garrison — a building fires with its own weapon, holds basic infantry only, and evicts below a third health"]
 fn a_garrisoned_building_fires_and_evicts_when_badly_damaged() {
     // Researched and more specific than expected: capacity depends on the
     // building's size, only basic infantry may enter, the building fires with a
@@ -829,8 +828,44 @@ fn a_garrisoned_building_fires_and_evicts_when_badly_damaged() {
     // forced out below 33% health rather than dying with it.
     //
     // The last rule matters: clearing a garrison means damaging it enough to
-    // evict, not destroying it.
-    panic!("structures cannot hold passengers at all");
+    // evict, not destroying it — which is what makes a garrisoned building
+    // worth attacking rather than avoiding. Exercised end to end in
+    // tests/garrison.rs.
+    let mut house = unit(
+        "house",
+        "civilian",
+        Locomotor::Foot,
+        vec![
+            Trait::Footprint {
+                width: 2,
+                height: 2,
+            },
+            Trait::Garrisonable {
+                capacity: 3,
+                categories: vec!["infantry".into()],
+                weapon: "rifle".into(),
+                evict_below_percent: 33,
+            },
+        ],
+    );
+    house.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![house], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "house", Cell::new(10, 10));
+    let kind = sim.rules().kind_of("house").unwrap();
+    let stats = sim.stats().get(PlayerId(0), kind);
+
+    assert_eq!(stats.garrison_capacity, 3, "capacity is the building's");
+    assert_eq!(stats.evict_below_percent, 33);
+    assert!(
+        sim.combat().garrison_weapon(kind).is_some(),
+        "the building has no weapon of its own to fire"
+    );
+    assert!(
+        sim.combat().weapon(kind).is_none(),
+        "an unoccupied building must have no weapon at all, or garrisoning it \
+         would change nothing"
+    );
 }
 
 #[test]
@@ -1777,9 +1812,41 @@ fn a_construction_vehicle_deploys_into_a_building() {
 }
 
 #[test]
-#[ignore = "gap: garrison — infantry cannot occupy a building and fire from it"]
 fn infantry_garrison_a_civilian_building() {
-    panic!("structures cannot hold passengers");
+    // Only a *neutral* building can be occupied, and an emptied one goes back
+    // to neutral. That is what the original does — these are the civilian
+    // buildings scattered across a map — and it is also what saves the engine
+    // from having to remember who owned the building first.
+    let mut house = unit(
+        "house",
+        "civilian",
+        Locomotor::Foot,
+        vec![Trait::Garrisonable {
+            capacity: 2,
+            categories: vec!["infantry".into()],
+            weapon: "rifle".into(),
+            evict_below_percent: 33,
+        }],
+    );
+    house.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+    let gi = unit("gi", "infantry", Locomotor::Foot, vec![]);
+    let commando = unit("commando", "commando", Locomotor::Foot, vec![]);
+
+    let rules = rules_with(vec![house, gi, commando], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "gi", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("house").unwrap();
+
+    // "Only basic infantry garrison" is one word in a category list — which is
+    // the whole of ADR 0006. A commando is refused for saying it is a commando,
+    // not for being a commando.
+    let allows = |category: &str| {
+        sim.rules().entity(kind).traits.iter().any(|t| match t {
+            Trait::Garrisonable { categories, .. } => categories.iter().any(|c| c == category),
+            _ => false,
+        })
+    };
+    assert!(allows("infantry"));
+    assert!(!allows("commando"));
 }
 
 #[test]

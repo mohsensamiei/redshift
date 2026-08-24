@@ -297,7 +297,9 @@ pub fn handle_control_groups(
     }
 }
 
-/// `S` stops the selection; `Escape` clears it.
+/// `X` stops the selection, `G` deploys it, `Escape` clears it.
+///
+/// `G` rather than `D`, which the camera already uses to pan right.
 pub fn handle_hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<Selection>,
@@ -308,6 +310,14 @@ pub fn handle_hotkeys(
     }
     if keys.just_pressed(KeyCode::KeyX) && !selection.is_empty() {
         session.issue(CommandKind::Stop {
+            units: selection.units.clone(),
+        });
+    }
+    // One key for both directions. The simulation decides which way each unit
+    // goes from what it currently is, so a mixed selection of packed and
+    // unpacked things does the sensible thing with all of them.
+    if keys.just_pressed(KeyCode::KeyG) && !selection.is_empty() {
+        session.issue(CommandKind::Deploy {
             units: selection.units.clone(),
         });
     }

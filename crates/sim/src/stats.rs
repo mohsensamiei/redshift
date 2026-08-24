@@ -101,6 +101,12 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
+    /// What this becomes when deployed, if anything.
+    ///
+    /// Resolved to a kind at load, so the simulation never looks up a name
+    /// mid-match. `None` means the deploy command does nothing to this unit,
+    /// which is most of them.
+    pub deploys_into: Option<EntityKind>,
     /// Whether this can hide from anything without a detector.
     pub cloakable: bool,
     /// Ticks after firing before the cloak returns.
@@ -154,6 +160,7 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
+            deploys_into: None,
             cloakable: false,
             recloak_delay: 0,
             detector: false,
@@ -371,6 +378,9 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             }
             Trait::Explodes { damage, .. } => stats.death_damage = *damage,
             Trait::Transport { capacity, .. } => stats.capacity = *capacity,
+            // Validated at load, so a missing entity is a rules error rather
+            // than a unit that silently refuses to deploy.
+            Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),
             Trait::BuildLimit { max } => stats.build_limit = *max,
             Trait::Bounty { credits } => stats.bounty = *credits,
             Trait::Capturable => stats.capturable = true,

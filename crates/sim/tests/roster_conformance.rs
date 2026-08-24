@@ -1668,9 +1668,56 @@ fn a_unit_can_carry_an_anti_ground_and_an_anti_air_weapon() {
 }
 
 #[test]
-#[ignore = "gap: deploy — a unit cannot become a structure or change stance"]
 fn a_construction_vehicle_deploys_into_a_building() {
-    panic!("no deploy command, and no mechanism to replace a unit with another kind");
+    // Both halves of what the original calls deploying are one mechanism here.
+    // An MCV becoming a Construction Yard is plainly a transformation; a GI
+    // "changing stance" into a static emplacement is also one, once you accept
+    // that something which cannot move and shoots differently is not the same
+    // unit with a flag set.
+    //
+    // So the deployed form is an ordinary entity, and its own `Deploys` points
+    // back. Undeploying is deploying in the other direction — no second command
+    // and no second code path. Exercised end to end in tests/deploy.rs.
+    let mcv = unit(
+        "mcv",
+        "vehicle",
+        Locomotor::Wheeled,
+        vec![Trait::Deploys {
+            into: "yard".into(),
+        }],
+    );
+    let mut yard = unit(
+        "yard",
+        "structure",
+        Locomotor::Wheeled,
+        vec![
+            Trait::Footprint {
+                width: 3,
+                height: 3,
+            },
+            Trait::Deploys { into: "mcv".into() },
+        ],
+    );
+    // What "cannot move while deployed" *is*: no Mobile trait at all, rather
+    // than a flag the movement code has to remember to check.
+    yard.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![mcv, yard], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "mcv", Cell::new(10, 10));
+    let mcv_kind = sim.rules().kind_of("mcv").unwrap();
+    let yard_kind = sim.rules().kind_of("yard").unwrap();
+
+    assert_eq!(
+        sim.stats().get(PlayerId(0), mcv_kind).deploys_into,
+        Some(yard_kind),
+        "the vehicle should know what it becomes"
+    );
+    assert_eq!(
+        sim.stats().get(PlayerId(0), yard_kind).deploys_into,
+        Some(mcv_kind),
+        "and the building should know how to pack up again"
+    );
+    assert!(!sim.stats().get(PlayerId(0), yard_kind).mobile);
 }
 
 #[test]

@@ -162,7 +162,11 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
-- [ ] Deploy — unit↔structure, and stance toggling
+- [x] Deploy — unit↔structure, and stance toggling. One mechanism, not two:
+      the deployed form is an ordinary entity whose own `Deploys` points back,
+      so undeploying is deploying in the other direction. `G` in the client.
+      Brought the Service Depot in with it, since the MCV needs it in the tech
+      tree — but only as a tech node; repairing vehicles is still a gap.
 - [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
 - [x] Multiple weapons per unit — targeting considers both, firing picks one
@@ -196,8 +200,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Thirty-eight capabilities
-confirmed, nineteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Thirty-nine capabilities
+confirmed, eighteen gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up

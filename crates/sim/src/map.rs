@@ -514,6 +514,10 @@ impl Map {
     /// a whole rather than cell by cell at placement time, so a half-placed
     /// building is not a state that can exist.
     pub fn can_place(&self, origin: Cell, width: u8, height: u8) -> bool {
+        // A foundation is level. A building straddling a cliff edge would have
+        // half of itself hanging in the air, and — more to the point — would
+        // let a player claim high ground without ever taking it.
+        let level = self.elevation(origin);
         for dy in 0..height as i32 {
             for dx in 0..width as i32 {
                 let cell = Cell::new(origin.x + dx, origin.y + dy);
@@ -530,6 +534,9 @@ impl Map {
                 }
                 // Ore under a foundation would be unreachable for good.
                 if self.has_ore(cell) {
+                    return false;
+                }
+                if self.elevation(cell) != level {
                     return false;
                 }
             }

@@ -46,6 +46,28 @@
             ],
         ),
         (
+            // How a match begins, and how a player opens a second base. It
+            // becomes the Construction Yard, and the yard becomes it back —
+            // one trait each, pointing at the other.
+            id: "mcv",
+            name_key: "unit.mcv",
+            side: "allied",
+            category: "vehicle",
+            traits: [
+                Health(max: 1000, armour: "heavy"),
+                Mobile(speed: 200, turn_rate: 50, locomotor: Wheeled),
+                Vision(range: 500),
+                Deploys(into: "construction_yard"),
+                Selectable(priority: 4),
+                Buildable(
+                    cost: 3000,
+                    build_time: 120,
+                    prerequisites: ["service_depot"],
+                    produced_by: "war_factory",
+                ),
+            ],
+        ),
+        (
             id: "harvester",
             name_key: "unit.harvester",
             side: "allied",

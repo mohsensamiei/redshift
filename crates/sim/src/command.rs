@@ -93,6 +93,12 @@ pub enum CommandKind {
     SetRally { building: EntityId, at: Cell },
     /// Demolish a structure for part of its cost back.
     Sell { building: EntityId },
+    /// Turn the listed units into their deployed form, or back out of it.
+    ///
+    /// One command for both directions, because from the player's side it is
+    /// one key. Which way it goes is a property of what the unit currently is,
+    /// not of what was asked for.
+    Deploy { units: Vec<EntityId> },
 }
 
 /// A command, tagged with its issuer and its place in the total order.
@@ -192,6 +198,14 @@ impl StateHash for Command {
                 h.write_u8(12);
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
+            }
+            CommandKind::Deploy { units } => {
+                h.write_u8(13);
+                h.write_u32(units.len() as u32);
+                for u in units {
+                    h.write_u32(u.index());
+                    h.write_u32(u.generation());
+                }
             }
             CommandKind::EnterBuilding { units, target } => {
                 h.write_u8(10);

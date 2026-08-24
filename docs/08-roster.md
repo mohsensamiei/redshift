@@ -196,14 +196,14 @@ the interesting part.
 
 | Structure | Cost | Power | Needs | Notes | Engine |
 |---|---|---|---|---|---|
-| Construction Yard | 3000 | 0 | — | Built by deploying an MCV | ❌ deploy |
+| Construction Yard | 3000 | 0 | — | Built by deploying an MCV | ✅ |
 | Tesla Reactor | 600 | **+150** | — | | ✅ |
 | Ore Refinery | 2000 | −50 | Reactor | **Comes with a free miner** | ❌ a building that spawns a unit |
 | Barracks | 500 | −10 | Reactor | | ✅ |
 | War Factory | 2000 | −25 | Refinery, Barracks | | ✅ |
 | Naval Shipyard | 1000 | −20 | Refinery | **Must be placed in water**; ships are **repaired** here | ❌ placement rule, ❌ repair |
 | Radar Tower | 1000 | −50 | Refinery | **Stops working when power is short** | ⚠️ low power slows production; it does not disable |
-| Service Depot | 800 | −20 | War Factory | Repairs vehicles; **removes a Terror Drone** | ❌ |
+| Service Depot | 800 | −20 | War Factory | Repairs vehicles; **removes a Terror Drone** | ⚠️ exists in the tech tree, because the MCV needs it; repairing is still a gap |
 | Battle Lab | 2000 | −100 | Factory, Radar | Unlocks, produces nothing | ✅ prerequisites |
 | Nuclear Reactor | 1000 | **+1000** | Battle Lab | **Explodes with fallout when destroyed** | ❌ death effect |
 | Cloning Vats | 2500 | −200 | Battle Lab | **Duplicates every infantry you train, free**; sells units for a refund; **one per player** | ❌ all three |
@@ -305,7 +305,13 @@ sounds: RA2 has **24 turret modes**, and Yuri's Revenge adds four more. An
 engineer inside turns it into a repair vehicle. So the vehicle's weapon is a
 function of its cargo, resolved at runtime.
 
-**Units that deploy** are a category rather than an exception:
+**Units that deploy** are a category rather than an exception — and, it turns
+out, not two mechanisms but one. An MCV becoming a Construction Yard is plainly
+a transformation; a GI "changing stance" is also one, once you accept that
+something which cannot move and shoots differently is not the same unit with a
+flag set. So the deployed form is an ordinary entity whose own `Deploys` points
+back, and undeploying is deploying in the other direction. Every row below
+comes out of that one trait:
 
 | Unit | Deployed form |
 |---|---|
@@ -330,7 +336,7 @@ says whether Redshift can express the behaviour at all.
 
 | Unit | Side | Cost | Needs | What it actually does | Engine |
 |---|---|---|---|---|---|
-| GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ❌ deploy, ❌ garrison |
+| GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ✅ deploy, ❌ garrison |
 | Conscript | S | 100 | — | Basic, cheap, slow. Also garrisons | ❌ garrison |
 | Engineer | both | 500 | — | **Captures** enemy and neutral buildings, **repairs** friendly ones **and bridges**, **defuses bombs**, and is **consumed** | ❌ all of it |
 | Attack Dog | both | 200 | — | Kills infantry outright; **detects spies**; useless against vehicles and structures | ❌ instant kill, ❌ see through disguise |
@@ -343,7 +349,7 @@ says whether Redshift can express the behaviour at all.
 | Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ❌ crush immunity, ❌ charging a structure |
 | Flak Trooper | S | 300 | Radar | Anti-air and anti-vehicle, **splash** | ✅ since air targeting landed |
 | Terrorist | Cuba | 200 | Radar | Suicide explosion with splash | ❌ |
-| Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ❌ deploy, ❌ terrain-altering effect |
+| Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ✅ deploy, ❌ terrain-altering effect |
 | Crazy Ivan | S | 600 | Radar | **Places dynamite** on structures, units **and bridges** | ❌ |
 | Yuri / Psi-Corps | S | 1200 | Battle Lab | **Mind control**; a psychic blast that kills surrounding infantry | ❌ |
 | Chrono Commando | A | 2000 | Spy in Allied lab | SEAL plus teleport. **Cannot swim** | ❌ |
@@ -370,7 +376,7 @@ says whether Redshift can express the behaviour at all.
 | Battle Fortress | A | — | Battle Lab | Five passengers **firing from inside**; crushes even things normally uncrushable | ❌ |
 | Robot Tank | A | — | Battle Lab | **Hovers**, so crosses water; **immune to mind control** — no driver | ✅ hover, ❌ immunity |
 | Apocalypse | S | 1750 | Battle Lab | **Twin cannon vs ground and twin missiles vs air**; slow | ❌ two weapons |
-| MCV | both | 3000 | Service Depot | **Becomes a Construction Yard**, and back | ❌ deploy |
+| MCV | both | 3000 | Service Depot | **Becomes a Construction Yard**, and back | ✅ |
 | Siege Chopper | S | — | — | Flies, **lands and becomes artillery** | ❌ |
 | Grand Cannon | France | — | — | Fixed, very long range | ✅ armed structure |
 
@@ -533,7 +539,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 38 capabilities confirmed, 19 gaps.**
+**As of the last run: 39 capabilities confirmed, 18 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -557,60 +563,66 @@ Confirmed working, exercised end to end rather than asserted:
 
 ## 10. What the engine cannot do
 
-Consolidated from everything above, ordered by how much each represents.
+Grouped by how much each represents. **Unnumbered on purpose**: this list used
+to be numbered, and closing items left holes in the sequence that the prose
+around it then referred to wrongly — the same drift that section 9 exists to
+stop. The count and the reasons live in the audit; this is only the shape.
+
+Items are struck through as they close, so the history stays readable:
 
 ### Small — a trait and a rule each
 
-1. **Capture** — `Capturable` exists, unread
-2. **Repair** — a structure that heals what comes to it
-3. **Consumed on use** — the engineer disappearing
-4. **Walls** — one-cell structures that connect
-5. **Map reveal** — a one-off effect on the visibility layers
-6. **Economy modifiers on a structure**
-7. **A neutral player** — owns things, commands nothing, hostile to nobody
-8. **Instant-kill weapons** — sniper, attack dog
-9. **Placement rules per structure** — must touch water
+- ~~Capture~~ — `Capturable` exists, unread
+- ~~Repair~~ — a structure that heals what comes to it
+- ~~Consumed on use~~ — the engineer disappearing
+- ~~Walls~~ — one-cell structures that connect
+- ~~Map reveal~~ — a one-off effect on the visibility layers
+- ~~Economy modifiers on a structure~~
+- ~~A neutral player~~ — owns things, commands nothing, hostile to nobody
+- ~~Instant-kill weapons~~ — sniper, attack dog
+- **Placement rules per structure** — must touch water
+- ~~Deploy~~, both kinds: unit↔structure, and stance toggling. They turned out
+  to be one mechanism, not two
 
 ### Medium — real mechanics with interactions
 
-10. **Deploy**, both kinds: unit↔structure, and stance toggling
-11. **Garrison** — passengers firing from a building, evicted when it falls
-12. **Transports** — loading, unloading, passengers that fire or change the weapon
-13. **Projectiles** — shots currently land instantly
-14. **Air targeting** — nothing distinguishes an air target from a ground one
-15. **Multiple weapons per unit** — anti-ground and anti-air on one chassis
-16. **Placed charges** — armed now, detonating later
-17. **Temporary status effects** — invulnerable, irradiated, disabled
-18. **Wandering civilians** — autonomous, purposeless movement
+- **Garrison** — passengers firing from a building, evicted when it falls
+- ~~Transports~~ — loading, unloading, passengers that fire
+- **A passenger that changes its carrier's weapon** — the IFV, still open
+- ~~Projectiles~~ — shots used to land instantly
+- ~~Air targeting~~ — nothing used to distinguish an air target from a ground one
+- ~~Multiple weapons per unit~~ — anti-ground and anti-air on one chassis
+- **Placed charges** — armed now, detonating later
+- **Temporary status effects** — invulnerable, irradiated, disabled
+- **Wandering civilians** — autonomous, purposeless movement
 
 ### Large — each is a subsystem
 
-20. **Aircraft** — basing, rearming, a separate movement model
-21. **Naval** — shoreline transports, water as a surface
-22. **Superweapons and powers** — timers, targeting modes, novel effects
-23. **Mind control** — changing a unit's owner mid-match
-24. **Teleportation** — movement without a path
-25. **Disguise** — appearing as something else to one side only
-26. **Bridges** — destructible terrain that changes connectivity
-
----
+- ~~Elevation~~ — real height, ramps, and its effect on sight and combat
+- **Aircraft** — basing, rearming, a separate movement model
+- **Naval** — shoreline transports, water as a surface
+- **Superweapons and powers** — timers, targeting modes, novel effects
+- **Mind control** — changing a unit's owner mid-match
+- **Teleportation** — movement without a path
+- **Disguise** — appearing as something else to one side only
+- **Bridges** — destructible terrain that changes connectivity
 
 ## 11. What follows
 
 **The Phase 3 exit criteria are wrong.** They say a 1v1 skirmish is playable,
-which is nearly true, and say nothing about the roster being expressible. Items
-1–18 are engine capability rather than content, which makes them Phase 3 work by
-any reasonable reading, and none of them are in the plan.
+which is nearly true, and say nothing about the roster being expressible. The
+small and medium items above are engine capability rather than content, which
+makes them Phase 3 work by any reasonable reading, and none of them were in the
+plan.
 
-**Two items are foundational and should come first.** Shots land instantly and
-nothing distinguishes an air target from a ground one. Everything built on top
-of the current combat model has to be revisited when those change, so the longer
-they wait the more expensive they get.
+**The two foundational ones are done.** Shots used to land instantly and nothing
+distinguished an air target from a ground one; everything built on the combat
+model would have had to be revisited when those changed, which is why they went
+first. Elevation went next for the same reason — it changes the map format that
+everything else is built on.
 
-**Items 20–26 need a decision, not a schedule.** Some may be Phase 5 work done
-alongside the units that need them. Elevation was the one that could not wait,
-because it changes the map format that everything else is built on — so it is
-done, and the map now carries a height per cell.
+**The large items need a decision, not a schedule.** Some may be Phase 5 work
+done alongside the units that need them.
 
 **And this document needs verifying.** It is a memory dump. Its value is in
 having something concrete to check the engine against, and getting it wrong

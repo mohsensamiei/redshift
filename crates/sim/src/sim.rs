@@ -1831,6 +1831,13 @@ impl Sim {
                 CommandKind::Sell { building } => {
                     self.sell(command.player, *building);
                 }
+                CommandKind::Deploy { units } => {
+                    for &id in units {
+                        if self.owned_by(id, command.player) {
+                            self.deploy(id);
+                        }
+                    }
+                }
                 CommandKind::EnterBuilding { units, target } => {
                     for &id in units {
                         if !self.owned_by(id, command.player) {
@@ -2134,6 +2141,85 @@ impl Sim {
                 Order::AttackMove(_) | Order::Move(_) | Order::Idle => {}
             }
         }
+    }
+
+    /// Turns a unit into its deployed form, or back out of it.
+    ///
+    /// One direction, not two. The deployed form is an ordinary entity in the
+    /// rules whose own `Deploys` points back at the mobile one, so undeploying
+    /// is this same function run again. Nothing here knows what an MCV is.
+    ///
+    /// The unit keeps its `EntityId`. Removing it and inserting a replacement
+    /// would have been simpler to write and wrong in three visible ways: the
+    /// player's selection would empty the instant they deployed, shots already
+    /// in flight would lose their target, and a transport holding the unit
+    /// would be left with a dangling reference. Deploying is a change of form,
+    /// not a death and a birth, and the identity should say so.
+    ///
+    /// Returns whether anything happened, so a caller can tell a refusal from a
+    /// success. Refusals are quiet by design: a player who presses deploy with
+    /// a mixed group selected means it for the units that can.
+    fn deploy(&mut self, id: EntityId) -> bool {
+        let Some(unit) = self.units.get(id) else {
+            return false;
+        };
+        if !unit.is_alive() || unit.is_aboard() {
+            return false;
+        }
+        let (owner, from_kind, centre) = (unit.owner, unit.kind, unit.cell());
+        let from = self.stats.get(owner, from_kind);
+        let Some(to_kind) = from.deploys_into else {
+            return false;
+        };
+        let to = self.stats.get(owner, to_kind);
+
+        // The deployed form is usually larger than the unit — a Construction
+        // Yard where an MCV stood. Its ground has to be clear, and the unit's
+        // own footprint must not count against it, so the old claim is dropped
+        // before the new one is tested.
+        claim_footprint(&mut self.map, centre, from.footprint, false);
+        let origin = footprint_origin(centre, to.footprint);
+        let fits = self.map.can_place(origin, to.footprint.0, to.footprint.1);
+        if !fits {
+            claim_footprint(&mut self.map, centre, from.footprint, true);
+            return false;
+        }
+
+        // Deliberately *not* checked against the build radius. An MCV deploying
+        // is how a player gets their first building and how they expand to a
+        // second base; requiring an existing structure nearby would make the
+        // first one impossible.
+        claim_footprint(&mut self.map, centre, to.footprint, true);
+
+        let Some(unit) = self.units.get_mut(id) else {
+            return false;
+        };
+        // Health carries across as a fraction rather than a number. The two
+        // forms rarely have the same maximum — a Construction Yard is far
+        // tougher than the MCV that became it — so copying the raw value would
+        // either heal a damaged unit for free or leave a full-health one
+        // apparently wounded.
+        //
+        // Rounded up, so a unit clinging to one point of health survives
+        // deploying. Rounding down could kill it, which is a strange thing for
+        // a player's own command to do.
+        let fraction = (unit.health as u64 * to.max_health as u64)
+            .div_ceil((from.max_health as u64).max(1)) as u32;
+        unit.health = fraction.clamp(1, to.max_health);
+        unit.kind = to_kind;
+
+        // State that belonged to the old form and means nothing in the new one.
+        // Left behind, a harvest cycle or a half-finished build queue would
+        // keep running against stats that no longer describe it.
+        unit.order = Order::Idle;
+        unit.harvest = to.harvest_capacity.is_some().then(Default::default);
+        unit.production = None;
+        unit.rally = None;
+        unit.combat = crate::combat::CombatState::default();
+        // Kills are the unit's own record and survive: a veteran MCV that
+        // deploys should still be a veteran when it undeploys. Everything above
+        // is machinery; this is history.
+        true
     }
 
     /// Demolishes a structure for part of its cost back.

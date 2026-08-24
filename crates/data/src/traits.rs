@@ -270,6 +270,28 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
+    /// Becomes something else on command.
+    ///
+    /// One trait covers both halves of what the original calls deploying,
+    /// because they are the same act seen from two distances. An MCV becomes a
+    /// Construction Yard — plainly a different thing. A GI "changes stance"
+    /// into a static emplacement with a better gun — and *that* is also a
+    /// different thing, once you accept that a unit which cannot move and
+    /// shoots differently is not the same unit with a flag set.
+    ///
+    /// Modelling the deployed form as its own entity is what makes this cost
+    /// one mechanism instead of two. The deployed form is an ordinary entry in
+    /// the rules: it simply has no [`Trait::Mobile`], a stronger
+    /// [`Trait::Armed`], and its own `Deploys` pointing back at the mobile
+    /// form. Undeploying is deploying in the other direction.
+    ///
+    /// It also means a stance is expressible entirely in data, which is the
+    /// whole of ADR 0006. Nothing in the simulation knows what an MCV is.
+    Deploys {
+        /// The entity id to become.
+        into: String,
+    },
+
     /// Selectable by the player. Priority breaks ties when units overlap —
     /// clicking a crowd should pick the thing the player meant.
     Selectable { priority: u8 },
@@ -305,6 +327,7 @@ impl Trait {
             Trait::Engineer { .. } => "Engineer",
             Trait::Transport { .. } => "Transport",
             Trait::Veterancy { .. } => "Veterancy",
+            Trait::Deploys { .. } => "Deploys",
             Trait::Selectable { .. } => "Selectable",
         }
     }
@@ -335,6 +358,7 @@ impl Trait {
                 .iter()
                 .map(|a| ("transportable", a.clone()))
                 .collect(),
+            Trait::Deploys { into } => vec![("deployed form", into.clone())],
             _ => Vec::new(),
         }
     }
@@ -395,6 +419,9 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Veterancy",
     "Selectable",
     "Cloakable",
+    // A unit with two deployed forms would silently pick one, and which one
+    // depends on trait order in a RON file — a desync in waiting.
+    "Deploys",
 ];
 
 #[cfg(test)]

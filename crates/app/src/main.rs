@@ -203,6 +203,7 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
     let harvester = kind("harvester");
     let refinery = kind("refinery");
     let construction_yard = kind("construction_yard");
+    let mcv = kind("mcv");
 
     let mut spawns = Vec::new();
     // Close enough that a demo run reaches contact, far enough that the walk
@@ -246,6 +247,14 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
                 pos: Cell::new(base_x - dx * 4, base_y - dy * (5 + i)).centre(),
             });
         }
+        // A spare MCV, so deploying is something the demo can actually be used
+        // to try. Parked clear of the base: it needs three by three of empty
+        // ground to unpack into.
+        spawns.push(Spawn {
+            owner,
+            kind: mcv,
+            pos: Cell::new(base_x - dx * 9, base_y - dy * 11).centre(),
+        });
     }
 
     MatchSetup {
@@ -274,8 +283,16 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
 fn skirmish_map() -> Map {
     let mut map = Map::new(48, 48);
 
-    map.fill_rect(Cell::new(16, 0), Cell::new(16, 30), Terrain::Rock);
-    map.fill_rect(Cell::new(32, 18), Cell::new(32, 47), Terrain::Rock);
+    // The two dividing walls are high ground rather than rock, now that the map
+    // can tell the difference. Same barrier, but a plateau a player can fight
+    // for instead of a wall they can only walk around — three cells wide, so
+    // there is somewhere to stand on top.
+    map.raise_rect(Cell::new(15, 0), Cell::new(17, 30), 2);
+    map.raise_rect(Cell::new(31, 18), Cell::new(33, 47), 2);
+    // A ramp into each, so the high ground is worth contesting rather than
+    // merely being in the way. One level of step is walkable.
+    map.raise_rect(Cell::new(15, 12), Cell::new(17, 13), 1);
+    map.raise_rect(Cell::new(31, 30), Cell::new(33, 31), 1);
 
     // Water is impassable to everything on the ground, and a clear visual break.
     map.fill_rect(Cell::new(4, 38), Cell::new(14, 41), Terrain::Water);

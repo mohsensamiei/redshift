@@ -16,6 +16,9 @@
                 Produces(categories: ["structure"]),
                 Capturable,
                 Selectable(priority: 5),
+                // Packs back up into the vehicle it came from. The pair is
+                // symmetric on purpose: one command, whichever way it goes.
+                Deploys(into: "mcv"),
             ],
         ),
         (
@@ -125,6 +128,30 @@
                     cost: 2000,
                     build_time: 70,
                     prerequisites: ["refinery"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
+            // Present because the MCV needs it in the tech tree. What it is
+            // *for* — repairing vehicles that drive onto it, and shaking off a
+            // Terror Drone — is still a gap, tracked in the conformance audit.
+            // Costs and power draw are the researched figures.
+            id: "service_depot",
+            name_key: "building.service_depot",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 1000, armour: "concrete"),
+                Footprint(width: 3, height: 3),
+                Vision(range: 350),
+                PowerDraw(amount: 20, works_unpowered: true),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 800,
+                    build_time: 30,
+                    prerequisites: ["war_factory"],
                     produced_by: "construction_yard",
                 ),
             ],

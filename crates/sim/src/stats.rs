@@ -101,6 +101,13 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
+    /// Health per tick this restores to units sent into it, in hundredths.
+    /// Zero for anything that is not a repair structure.
+    pub repair_rate: u32,
+    /// What a full repair here costs, as a percentage of the unit's build cost.
+    pub repair_cost_percent: u32,
+    /// Whether arriving here removes an infestation.
+    pub cures_infestation: bool,
     /// What this becomes when deployed, if anything.
     ///
     /// Resolved to a kind at load, so the simulation never looks up a name
@@ -160,6 +167,9 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
+            repair_rate: 0,
+            repair_cost_percent: 0,
+            cures_infestation: false,
             deploys_into: None,
             cloakable: false,
             recloak_delay: 0,
@@ -381,6 +391,16 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             // Validated at load, so a missing entity is a rules error rather
             // than a unit that silently refuses to deploy.
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),
+            Trait::Repairs {
+                rate,
+                cost_percent,
+                cures_infestation,
+                ..
+            } => {
+                stats.repair_rate = *rate;
+                stats.repair_cost_percent = *cost_percent;
+                stats.cures_infestation = *cures_infestation;
+            }
             Trait::BuildLimit { max } => stats.build_limit = *max,
             Trait::Bounty { credits } => stats.bounty = *credits,
             Trait::Capturable => stats.capturable = true,

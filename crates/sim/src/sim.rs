@@ -250,6 +250,12 @@ pub fn footprint_origin(centre: Cell, footprint: (u8, u8)) -> Cell {
     )
 }
 
+/// How far around a building to look for somewhere to stand while entering it.
+///
+/// Wider than the largest footprint's half-width, so a unit can always find the
+/// edge of the building it was sent to.
+const ENTRY_SEARCH_RADIUS: i32 = 4;
+
 /// How far from a factory a new unit will look for somewhere to stand.
 const EXIT_SEARCH_RADIUS: i32 = 5;
 
@@ -481,8 +487,12 @@ impl Sim {
         self.intercept_projectiles();
         let landed = self.advance_projectiles();
         let hits = self.acquire_and_fire();
+        // Parasites bite through the ordinary damage path, so armour still
+        // means something and the kill is credited to the drone like any other.
+        let bites = self.run_infestations();
         self.resolve_damage(&landed);
         self.resolve_damage(&hits);
+        self.resolve_damage(&bites);
         self.crush_underfoot();
         self.regenerate();
         let blasts = self.detonate_the_dying();
@@ -547,6 +557,103 @@ impl Sim {
             if let Some(unit) = self.units.get_mut(id) {
                 unit.health = 0;
             }
+        }
+    }
+
+    /// One tick of every parasite eating its host.
+    ///
+    /// Returns hits rather than applying them, like every other source of
+    /// damage, so a host killed by a drone dies through the same path as one
+    /// killed by a tank — bounty, veterancy credit, death explosion and all.
+    fn run_infestations(&mut self) -> Vec<PendingHit> {
+        let mut bites = Vec::new();
+        for (host_id, host) in self.units.iter() {
+            let Some(parasite_id) = host.infestation else {
+                continue;
+            };
+            // The parasite may have been killed by something that reached
+            // inside — a cure, or its owner losing the match. A host still
+            // pointing at a dead one would be eaten by a ghost.
+            let Some(parasite) = self.units.get(parasite_id) else {
+                continue;
+            };
+            if !parasite.is_alive() || !host.is_alive() {
+                continue;
+            }
+            let Some(bite) = self.combat.infestation(parasite.kind) else {
+                continue;
+            };
+            bites.push(PendingHit {
+                attacker: parasite_id,
+                instant_kill: false,
+                target: host_id,
+                damage: bite.damage,
+                warhead: bite.warhead,
+                splash_radius: Fx::ZERO,
+                at: host.pos,
+            });
+        }
+        bites
+    }
+
+    /// Whether a parasite can get inside this target.
+    ///
+    /// Category-matched like production and repair. A drone that cannot get
+    /// into a thing still has its ordinary weapon for it, which is how the
+    /// original's behaves like an attack dog against infantry and like
+    /// something else entirely against a tank.
+    fn may_infest(&self, parasite: EntityId, host: EntityId) -> bool {
+        let (Some(p), Some(h)) = (self.units.get(parasite), self.units.get(host)) else {
+            return false;
+        };
+        if !p.is_alive() || !h.is_alive() || p.is_aboard() || Self::are_allied(p.owner, h.owner) {
+            return false;
+        }
+        // One at a time. A second drone piling into an occupied tank would
+        // overwrite the first, quietly deleting a unit from the match.
+        if h.infestation.is_some() {
+            return false;
+        }
+        let host_category = &self.rules.entity(h.kind).category;
+        self.rules.entity(p.kind).traits.iter().any(|t| match t {
+            redshift_data::traits::Trait::Infests { categories, .. } => {
+                categories.contains(host_category)
+            }
+            _ => false,
+        })
+    }
+
+    /// A parasite gets inside its host.
+    fn infest(&mut self, parasite: EntityId, host: EntityId) {
+        if let Some(p) = self.units.get_mut(parasite) {
+            // `carrier` is what takes it off the field: `is_aboard` already
+            // means "not here to be shot at", which is exactly the state a
+            // burrowed drone is in and the reason the counter has to be a
+            // building rather than a gun.
+            p.carrier = Some(host);
+            p.order = Order::Idle;
+            p.combat.target = None;
+        }
+        if let Some(h) = self.units.get_mut(host) {
+            h.infestation = Some(parasite);
+        }
+    }
+
+    /// Removes whatever has burrowed into a unit, killing it.
+    ///
+    /// The Service Depot's second job. Not an eviction — the drone does not get
+    /// to crawl out and try again, or a player could farm one drone across a
+    /// whole armoured column.
+    fn cure_infestation(&mut self, host: EntityId) {
+        let Some(parasite) = self.units.get(host).and_then(|h| h.infestation) else {
+            return;
+        };
+        if let Some(p) = self.units.get_mut(parasite) {
+            p.carrier = None;
+            p.health = 0;
+        }
+        if let Some(h) = self.units.get_mut(host) {
+            h.infestation = None;
         }
     }
 
@@ -958,6 +1065,25 @@ impl Sim {
         }
     }
 
+    /// Where a unit should walk to in order to reach a building.
+    ///
+    /// Beside it, not on it. A building's footprint blocks its own cells, so
+    /// aiming at its centre asks pathfinding for a route that genuinely does
+    /// not exist — and the honest "no route" answer looks, from the outside,
+    /// exactly like the order being ignored.
+    ///
+    /// A single-cell building needs no adjustment, which is why this went
+    /// unnoticed: every test that entered a building used one.
+    fn approach_cell(&self, unit: EntityId, building: EntityId) -> Option<Cell> {
+        let (u, b) = (self.units.get(unit)?, self.units.get(building)?);
+        let centre = b.cell();
+        let movement = self.stats.get(u.owner, u.kind).movement;
+        if self.map.is_passable(centre, movement) {
+            return Some(centre);
+        }
+        self.free_cell_near(centre, movement, ENTRY_SEARCH_RADIUS)
+    }
+
     /// The nearest cell to `origin` that `locomotor` can stand on.
     ///
     /// Needed because a building's own cells are impassable once it occupies
@@ -1346,6 +1472,7 @@ impl Sim {
     fn acquire_and_fire(&mut self) -> Vec<PendingHit> {
         let mut hits = Vec::new();
         let mut launched: Vec<Projectile> = Vec::new();
+        let mut burrows: Vec<(EntityId, EntityId)> = Vec::new();
 
         // A snapshot for targeting, so every attacker sees the same world.
         // Cloning the arena each tick would be wasteful; the targeting pass
@@ -1475,6 +1602,9 @@ impl Sim {
                 .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
                 .unwrap_or(weapon);
             let firing_weapon = firing_weapon.with_range_percent(elevation);
+            // Resolved here, before the mutable borrow below, for the same
+            // reason `firing_weapon` is.
+            let can_burrow = target.is_some_and(|t| self.may_infest(attacker, t));
 
             let Some(unit) = self.units.get_mut(attacker) else {
                 continue;
@@ -1517,6 +1647,18 @@ impl Sim {
             }
 
             let Some(target) = target else { continue };
+            // A parasite that has closed on something it can get inside gets
+            // inside it instead of shooting it. Triggered at weapon range
+            // rather than at a special burrowing distance, so the drone's own
+            // short reach is what makes it run up to a tank — a number in the
+            // rules, not a movement rule in here.
+            //
+            // Collected and applied after the loop, like damage, so every unit
+            // this tick chooses against the same world.
+            if can_burrow {
+                burrows.push((attacker, target));
+                continue;
+            }
             let owner = unit.owner;
             let firing_from = unit.pos;
             unit.combat.reload_remaining = firing_weapon.reload;
@@ -1557,6 +1699,14 @@ impl Sim {
             }
         }
         self.projectiles.extend(launched);
+        for (parasite, host) in burrows {
+            // Re-checked, because an earlier burrow this tick may have taken
+            // the host: two drones reaching the same tank on the same tick must
+            // not both get in, and the loop above could not have known.
+            if self.may_infest(parasite, host) {
+                self.infest(parasite, host);
+            }
+        }
         hits
     }
 
@@ -1762,6 +1912,24 @@ impl Sim {
             }
         }
 
+        // A parasite outlives its host and crawls back out where the host
+        // died. It killed something and should get to do it again — that is
+        // what makes one drone worth spending, and what makes the depot worth
+        // building. Killing it with the wreck would quietly make the drone a
+        // one-shot weapon.
+        let freed: Vec<(EntityId, WorldPos)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter_map(|(_, u)| u.infestation.map(|p| (p, u.pos)))
+            .collect();
+        for (parasite, at) in freed {
+            if let Some(p) = self.units.get_mut(parasite) {
+                p.carrier = None;
+                p.pos = at;
+            }
+        }
+
         self.units.retain(|_, unit| unit.is_alive());
     }
 
@@ -1854,7 +2022,7 @@ impl Sim {
                         if !visible {
                             continue;
                         }
-                        let Some(cell) = self.units.get(*target).map(|b| b.cell()) else {
+                        let Some(cell) = self.approach_cell(id, *target) else {
                             continue;
                         };
                         if let Some(unit) = self.units.get_mut(id) {
@@ -2123,14 +2291,31 @@ impl Sim {
                     let Some(target_cell) = building.map(|b| b.cell()) else {
                         continue;
                     };
+                    // Where to *walk*, which is not where the building is. A
+                    // building's own cells are impassable once it occupies
+                    // them, so a route to its centre correctly does not exist
+                    // and the unit gives up on the spot. Invisible until now
+                    // only because no test had given a building a footprint.
+                    let Some(walk_to) = self.approach_cell(id, target) else {
+                        continue;
+                    };
 
                     if unit.cell().chebyshev_to(target_cell) <= ENTRY_RANGE {
-                        self.enter_building(id, target);
-                    } else if approach.destination != target_cell {
+                        // Two quite different things share the arrival, because
+                        // from the player's side they share a gesture: select
+                        // something, right-click a friendly building. An
+                        // engineer walking in is one act that resolves at once;
+                        // a damaged tank driving on is a stay, resolved a
+                        // little each tick until it is whole or the money runs
+                        // out.
+                        if !self.service_repair(id, target) {
+                            self.enter_building(id, target);
+                        }
+                    } else if approach.destination != walk_to {
                         if let Some(unit) = self.units.get_mut(id)
                             && let Order::Enter { approach, .. } = &mut unit.order
                         {
-                            *approach = Travel::to(target_cell, DEFAULT_NODE_BUDGET);
+                            *approach = Travel::to(walk_to, DEFAULT_NODE_BUDGET);
                         }
                         if !self.path_queue.contains(&id) {
                             self.path_queue.push(id);
@@ -2252,6 +2437,114 @@ impl Sim {
         if let Some(unit) = self.units.get_mut(building) {
             unit.health = 0;
         }
+    }
+
+    /// One tick of repair for a unit sitting on a repair structure.
+    ///
+    /// Returns whether this pairing is a repair at all, so the caller can fall
+    /// through to the engineer's very different behaviour. A structure that
+    /// repairs nothing, or a unit of a category it does not service, is simply
+    /// not this — and an engineer sent to a Service Depot should still capture
+    /// or repair it rather than be serviced by it.
+    ///
+    /// Deliberately incremental. The original does not restore a tank the
+    /// instant it touches the depot; it pulls the unit out of the fight for a
+    /// while and charges for the privilege, and both halves of that are what
+    /// makes it a decision.
+    fn service_repair(&mut self, unit_id: EntityId, depot: EntityId) -> bool {
+        let (Some(unit), Some(building)) = (self.units.get(unit_id), self.units.get(depot)) else {
+            return false;
+        };
+        let owner = unit.owner;
+        // Only your own. Driving a damaged tank into an enemy depot to be
+        // patched up would be a strange thing for the enemy to allow.
+        if building.owner != owner || !building.is_alive() {
+            return false;
+        }
+        let depot_stats = self.stats.get(building.owner, building.kind);
+        if depot_stats.repair_rate == 0 || !self.services(building.kind, unit.kind) {
+            return false;
+        }
+        // A depot with no power does no work, like every other structure that
+        // draws from the grid.
+        if self.is_unpowered(building) {
+            return true;
+        }
+
+        let stats = self.stats.get(owner, unit.kind);
+        let health = unit.health;
+
+        // The depot's other job, and the one that makes a Terror Drone a
+        // problem to be solved rather than a sentence. Done on arrival rather
+        // than over time, and before the health check: a unit at full health
+        // with a drone in it still has a reason to be here.
+        if depot_stats.cures_infestation {
+            self.cure_infestation(unit_id);
+        }
+
+        if health >= stats.max_health {
+            // Whole, and free to go. Left on an Enter order it would sit on the
+            // depot forever, blocking the next customer.
+            if let Some(unit) = self.units.get_mut(unit_id) {
+                unit.order = Order::Idle;
+            }
+            return true;
+        }
+
+        // Charged in proportion to the damage actually undone, so a scratch
+        // costs a little and a wreck costs a lot. The alternative — a flat fee
+        // on arrival — would make it cheaper to let a unit die and rebuild it.
+        let missing = stats.max_health - health;
+        let step = depot_stats.repair_rate.min(missing);
+
+        // Billed on the running total rather than per step. Pricing each step
+        // on its own needs a rounding decision, and either answer is wrong:
+        // rounding down makes a slow depot free, and rounding up overcharged by
+        // a fifth here — a tank advertised at 200 credits to restore actually
+        // cost 264, because three-credit steps were being taken to undo two and
+        // a half credits of damage.
+        //
+        // The difference between two cumulative figures has no such drift. The
+        // total is exact whatever the step size, and no accumulator has to be
+        // carried on the unit.
+        let owed = |health: u32| -> u32 {
+            if depot_stats.repair_cost_percent == 0 || stats.max_health == 0 {
+                return 0;
+            }
+            let undone = stats.max_health.saturating_sub(health) as u64;
+            (stats.cost as u64 * depot_stats.repair_cost_percent as u64 * undone
+                / (100 * stats.max_health as u64)) as u32
+        };
+        let price = owed(health).saturating_sub(owed(health + step));
+        if price > 0 && !self.treasury.try_spend(owner, price) {
+            // Broke. The unit waits rather than leaving: a player who is about
+            // to sell something should not have to re-issue the order.
+            return true;
+        }
+
+        if let Some(unit) = self.units.get_mut(unit_id) {
+            unit.health = (unit.health + step).min(stats.max_health);
+        }
+        true
+    }
+
+    /// Whether a repair structure services a unit's category.
+    ///
+    /// Matched the same way production is: on the serviced thing's *category*
+    /// against the structure's declared list. A Naval Shipyard is a Service
+    /// Depot that says "ship" instead of "vehicle" — no code between them.
+    fn services(&self, depot_kind: EntityKind, kind: EntityKind) -> bool {
+        let serviced = &self.rules.entity(kind).category;
+        self.rules
+            .entity(depot_kind)
+            .traits
+            .iter()
+            .any(|t| match t {
+                redshift_data::traits::Trait::Repairs { categories, .. } => {
+                    categories.contains(serviced)
+                }
+                _ => false,
+            })
     }
 
     /// An engineer enters a building.

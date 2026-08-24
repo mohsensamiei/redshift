@@ -133,10 +133,8 @@
             ],
         ),
         (
-            // Present because the MCV needs it in the tech tree. What it is
-            // *for* — repairing vehicles that drive onto it, and shaking off a
-            // Terror Drone — is still a gap, tracked in the conformance audit.
-            // Costs and power draw are the researched figures.
+            // Costs and power draw are the researched figures. The repair
+            // rate and the price of a repair are not — see TODO.md.
             id: "service_depot",
             name_key: "building.service_depot",
             side: "allied",
@@ -145,7 +143,13 @@
                 Health(max: 1000, armour: "concrete"),
                 Footprint(width: 3, height: 3),
                 Vision(range: 350),
-                PowerDraw(amount: 20, works_unpowered: true),
+                PowerDraw(amount: 20, works_unpowered: false),
+                Repairs(
+                    categories: ["vehicle"],
+                    rate: 5,
+                    cost_percent: 20,
+                    cures_infestation: true,
+                ),
                 Capturable,
                 Selectable(priority: 5),
                 Buildable(

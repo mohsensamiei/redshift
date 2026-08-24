@@ -114,7 +114,7 @@ flag, captured by walking an engineer in.
 | **Oil Derrick** | **$1000 immediately, then $20 per second** for as long as it is held | RA2 |
 | **Hospital** | Heals infantry the owner **orders to enter it** | RA2 |
 | **Airport** | Grants the **paradrop** support power | RA2 |
-| **Outpost** | **Repairs vehicles ordered into it**, and is armed with a modified Patriot launcher that hits **ground and air** | RA2 |
+| **Outpost** | **Repairs vehicles ordered into it** ✅, and is armed with a modified Patriot launcher that hits **ground and air** | RA2 |
 | **Machine Shop** | All your vehicles self-repair, anywhere on the map | YR |
 | **Power Plant** | +200 power | YR |
 | **Hospital** (YR) | All your infantry self-heal anywhere, rather than having to enter | YR |
@@ -201,9 +201,9 @@ the interesting part.
 | Ore Refinery | 2000 | −50 | Reactor | **Comes with a free miner** | ❌ a building that spawns a unit |
 | Barracks | 500 | −10 | Reactor | | ✅ |
 | War Factory | 2000 | −25 | Refinery, Barracks | | ✅ |
-| Naval Shipyard | 1000 | −20 | Refinery | **Must be placed in water**; ships are **repaired** here | ❌ placement rule, ❌ repair |
+| Naval Shipyard | 1000 | −20 | Refinery | **Must be placed in water**; ships are **repaired** here | ❌ placement rule, ✅ repair — the same trait as the depot, saying "ship" |
 | Radar Tower | 1000 | −50 | Refinery | **Stops working when power is short** | ⚠️ low power slows production; it does not disable |
-| Service Depot | 800 | −20 | War Factory | Repairs vehicles; **removes a Terror Drone** | ⚠️ exists in the tech tree, because the MCV needs it; repairing is still a gap |
+| Service Depot | 800 | −20 | War Factory | Repairs vehicles; **removes a Terror Drone** | ✅ |
 | Battle Lab | 2000 | −100 | Factory, Radar | Unlocks, produces nothing | ✅ prerequisites |
 | Nuclear Reactor | 1000 | **+1000** | Battle Lab | **Explodes with fallout when destroyed** | ❌ death effect |
 | Cloning Vats | 2500 | −200 | Battle Lab | **Duplicates every infantry you train, free**; sells units for a refund; **one per player** | ❌ all three |
@@ -364,7 +364,7 @@ says whether Redshift can express the behaviour at all.
 | Rhino | S | 900 | — | Main tank. More armour and range, slower | ✅ |
 | Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ❌ transport |
 | IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ❌ |
-| Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ❌ |
+| Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ✅ |
 | V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ❌ interception |
 | Tesla Tank | Russia | 1200 | Radar | **Fires over obstacles** | ❌ indirect fire |
 | Demolition Truck | Libya | 1500 | Radar | Nuclear charge, detonates **on destruction or on impact** | ❌ |
@@ -539,7 +539,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 39 capabilities confirmed, 18 gaps.**
+**As of the last run: 40 capabilities confirmed, 18 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -581,6 +581,10 @@ Items are struck through as they close, so the history stays readable:
 - ~~A neutral player~~ — owns things, commands nothing, hostile to nobody
 - ~~Instant-kill weapons~~ — sniper, attack dog
 - **Placement rules per structure** — must touch water
+- ~~A structure that repairs what is sent into it~~ — Service Depot, Naval
+  Shipyard, Outpost: one trait, three lists
+- ~~A parasite that gets inside a unit~~ — the Terror Drone, and the depot that
+  shakes it off. Neither made sense without the other
 - ~~Deploy~~, both kinds: unit↔structure, and stance toggling. They turned out
   to be one mechanism, not two
 

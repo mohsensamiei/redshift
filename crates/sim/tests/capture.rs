@@ -60,6 +60,17 @@ fn rules() -> Rules {
                 range: Hundredths(400),
             },
         ];
+        // A real footprint, because every real building has one and its own
+        // cells are impassable once it occupies them. With a one-cell building
+        // an engineer walks to the centre; with a three-by-three one there is
+        // no route to the centre at all, and the engineer stops where it
+        // stands. That distinction went unnoticed here for a long time, so it
+        // is now part of the fixture rather than something a future test has
+        // to remember to arrange.
+        traits.push(Trait::Footprint {
+            width: 3,
+            height: 3,
+        });
         if capturable {
             traits.push(Trait::Capturable);
         }

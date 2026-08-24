@@ -162,11 +162,17 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] A structure that repairs what is sent into it — Service Depot, Naval
+      Shipyard, Outpost. One trait with three lists of what it will service,
+      billed on a running total so the price is exact whatever the step size.
+- [x] A parasite that gets inside a unit — the Terror Drone, and the depot that
+      shakes it off. Neither is worth building alone: a drone with no counter
+      is a death sentence, and a repair shed with nothing to undo is furniture.
 - [x] Deploy — unit↔structure, and stance toggling. One mechanism, not two:
       the deployed form is an ordinary entity whose own `Deploys` points back,
       so undeploying is deploying in the other direction. `G` in the client.
       Brought the Service Depot in with it, since the MCV needs it in the tech
-      tree — but only as a tech node; repairing vehicles is still a gap.
+      tree.
 - [ ] Garrison — passengers firing from a building, evicted when it falls
 - [ ] Transports — loading, unloading, passengers that fire or change the weapon
 - [x] Multiple weapons per unit — targeting considers both, firing picks one
@@ -200,7 +206,7 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Thirty-nine capabilities
+`crates/sim/tests/roster_conformance.rs` holds it. Forty capabilities
 confirmed, eighteen gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
@@ -291,6 +297,13 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 - [ ] **Veterancy bonuses.** `rank::VETERAN_BONUS` and `ELITE_BONUS` are 115%
       and 135%, chosen by feel. Promotion on kills is faithful; the numbers are
       not verified.
+- [ ] **Repair rate and price.** `rules/buildings/allied.ron` gives the Service
+      Depot `rate: 5` and `cost_percent: 20`. That a repair takes time and costs
+      money is faithful; both numbers are guesses. The 20% figure is the shape
+      the reference implementations use, not something checked in-game.
+- [ ] **Terror Drone bite rate.** The drone is in the trait catalogue but not
+      yet in any shipped rules file — there is no Soviet unit roster. Its damage
+      per tick is unset rather than wrong.
 - [ ] **Elevation range bonus.** `map::HEIGHT_RANGE_BONUS_PERCENT` is 15% per
       level, by feel. That high ground helps is faithful; how much is not
       verified. `map::MAX_WALKABLE_STEP` of one level is the more confident of

@@ -270,6 +270,65 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
+    /// Burrows into an enemy unit and takes it apart from inside.
+    ///
+    /// The Terror Drone. It is not a weapon with a strange effect — the drone
+    /// stops being on the battlefield and starts being *in* something, which is
+    /// why nothing can shoot it and why the counter is a building rather than a
+    /// gun. See [`Trait::Repairs`] and its `cures_infestation`.
+    ///
+    /// A drone keeps whatever [`Trait::Armed`] it has for everything outside
+    /// `categories`, which is how the original's behaves like an attack dog
+    /// against infantry while being something else entirely against a tank.
+    Infests {
+        /// Categories it can get inside. Everything else it just shoots.
+        categories: Vec<String>,
+        /// Damage dealt to the host each tick, through the usual warhead and
+        /// armour table — so armour still means something, and the kill is
+        /// credited like any other.
+        damage: u32,
+        /// The warhead that damage is dealt with.
+        warhead: WarheadId,
+    },
+
+    /// Repairs friendly units that are sent into it.
+    ///
+    /// The Service Depot, the Naval Shipyard, and Yuri's Outpost. All three
+    /// are the same structure with a different list of what they will service,
+    /// which is why this is a trait and not three special cases.
+    ///
+    /// Not the same thing as [`PlayerEffect::RepairEverywhere`]: that heals a
+    /// player's vehicles wherever they happen to be, at no cost and with no
+    /// decision attached. This one asks a player to pull a damaged unit out of
+    /// the fight and pay for it, which is a trade rather than a gift.
+    Repairs {
+        /// Categories it will service. `["vehicle"]` for a Service Depot,
+        /// `["ship"]` for a Naval Shipyard.
+        categories: Vec<String>,
+        /// Health restored per tick.
+        ///
+        /// Whole points rather than hundredths, unlike most rates here. A
+        /// fractional rate would need somewhere to keep the remainder between
+        /// ticks, and a per-unit accumulator is a lot of state to carry for a
+        /// precision nothing needs: at twenty ticks a second, one point per
+        /// tick is already twenty a second.
+        rate: u32,
+        /// What a repair from nothing to full costs, as a percentage of the
+        /// unit's build cost. Charged in proportion to the damage actually
+        /// undone, so half a repair costs half as much.
+        ///
+        /// Zero means free.
+        #[serde(default)]
+        cost_percent: u32,
+        /// Whether arriving here removes anything that has burrowed into the
+        /// unit.
+        ///
+        /// The Service Depot's second job, and the counter that makes a Terror
+        /// Drone a problem to be solved rather than a death sentence.
+        #[serde(default)]
+        cures_infestation: bool,
+    },
+
     /// Becomes something else on command.
     ///
     /// One trait covers both halves of what the original calls deploying,
@@ -328,6 +387,8 @@ impl Trait {
             Trait::Transport { .. } => "Transport",
             Trait::Veterancy { .. } => "Veterancy",
             Trait::Deploys { .. } => "Deploys",
+            Trait::Repairs { .. } => "Repairs",
+            Trait::Infests { .. } => "Infests",
             Trait::Selectable { .. } => "Selectable",
         }
     }
@@ -359,6 +420,7 @@ impl Trait {
                 .map(|a| ("transportable", a.clone()))
                 .collect(),
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
+            Trait::Infests { warhead, .. } => vec![("warhead", warhead.clone())],
             _ => Vec::new(),
         }
     }
@@ -419,6 +481,8 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Veterancy",
     "Selectable",
     "Cloakable",
+    "Repairs",
+    "Infests",
     // A unit with two deployed forms would silently pick one, and which one
     // depends on trait order in a RON file — a desync in waiting.
     "Deploys",

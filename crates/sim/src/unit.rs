@@ -278,6 +278,18 @@ pub struct Unit {
     pub carrier: Option<EntityId>,
     /// Who is riding in this, in the order they boarded.
     pub cargo: Vec<EntityId>,
+    /// The parasite that has burrowed into this unit, if any.
+    ///
+    /// Separate from [`Unit::cargo`] deliberately, even though both describe
+    /// something being inside something else. Cargo is a passenger the owner
+    /// put there and can take out; this is an enemy the owner cannot reach.
+    /// Folding the two together would mean every capacity check, every unload
+    /// and every "is my transport full" question had to remember which of its
+    /// occupants were hostile.
+    ///
+    /// The parasite's own [`Unit::carrier`] points back, which is what removes
+    /// it from the field: `is_aboard` already means "not here to be shot at".
+    pub infestation: Option<EntityId>,
     /// Ticks since it last took damage.
     ///
     /// Counted up like [`Unit::since_fired`], so a unit that has never been hit
@@ -310,6 +322,7 @@ impl Unit {
             rally: None,
             carrier: None,
             cargo: Vec::new(),
+            infestation: None,
             since_damaged: u32::MAX,
             since_fired: u32::MAX,
             harvest: None,
@@ -390,6 +403,14 @@ impl StateHash for Unit {
         for id in &self.cargo {
             h.write_u32(id.index());
             h.write_u32(id.generation());
+        }
+        match &self.infestation {
+            Some(id) => {
+                h.write_u8(1);
+                h.write_u32(id.index());
+                h.write_u32(id.generation());
+            }
+            None => h.write_u8(0),
         }
         h.write_u32(self.since_damaged);
         h.write_u32(self.since_fired);

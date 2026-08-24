@@ -1081,6 +1081,62 @@ fn a_spy_gets_a_different_effect_from_each_kind_of_building() {
 }
 
 #[test]
+fn a_depot_repairs_vehicles_and_shakes_off_a_parasite() {
+    // Two capabilities that only make sense together, which is why they landed
+    // together. A Terror Drone gets *inside* a vehicle, where nothing can shoot
+    // it, so the counter cannot be a better gun — it has to be a building. A
+    // repair shed with nothing to undo, or a parasite with no answer, would
+    // each look arbitrary on its own.
+    //
+    // The Naval Shipyard and Yuri's Outpost are the same structure with a
+    // different list of what they service. Exercised end to end in
+    // tests/repair_and_infestation.rs.
+    let depot = unit(
+        "depot",
+        "structure",
+        Locomotor::Wheeled,
+        vec![
+            Trait::Footprint {
+                width: 3,
+                height: 3,
+            },
+            Trait::Repairs {
+                categories: vec!["vehicle".into()],
+                rate: 5,
+                cost_percent: 20,
+                cures_infestation: true,
+            },
+        ],
+    );
+    let drone = unit(
+        "drone",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Infests {
+            categories: vec!["vehicle".into()],
+            damage: 8,
+            warhead: "shot".into(),
+        }],
+    );
+    let rules = rules_with(vec![depot, drone], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "drone", Cell::new(5, 5));
+
+    let depot_kind = sim.rules().kind_of("depot").unwrap();
+    let drone_kind = sim.rules().kind_of("drone").unwrap();
+    let stats = sim.stats().get(PlayerId(0), depot_kind);
+
+    assert!(stats.repair_rate > 0, "the depot repairs nothing");
+    assert!(
+        stats.cures_infestation,
+        "the depot has no answer to the thing it exists to answer"
+    );
+    assert!(
+        sim.combat().infestation(drone_kind).is_some(),
+        "the drone cannot get inside anything"
+    );
+}
+
+#[test]
 #[ignore = "gap: tech structures — neutral, capturable, unsellable, and they extend the build radius"]
 fn a_captured_tech_structure_extends_the_build_radius() {
     // A captured oil derrick is a forward base. Redshift has a build radius and

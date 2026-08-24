@@ -460,7 +460,19 @@ pub struct CombatTable {
     /// disagree with this one, and a damage lookup that silently used the wrong
     /// warhead would be very hard to see.
     death_warhead: Vec<WarheadId>,
+    /// What each kind does once it has burrowed into something. Here rather
+    /// than in [`crate::stats::UnitStats`] for the same reason as
+    /// `death_warhead`: this is where warhead names become indices, and a
+    /// second index built somewhere else could quietly disagree with this one.
+    infestation: Vec<Option<Infestation>>,
     damage: DamageTable,
+}
+
+/// What a parasite does to its host, per tick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Infestation {
+    pub damage: u32,
+    pub warhead: WarheadId,
 }
 
 impl CombatTable {
@@ -478,6 +490,7 @@ impl CombatTable {
         let mut armour = Vec::with_capacity(rules.entity_count());
         let mut secondary = Vec::with_capacity(rules.entity_count());
         let mut death_warhead = Vec::with_capacity(rules.entity_count());
+        let mut infestation: Vec<Option<Infestation>> = Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index));
             armour.push(armour_of(rules, kind, &armour_index));
@@ -491,6 +504,15 @@ impl CombatTable {
                     })
                     .unwrap_or_default(),
             );
+            infestation.push(def.traits.iter().find_map(|t| match t {
+                Trait::Infests {
+                    damage, warhead, ..
+                } => Some(Infestation {
+                    damage: *damage,
+                    warhead: warhead_index(warhead),
+                }),
+                _ => None,
+            }));
         }
 
         CombatTable {
@@ -498,6 +520,7 @@ impl CombatTable {
             armour,
             secondary,
             death_warhead,
+            infestation,
             damage: DamageTable::build(rules),
         }
     }
@@ -514,6 +537,11 @@ impl CombatTable {
             .get(kind.0 as usize)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// What this kind does to a host it has burrowed into, if it does that.
+    pub fn infestation(&self, kind: EntityKind) -> Option<Infestation> {
+        self.infestation.get(kind.0 as usize).copied().flatten()
     }
 
     /// A kind's second weapon, if it has one.

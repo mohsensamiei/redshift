@@ -311,6 +311,73 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
+    /// Hides the ground around it from everyone else.
+    ///
+    /// The Gap Generator, and the only thing in the game that *subtracts* from
+    /// what a player can see. It reveals nothing for its owner — a structure
+    /// whose entire effect is on the other side of the table.
+    ///
+    /// Note that it does not hide units, it hides *ground*. An enemy who walks
+    /// something into the area sees around it perfectly well while it is there,
+    /// which is what makes scouting the answer rather than a counter-structure.
+    HidesGround { radius: Hundredths },
+
+    /// Carries ground units over water while it stands.
+    ///
+    /// An entity rather than a kind of terrain, because a bridge is something
+    /// you shoot: Crazy Ivan blowing one up is the usual way a player uses it,
+    /// and that wants the ordinary damage path rather than a second one for
+    /// terrain. Its [`Trait::Footprint`] is the span.
+    ///
+    /// The one thing here that is destroyed without being removed. A wrecked
+    /// bridge is still visibly there and can be rebuilt, so it stays in the
+    /// world at zero health rather than vanishing — which is also what makes
+    /// the repair hut possible at all, since there is something left to repair.
+    ///
+    /// Unlike every other footprint, a bridge's cells are *opened* rather than
+    /// blocked.
+    Bridge,
+
+    /// Rebuilds wrecked bridges near it when an engineer walks in.
+    ///
+    /// Researched, and the correction worth recording: bridges are repaired
+    /// through a **hut beside them**, not by touching the bridge. That makes
+    /// bridge repair the same act as capturing a tech building rather than a
+    /// new mechanic — which is why there is no bridge-repair command.
+    RepairsBridges {
+        /// How far from the hut a wreck can be and still be served, in cells.
+        /// A hut serves the bridge it was built for, and proximity is how the
+        /// original expresses that.
+        radius: u8,
+    },
+
+    /// Poisons the ground around it while it stands there.
+    ///
+    /// The deployed Desolator, and — later — anything else that leaves a place
+    /// dangerous rather than damaging a thing. The distinction matters: this
+    /// does not target, does not need line of sight, and keeps working after
+    /// whatever laid it is gone.
+    ///
+    /// Note what is *not* here. There is no "immune to radiation" flag, because
+    /// the armour table already answers it: give the warhead a zero against
+    /// vehicle armour and infantry die on ground a tank drives across. A second
+    /// mechanism for the same question would be one refactor away from
+    /// disagreeing with the first.
+    Contaminates {
+        /// How far the contamination reaches, in hundredths of a cell.
+        radius: Hundredths,
+        /// Damage dealt each tick to whatever stands in it.
+        damage: u32,
+        /// The warhead that damage uses, so armour decides who cares.
+        warhead: WarheadId,
+        /// How long ground stays dangerous after it stops being poisoned.
+        ///
+        /// The reason this is worth doing at all: a Desolator that could be
+        /// killed to make the ground safe again immediately would be a slow gun
+        /// rather than an area denied.
+        lingers: Ticks,
+    },
+
     /// What a spy gets for reaching this building.
     ///
     /// Declared on the **building**, not on the spy. Infiltration is not one
@@ -486,6 +553,10 @@ impl Trait {
             Trait::Repairs { .. } => "Repairs",
             Trait::Infests { .. } => "Infests",
             Trait::Garrisonable { .. } => "Garrisonable",
+            Trait::HidesGround { .. } => "HidesGround",
+            Trait::Bridge => "Bridge",
+            Trait::RepairsBridges { .. } => "RepairsBridges",
+            Trait::Contaminates { .. } => "Contaminates",
             Trait::Infiltrated { .. } => "Infiltrated",
             Trait::Infiltrator { .. } => "Infiltrator",
             Trait::Selectable { .. } => "Selectable",
@@ -519,7 +590,9 @@ impl Trait {
                 .map(|a| ("transportable", a.clone()))
                 .collect(),
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
-            Trait::Infests { warhead, .. } => vec![("warhead", warhead.clone())],
+            Trait::Infests { warhead, .. } | Trait::Contaminates { warhead, .. } => {
+                vec![("warhead", warhead.clone())]
+            }
             Trait::Garrisonable { weapon, .. } => vec![("weapon", weapon.clone())],
             Trait::Infiltrated {
                 effect: InfiltrationEffect::Unlocks { unit },
@@ -592,6 +665,10 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Repairs",
     "Infests",
     "Garrisonable",
+    "HidesGround",
+    "Bridge",
+    "RepairsBridges",
+    "Contaminates",
     "Infiltrated",
     "Infiltrator",
     // A unit with two deployed forms would silently pick one, and which one

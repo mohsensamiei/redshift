@@ -162,6 +162,15 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] Persistent terrain effects — ground the Desolator poisons, which outlives
+      whatever laid it. No "immune to radiation" flag: the armour table already
+      answers that, so one row makes infantry die on ground a tank drives over.
+- [x] Bridges — the only footprint that *opens* ground rather than claiming it,
+      and the only entity destroyed without being removed. Repaired through a
+      hut beside them, which makes it capture with a different effect rather
+      than a new mechanic.
+- [x] Gap Generator — the only subtractive operation in visibility. Vision runs
+      in three passes; the order is the design.
 - [x] Spy infiltration — an effect table keyed on what was entered, declared on
       the **building** rather than on the spy. All five rows: promotion by
       category, a timed blackout, theft of a share of the funds, and stolen
@@ -209,12 +218,11 @@ and reasoning in docs/08-roster.md.
 - [ ] Mind control — changing a unit's owner mid-match
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
-- [ ] Bridges — destructible terrain that changes connectivity
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Forty-three capabilities
-confirmed, fifteen gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Forty-six capabilities
+confirmed, twelve gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -311,6 +319,12 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 - [ ] **Terror Drone bite rate.** The drone is in the trait catalogue but not
       yet in any shipped rules file — there is no Soviet unit roster. Its damage
       per tick is unset rather than wrong.
+- [ ] **Contamination figures.** The Desolator's radius, damage per tick and
+      how long ground stays hot are all unset — there is no Soviet roster yet,
+      so nothing ships with `Contaminates`. That it denies an area and outlives
+      its source is faithful; the numbers are not yet anything.
+- [ ] **Gap Generator radius.** `rules/buildings/allied.ron` says ten cells, by
+      feel. The mechanic is faithful; the reach is not verified.
 - [ ] **Elevation range bonus.** `map::HEIGHT_RANGE_BONUS_PERCENT` is 15% per
       level, by feel. That high ground helps is faithful; how much is not
       verified. `map::MAX_WALKABLE_STEP` of one level is the more confident of

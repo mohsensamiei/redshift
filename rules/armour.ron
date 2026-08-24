@@ -24,6 +24,12 @@
             "explosive": {
                 "none": 85, "light": 75, "heavy": 50, "concrete": 100, "air": 0,
             },
+            // Contamination. This one row is the whole of "who is immune to
+            // radiation": infantry die on ground a tank drives across, and no
+            // second mechanism has to agree with it.
+            "radiation": {
+                "none": 100, "light": 0, "heavy": 0, "concrete": 0, "air": 0,
+            },
             // Anti-air only.
             "flak": {
                 "none": 40, "light": 25, "heavy": 5, "concrete": 2, "air": 100,

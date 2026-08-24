@@ -106,6 +106,46 @@ impl Visibility {
         }
     }
 
+    /// Takes ground back from a player: not visible, and not explored either.
+    ///
+    /// The only subtractive operation here, and the reason it exists at all is
+    /// the Gap Generator — a structure that reveals nothing for its owner and
+    /// *hides* ground from everyone else. Every other source of visibility
+    /// adds, and `explored` is otherwise cumulative for the whole match.
+    ///
+    /// Clearing `explored` as well as `visible` is the point. Leaving the
+    /// explored layer alone would hide live units and leave the terrain and the
+    /// buildings on it drawn exactly where they were, which is no concealment
+    /// at all.
+    pub fn hide(&mut self, player: PlayerId, centre: Cell, radius: Fx) {
+        let Some(explored) = self.explored.get_mut(player.0 as usize) else {
+            return;
+        };
+        let Some(visible) = self.visible.get_mut(player.0 as usize) else {
+            return;
+        };
+        let cells = radius.to_int().max(0);
+        let radius_sq = radius.sq();
+        for dy in -cells..=cells {
+            for dx in -cells..=cells {
+                let cell = Cell::new(centre.x + dx, centre.y + dy);
+                if Fx::dist_sq(Fx::from_int(dx), Fx::from_int(dy)) > radius_sq {
+                    continue;
+                }
+                if cell.x < 0
+                    || cell.y < 0
+                    || cell.x >= self.width as i32
+                    || cell.y >= self.height as i32
+                {
+                    continue;
+                }
+                let i = cell.y as usize * self.width as usize + cell.x as usize;
+                explored[i] = false;
+                visible[i] = false;
+            }
+        }
+    }
+
     /// Marks everything within `radius` of `centre` as seen by `player`.
     ///
     /// A circle, not a square: a square would let a unit see further along the

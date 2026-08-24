@@ -47,7 +47,7 @@ Researched.
 | Cliffs / elevation | Blocks ground movement, and **units on high ground have the advantage** — greater effective range | ✅ a height layer per cell; the cliff is the *step*, and the plateau is standable |
 | Ramps | The only way between elevations | ✅ a one-level step is walkable, two is a cliff face |
 | Shore | Where amphibious transports load and unload | ❌ |
-| Bridges | Crossable, **destructible** — Crazy Ivan is the usual way — and **repaired by an engineer entering a separate repair hut beside them** | ❌ |
+| Bridges | Crossable, **destructible** — Crazy Ivan is the usual way — and **repaired by an engineer entering a separate repair hut beside them** | ✅ |
 | Ore | Gathered by faction-specific miners. **Can be destroyed** by force-firing on it with a weapon allowed to | ⚠️ ore ✅, destroying it ❌ |
 | Gems | Worth more per load than ore | ❌ second resource kind |
 | Trees, rocks | Block movement | ⚠️ blocking only |
@@ -244,7 +244,7 @@ Five mechanics in that table alone that were not on any earlier list:
 | Pillbox | 500 | **0** | Barracks | Anti-infantry, needs no power |
 | Patriot Missile | 1000 | −50 | Barracks | Anti-air; **intercepts missiles** |
 | Prism Tower | 1500 | −75 | Air HQ | **Combines beams with nearby towers**, the more chained the stronger |
-| Gap Generator | 1000 | −100 | Battle Lab | **Hides the base from enemy radar** — imposing fog on someone else |
+| Gap Generator | 1000 | −100 | Battle Lab | **Hides the base from enemy radar** — imposing fog on someone else | ✅ |
 | Spy Satellite Uplink | 1000 | −100 | Battle Lab | Reveals the whole map |
 | Chronosphere | 2500 | −200 | Battle Lab | One per player |
 | Weather Control | 5000 | −200 | Battle Lab | One per player |
@@ -254,9 +254,13 @@ Three mechanics here that exist on neither earlier list:
 - **A structure that boosts other structures of its own kind.** Prism Towers
   chain, and the beam gets stronger with each tower in the chain. Nothing in
   the engine lets one entity's stats depend on its neighbours.
-- **Imposing fog on an opponent.** The Gap Generator does not reveal ground for
-  its owner; it *hides* ground from everyone else. Redshift's visibility is
-  purely additive.
+- **Imposing fog on an opponent.** ✅ The Gap Generator does not reveal ground
+  for its owner; it *hides* ground from everyone else. Visibility now runs in
+  three passes: everyone looks, concealed ground is taken back, and anything
+  standing *inside* the area looks again. The order is the design — hiding
+  first would let a distant watchtower see straight in, and skipping the third
+  pass would mean the answer to a Gap Generator had to be another structure
+  rather than a scout.
 - **An economy multiplier.** The Ore Purifier changes the value of every load
   delivered, which is a standing modifier on a player rather than on a unit.
 
@@ -355,7 +359,7 @@ says whether Redshift can express the behaviour at all.
 | Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ❌ crush immunity, ❌ charging a structure |
 | Flak Trooper | S | 300 | Radar | Anti-air and anti-vehicle, **splash** | ✅ since air targeting landed |
 | Terrorist | Cuba | 200 | Radar | Suicide explosion with splash | ❌ |
-| Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ✅ deploy, ❌ terrain-altering effect |
+| Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ✅ |
 | Crazy Ivan | S | 600 | Radar | **Places dynamite** on structures, units **and bridges** | ❌ |
 | Yuri / Psi-Corps | S | 1200 | Battle Lab | **Mind control**; a psychic blast that kills surrounding infantry | ❌ |
 | Chrono Commando | A | 2000 | Spy in Allied lab | SEAL plus teleport. **Cannot swim** | ❌ |
@@ -509,7 +513,7 @@ finding is worth recording because it is not what was expected:
 | **Rally points** | Where newly built units go. Redshift drops them beside the factory and stops |
 | **Selling structures** | A refund, and for the Cloning Vats a way of converting units to cash |
 | **Ore regrowth** | Ore spreads from a source over time, so a field is renewable rather than finite |
-| **Radiation as map state** | The Desolator leaves ground contaminated. Terrain that damages what stands on it |
+| **Radiation as map state** | The Desolator leaves ground contaminated. Terrain that damages what stands on it | ✅ |
 | **Idle actions** | The aimless animations that make civilians read as alive |
 | **Stalemate detection** | The match has to be able to decide nobody can win |
 
@@ -545,7 +549,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 43 capabilities confirmed, 15 gaps.**
+**As of the last run: 46 capabilities confirmed, 12 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -603,19 +607,21 @@ Items are struck through as they close, so the history stays readable:
 - ~~Air targeting~~ — nothing used to distinguish an air target from a ground one
 - ~~Multiple weapons per unit~~ — anti-ground and anti-air on one chassis
 - **Placed charges** — armed now, detonating later
+- ~~Persistent terrain effects~~ — contamination that outlives what laid it
 - **Temporary status effects** — invulnerable, irradiated, disabled
 - **Wandering civilians** — autonomous, purposeless movement
 
 ### Large — each is a subsystem
 
 - ~~Elevation~~ — real height, ramps, and its effect on sight and combat
+- ~~Bridges~~ — the only footprint that opens ground, and the only entity
+  destroyed without being removed
 - **Aircraft** — basing, rearming, a separate movement model
 - **Naval** — shoreline transports, water as a surface
 - **Superweapons and powers** — timers, targeting modes, novel effects
 - **Mind control** — changing a unit's owner mid-match
 - **Teleportation** — movement without a path
 - **Disguise** — appearing as something else to one side only
-- **Bridges** — destructible terrain that changes connectivity
 
 ## 11. What follows
 

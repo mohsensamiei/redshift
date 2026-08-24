@@ -142,6 +142,30 @@
             ],
         ),
         (
+            // Reveals nothing for its owner. Its entire effect is on the other
+            // side of the table — the one thing in the game that subtracts from
+            // what a player can see.
+            id: "gap_generator",
+            name_key: "building.gap_generator",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 600, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 200),
+                PowerDraw(amount: 60, works_unpowered: false),
+                HidesGround(radius: 1000),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 1000,
+                    build_time: 40,
+                    prerequisites: ["service_depot"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
             // Costs and power draw are the researched figures. The repair
             // rate and the price of a repair are not — see TODO.md.
             id: "service_depot",

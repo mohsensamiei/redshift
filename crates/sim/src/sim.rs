@@ -149,6 +149,24 @@ pub struct MatchSetup {
     pub spawns: Vec<Spawn>,
 }
 
+/// One cell of ground made dangerous.
+///
+/// The damage and warhead are carried per cell rather than looked up from
+/// whatever laid it, deliberately: contamination outlives its source, and a
+/// patch that stopped hurting the moment the Desolator died would be a slow gun
+/// rather than an area denied.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Hazard {
+    pub cell: Cell,
+    /// The tick this stops being dangerous.
+    pub until: Tick,
+    pub damage: u32,
+    pub warhead: crate::combat::WarheadId,
+    /// Who laid it, so a kill is credited. A stale id once the source is dead
+    /// is fine — the rank lookup simply finds nothing.
+    pub source: EntityId,
+}
+
 /// The 3×3 block of cells a unit can overlap something in.
 ///
 /// A fixed array rather than a computed range, so the visiting order is part of
@@ -332,6 +350,16 @@ pub struct Sim {
     projectiles: Vec<Projectile>,
     power: PowerGrid,
     boons: Boons,
+    /// Ground that is dangerous to stand on.
+    ///
+    /// Sparse and sorted by cell, not a layer on the map. Contamination covers
+    /// a handful of cells and expires; a dense array would be one `u32` per
+    /// cell of a large map, hashed every tick, to describe almost nothing.
+    ///
+    /// On the simulation rather than on [`Map`] because it is dynamic and
+    /// tick-bound. The map describes what the ground *is*; this describes what
+    /// has happened to it.
+    hazards: Vec<Hazard>,
     /// Effects a player keeps for the rest of the match.
     ///
     /// [`Boons`] is rebuilt from scratch every tick from the buildings a player
@@ -395,7 +423,21 @@ impl Sim {
                 map.clamp_pos(spawn.pos),
                 spawn_stats,
             );
-            claim_footprint(&mut map, unit.cell(), spawn_stats.footprint, true);
+            // The same split as `spawn_unit`. These two paths diverged once
+            // before — a building placed mid-match did not claim its ground
+            // while one that started the match did — so any rule about
+            // footprints has to be applied in both.
+            if spawn_stats.is_bridge {
+                let origin = footprint_origin(unit.cell(), spawn_stats.footprint);
+                map.set_bridged(
+                    origin,
+                    spawn_stats.footprint.0,
+                    spawn_stats.footprint.1,
+                    true,
+                );
+            } else {
+                claim_footprint(&mut map, unit.cell(), spawn_stats.footprint, true);
+            }
             units.insert(unit);
         }
         let workspace = PathWorkspace::new(map.cell_count());
@@ -413,6 +455,7 @@ impl Sim {
             projectiles: Vec::new(),
             power: PowerGrid::new(factions.len()),
             boons: Boons::new(factions.len()),
+            hazards: Vec::new(),
             standing: vec![Vec::new(); factions.len()],
             blackout_until: vec![0; factions.len()],
             unlocked: vec![Vec::new(); factions.len()],
@@ -478,8 +521,22 @@ impl Sim {
     pub fn spawn_unit(&mut self, owner: PlayerId, kind: EntityKind, pos: WorldPos) -> EntityId {
         let stats = self.stats.get(owner, kind);
         let unit = new_unit(owner, kind, self.map.clamp_pos(pos), stats);
-        claim_footprint(&mut self.map, unit.cell(), stats.footprint, true);
+        let cell = unit.cell();
+        // A bridge is the one footprint that *opens* ground rather than closing
+        // it. Everything else about it is an ordinary entity, which is what
+        // lets Crazy Ivan blow one up through the usual damage path.
+        if stats.is_bridge {
+            self.open_span(cell, stats.footprint, true);
+        } else {
+            claim_footprint(&mut self.map, cell, stats.footprint, true);
+        }
         self.units.insert(unit)
+    }
+
+    /// Opens or closes a bridge's span.
+    fn open_span(&mut self, centre: Cell, footprint: (u8, u8), open: bool) {
+        let origin = footprint_origin(centre, footprint);
+        self.map.set_bridged(origin, footprint.0, footprint.1, open);
     }
 
     /// Advances the world by exactly one tick.
@@ -508,9 +565,12 @@ impl Sim {
         // Parasites bite through the ordinary damage path, so armour still
         // means something and the kill is credited to the drone like any other.
         let bites = self.run_infestations();
+        self.spread_contamination();
+        let poison = self.run_hazards();
         self.resolve_damage(&landed);
         self.resolve_damage(&hits);
         self.resolve_damage(&bites);
+        self.resolve_damage(&poison);
         self.crush_underfoot();
         // After damage and before deaths, so a building shot below the
         // threshold this tick throws its garrison out this tick.
@@ -579,6 +639,109 @@ impl Sim {
                 unit.health = 0;
             }
         }
+    }
+
+    /// Refreshes the ground under everything that poisons it, and forgets
+    /// patches that have gone cold.
+    ///
+    /// Refreshed every tick rather than laid once, so a Desolator that walks
+    /// away leaves a trail that expires behind it instead of a permanent scar.
+    fn spread_contamination(&mut self) {
+        let tick = self.tick;
+        // Pruned first, so a patch that expired this tick is not immediately
+        // re-laid by a source that is no longer there.
+        self.hazards.retain(|h| h.until > tick);
+
+        let mut laid: Vec<Hazard> = Vec::new();
+        for (id, unit) in self.units.iter() {
+            if !unit.is_alive() || unit.is_aboard() {
+                continue;
+            }
+            let Some(c) = self.combat.contamination(unit.kind) else {
+                continue;
+            };
+            let centre = unit.cell();
+            let reach = c.radius.floor_int();
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    let cell = Cell::new(centre.x + dx, centre.y + dy);
+                    if !self.map.contains(cell) {
+                        continue;
+                    }
+                    // Round, not square. A square patch would be visibly a
+                    // square, and the radius would mean two different things
+                    // along an axis and along a diagonal.
+                    if Fx::dist_sq(Fx::from_int(dx), Fx::from_int(dy)) > c.radius.sq() {
+                        continue;
+                    }
+                    laid.push(Hazard {
+                        cell,
+                        until: tick + c.lingers,
+                        damage: c.damage,
+                        warhead: c.warhead,
+                        source: id,
+                    });
+                }
+            }
+        }
+
+        for hazard in laid {
+            match self.hazards.binary_search_by_key(&hazard.cell, |h| h.cell) {
+                // Already dangerous. The later expiry wins rather than the
+                // damage stacking: two Desolators standing together make an
+                // area denied for longer, not a cell that kills twice as fast.
+                Ok(at) => {
+                    let existing = &mut self.hazards[at];
+                    if hazard.until > existing.until {
+                        *existing = hazard;
+                    }
+                }
+                Err(at) => self.hazards.insert(at, hazard),
+            }
+        }
+    }
+
+    /// One tick of standing on poisoned ground.
+    ///
+    /// Returns hits rather than applying them, like every other source of
+    /// damage, so armour decides who cares. That is the whole reason there is
+    /// no "immune to radiation" flag: give the warhead a zero against vehicle
+    /// armour and infantry die on ground a tank drives across, from the table
+    /// that already exists.
+    fn run_hazards(&mut self) -> Vec<PendingHit> {
+        if self.hazards.is_empty() {
+            return Vec::new();
+        }
+        let mut hits = Vec::new();
+        for (id, unit) in self.units.iter() {
+            if !unit.is_alive() || unit.is_aboard() {
+                continue;
+            }
+            // Anything off the ground is out of it. Flight is the one thing
+            // that crosses contaminated ground without touching it.
+            if self.stats.get(unit.owner, unit.kind).layer == redshift_data::traits::Layer::Air {
+                continue;
+            }
+            let Ok(at) = self.hazards.binary_search_by_key(&unit.cell(), |h| h.cell) else {
+                continue;
+            };
+            let hazard = self.hazards[at];
+            hits.push(PendingHit {
+                attacker: hazard.source,
+                instant_kill: false,
+                target: id,
+                damage: hazard.damage,
+                warhead: hazard.warhead,
+                splash_radius: Fx::ZERO,
+                at: unit.pos,
+            });
+        }
+        hits
+    }
+
+    /// Ground currently dangerous to stand on. For the renderer.
+    pub fn hazards(&self) -> &[Hazard] {
+        &self.hazards
     }
 
     /// One tick of every parasite eating its host.
@@ -739,7 +902,13 @@ impl Sim {
             .filter(|(_, u)| !u.is_alive())
             .filter_map(|(id, unit)| {
                 let stats = self.stats.get(unit.owner, unit.kind);
-                (stats.death_damage > 0).then(|| PendingHit {
+                // Every other dead thing is removed at the end of this tick, so
+                // it detonates exactly once. A wrecked bridge stays, and would
+                // otherwise explode again every tick for the rest of the match.
+                // This is the price of the one entity that outlives its own
+                // death, and it is worth paying explicitly rather than by
+                // hoping nobody gives a bridge a death charge.
+                (stats.death_damage > 0 && !stats.is_bridge).then(|| PendingHit {
                     attacker: id,
                     instant_kill: false,
                     // No primary target: a blast is entirely splash, and hits
@@ -768,6 +937,25 @@ impl Sim {
             return;
         }
         self.visibility.begin_tick();
+
+        // Gathered now and applied in two passes below, after the ordinary
+        // revealing.
+        let concealments: Vec<(PlayerId, Cell, Fx)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+            .filter(|(_, u)| self.stats.get(u.owner, u.kind).hides_ground > Fx::ZERO)
+            // A generator with no power conceals nothing, like every other
+            // structure that draws from the grid.
+            .filter(|(_, u)| !self.is_unpowered(u))
+            .map(|(_, u)| {
+                (
+                    u.owner,
+                    u.cell(),
+                    self.stats.get(u.owner, u.kind).hides_ground,
+                )
+            })
+            .collect();
         for (_, unit) in self.units.iter() {
             if !unit.is_alive() {
                 continue;
@@ -800,6 +988,56 @@ impl Sim {
             if stats.detector {
                 self.visibility
                     .reveal_cloaked(unit.owner, unit.cell(), vision);
+            }
+        }
+
+        if concealments.is_empty() {
+            return;
+        }
+
+        // Pass two: take the concealed ground back, after everyone has looked.
+        // Before, and a watchtower far outside the area would simply see
+        // straight in and the generator would do nothing at all.
+        for (owner, at, radius) in &concealments {
+            for index in 0..self.players.len() {
+                let other = self.players[index].id;
+                if Self::are_allied(*owner, other) {
+                    continue;
+                }
+                self.visibility.hide(other, *at, *radius);
+            }
+        }
+
+        // Pass three: anything actually standing inside the area sees around
+        // itself again. That is what makes scouting the answer to a Gap
+        // Generator rather than a counter-structure — you cannot look in from
+        // outside, but you can walk in.
+        //
+        // A third pass rather than a cleverer hide, because "which cells would
+        // this unit have seen" is a question `reveal` already answers, and a
+        // second implementation of it would be one change away from disagreeing.
+        let inside: Vec<(PlayerId, Cell, Fx, bool)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard() && !self.is_unpowered(u))
+            .filter_map(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                if stats.vision <= Fx::ZERO {
+                    return None;
+                }
+                let cell = u.cell();
+                let within = concealments.iter().any(|(owner, at, radius)| {
+                    !Self::are_allied(*owner, u.owner)
+                        && Fx::dist_sq(Fx::from_int(cell.x - at.x), Fx::from_int(cell.y - at.y))
+                            <= radius.sq()
+                });
+                within.then_some((u.owner, cell, stats.vision, stats.detector))
+            })
+            .collect();
+        for (owner, cell, vision, detector) in inside {
+            self.visibility.reveal(owner, cell, vision);
+            if detector {
+                self.visibility.reveal_cloaked(owner, cell, vision);
             }
         }
     }
@@ -1957,6 +2195,22 @@ impl Sim {
     /// After all damage, so a unit that dies this tick still got to fire —
     /// which is what makes two evenly matched units able to destroy each other.
     fn remove_the_dead(&mut self) {
+        // A wrecked bridge drops its span, and the water underneath is back.
+        // Nothing has to remember what the cell used to be, because the terrain
+        // was never rewritten in the first place.
+        let dropped: Vec<(Cell, (u8, u8))> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter_map(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                stats.is_bridge.then(|| (u.cell(), stats.footprint))
+            })
+            .collect();
+        for (centre, footprint) in dropped {
+            self.open_span(centre, footprint, false);
+        }
+
         // A destroyed building has to release its footprint, or it leaves a
         // permanent hole in the map that nothing can walk through and nothing
         // can build on — invisible, and impossible to explain to a player.
@@ -1966,7 +2220,7 @@ impl Sim {
             .filter(|(_, u)| !u.is_alive())
             .filter_map(|(_, u)| {
                 let stats = self.stats.get(u.owner, u.kind);
-                (stats.footprint != (1, 1)).then(|| (u.cell(), stats.footprint))
+                (stats.footprint != (1, 1) && !stats.is_bridge).then(|| (u.cell(), stats.footprint))
             })
             .collect();
         for (centre, footprint) in released {
@@ -2006,7 +2260,12 @@ impl Sim {
             }
         }
 
-        self.units.retain(|_, unit| unit.is_alive());
+        // A wrecked bridge stays. It is the one thing destroyed without being
+        // removed, and for a plain reason: the ruined span is still visibly
+        // there, and an engineer at the hut beside it puts it back. Take the
+        // entity away and there is nothing left to repair.
+        self.units
+            .retain(|_, unit| unit.is_alive() || self.stats.get(unit.owner, unit.kind).is_bridge);
     }
 
     // -- Phase 1: commands ---------------------------------------------------
@@ -2391,6 +2650,7 @@ impl Sim {
                         // where this branch happens to sit.
                         if !self.garrison(id, target)
                             && !self.infiltrate(id, target)
+                            && !self.repair_bridges(id, target)
                             && !self.service_repair(id, target)
                         {
                             self.enter_building(id, target);
@@ -2521,6 +2781,69 @@ impl Sim {
         if let Some(unit) = self.units.get_mut(building) {
             unit.health = 0;
         }
+    }
+
+    /// An engineer walks into a repair hut and the bridge beside it comes back.
+    ///
+    /// Returns whether this pairing was a bridge repair. The correction worth
+    /// recording is that bridges are repaired through a **hut**, not by
+    /// touching the bridge — which makes this the same act as capturing a tech
+    /// building rather than a new mechanic, and is why there is no
+    /// bridge-repair command anywhere.
+    fn repair_bridges(&mut self, engineer: EntityId, hut: EntityId) -> bool {
+        let (Some(u), Some(h)) = (self.units.get(engineer), self.units.get(hut)) else {
+            return false;
+        };
+        if !u.is_alive() || !h.is_alive() || u.is_aboard() {
+            return false;
+        }
+        let stats = self.stats.get(u.owner, u.kind);
+        let hut_stats = self.stats.get(h.owner, h.kind);
+        if !stats.is_engineer || hut_stats.bridge_repair_radius == 0 {
+            return false;
+        }
+        let (at, radius) = (h.cell(), hut_stats.bridge_repair_radius as i32);
+
+        // Every wreck the hut serves, not just the nearest. A hut beside a
+        // four-lane crossing should rebuild the crossing, and "which of these
+        // spans is *the* bridge" is not a question with an answer.
+        let wrecks: Vec<EntityId> = self
+            .units
+            .iter()
+            .filter(|(_, b)| {
+                let s = self.stats.get(b.owner, b.kind);
+                s.is_bridge && !b.is_alive() && b.cell().chebyshev_to(at) <= radius
+            })
+            .map(|(id, _)| id)
+            .collect();
+        if wrecks.is_empty() {
+            // Nothing to do, so the engineer is not spent. Walking one into a
+            // hut beside an intact bridge should cost the player nothing.
+            if let Some(u) = self.units.get_mut(engineer) {
+                u.order = Order::Idle;
+            }
+            return true;
+        }
+
+        for wreck in wrecks {
+            let Some(b) = self.units.get(wreck) else {
+                continue;
+            };
+            let (centre, s) = (b.cell(), self.stats.get(b.owner, b.kind));
+            if let Some(b) = self.units.get_mut(wreck) {
+                b.health = s.max_health;
+            }
+            self.open_span(centre, s.footprint, true);
+        }
+
+        if stats.consumed_on_use {
+            if let Some(u) = self.units.get_mut(engineer) {
+                u.health = 0;
+            }
+        } else if let Some(u) = self.units.get_mut(engineer) {
+            u.order = Order::Idle;
+        }
+        true
     }
 
     /// A spy reaches an enemy building and takes what it holds.
@@ -3579,6 +3902,13 @@ impl Sim {
         // nothing else could see.
         for until in &self.blackout_until {
             h.write_u32(*until);
+        }
+        h.write_u32(self.hazards.len() as u32);
+        for hazard in &self.hazards {
+            h.write(&hazard.cell);
+            h.write_u32(hazard.until);
+            h.write_u32(hazard.damage);
+            h.write_u32(hazard.warhead.0 as u32);
         }
         for effects in &self.standing {
             h.write_u32(effects.len() as u32);

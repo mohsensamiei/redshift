@@ -277,6 +277,13 @@ pub struct Map {
     /// restriction and lost everything else: real elevation blocks a *step*
     /// rather than a cell, and gives whoever holds it a longer reach.
     elevation: Vec<u8>,
+    /// Cells carried by an intact bridge.
+    ///
+    /// The mirror image of `blocked`, and a separate layer for that reason: one
+    /// forbids what the terrain would allow, the other allows what the terrain
+    /// would forbid. Folding them into one signed value would make every read
+    /// of either of them think about the other.
+    bridged: Vec<bool>,
     /// Cells covered by a building's footprint.
     ///
     /// Kept on the map rather than derived from the units each time a path is
@@ -299,6 +306,7 @@ impl Map {
             height,
             ore: vec![0; width as usize * height as usize],
             elevation: vec![0; width as usize * height as usize],
+            bridged: vec![false; width as usize * height as usize],
             blocked: vec![false; width as usize * height as usize],
             terrain: vec![Terrain::Ground; width as usize * height as usize],
         }
@@ -372,7 +380,19 @@ impl Map {
 
     #[inline]
     pub fn is_passable(&self, cell: Cell, movement: SurfaceMask) -> bool {
-        if !self.contains(cell) || !movement.allows(surface_of(self.terrain(cell))) {
+        if !self.contains(cell) {
+            return false;
+        }
+        // A bridge presents land over whatever is underneath it. Answered here
+        // rather than by rewriting the terrain, so blowing the bridge up puts
+        // the water back by clearing one flag — and so nothing has to remember
+        // what the cell used to be.
+        let surface = if self.is_bridged(cell) {
+            Surface::Land
+        } else {
+            surface_of(self.terrain(cell))
+        };
+        if !movement.allows(surface) {
             return false;
         }
         // Aircraft fly over buildings; everything on the surface goes round.
@@ -382,6 +402,23 @@ impl Map {
         // Anything that crosses high ground is flying, and flies over buildings
         // too.
         movement.allows(Surface::Height) || !self.is_blocked(cell)
+    }
+
+    /// Whether an intact bridge carries this cell.
+    #[inline]
+    pub fn is_bridged(&self, cell: Cell) -> bool {
+        self.index(cell).is_some_and(|i| self.bridged[i as usize])
+    }
+
+    /// Opens or closes a bridge's span.
+    pub fn set_bridged(&mut self, origin: Cell, width: u8, height: u8, open: bool) {
+        for dy in 0..height as i32 {
+            for dx in 0..width as i32 {
+                if let Some(i) = self.index(Cell::new(origin.x + dx, origin.y + dy)) {
+                    self.bridged[i as usize] = open;
+                }
+            }
+        }
     }
 
     /// Whether a diagonal step between two cells is allowed.
@@ -619,6 +656,9 @@ impl StateHash for Map {
         }
         for level in &self.elevation {
             h.write_u8(*level);
+        }
+        for b in &self.bridged {
+            h.write_bool(*b);
         }
     }
 }

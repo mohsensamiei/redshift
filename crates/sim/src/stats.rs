@@ -101,6 +101,15 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
+    /// How far this hides ground from other players. Zero for everything that
+    /// does not.
+    pub hides_ground: Fx,
+    /// Whether this carries ground units over water — and so opens its
+    /// footprint instead of blocking it, and survives being destroyed.
+    pub is_bridge: bool,
+    /// How far from this a wrecked bridge can be and still be rebuilt here.
+    /// Zero for anything that is not a repair hut.
+    pub bridge_repair_radius: u8,
     /// How many infantry may occupy this. Zero for anything that cannot be
     /// garrisoned, which is nearly everything.
     pub garrison_capacity: u8,
@@ -172,6 +181,9 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
+            hides_ground: Fx::ZERO,
+            is_bridge: false,
+            bridge_repair_radius: 0,
             garrison_capacity: 0,
             evict_below_percent: 0,
             repair_rate: 0,
@@ -397,6 +409,9 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             Trait::Transport { capacity, .. } => stats.capacity = *capacity,
             // Validated at load, so a missing entity is a rules error rather
             // than a unit that silently refuses to deploy.
+            Trait::HidesGround { radius } => stats.hides_ground = Fx::from_raw(radius.to_fx_raw()),
+            Trait::Bridge => stats.is_bridge = true,
+            Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),
             Trait::Garrisonable {
                 capacity,

@@ -741,11 +741,56 @@ fn an_ore_field_regrows_from_its_source() {
 }
 
 #[test]
-#[ignore = "gap: no persistent terrain effects — radiation, fire, contamination"]
 fn irradiated_ground_damages_what_stands_on_it() {
-    // The Desolator leaves ground that hurts. Terrain that has state and acts
-    // on units, which the map has no concept of.
-    panic!("terrain is static and never damages anything");
+    // The Desolator leaves ground that hurts. A weapon picks a target, needs to
+    // see it, and stops when its owner dies; contamination does none of those
+    // — it denies an *area*, and it outlives whatever laid it, which is the
+    // only reason denying the area is worth doing.
+    //
+    // Note what is deliberately not here: no "immune to radiation" flag. The
+    // armour table already answers that, so a warhead that does nothing to
+    // vehicle armour makes ground infantry die on and a tank drives across.
+    // Exercised end to end in tests/contamination.rs.
+    let mut dug_in = unit(
+        "desolator_dug_in",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Contaminates {
+            radius: Hundredths(250),
+            damage: 10,
+            warhead: "shot".into(),
+            lingers: Ticks(100),
+        }],
+    );
+    dug_in.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+    let walking = unit(
+        "desolator",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Deploys {
+            into: "desolator_dug_in".into(),
+        }],
+    );
+
+    let rules = rules_with(vec![walking, dug_in], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "desolator", Cell::new(10, 10));
+    let dug_in_kind = sim.rules().kind_of("desolator_dug_in").unwrap();
+
+    let c = sim
+        .combat()
+        .contamination(dug_in_kind)
+        .expect("the deployed form poisons nothing");
+    assert!(
+        c.lingers > 0,
+        "ground that went cold with its source would \
+                            make this a slow gun rather than an area denied"
+    );
+    assert!(
+        sim.combat()
+            .contamination(sim.rules().kind_of("desolator").unwrap())
+            .is_none(),
+        "the walking form should poison nothing, or deploying would not be a decision"
+    );
 }
 
 #[test]
@@ -775,12 +820,41 @@ fn prism_towers_chain_to_strengthen_each_other() {
 }
 
 #[test]
-#[ignore = "gap: visibility is additive — nothing can hide ground from an opponent"]
 fn a_gap_generator_hides_a_base_from_the_enemy() {
     // The Gap Generator does not reveal ground for its owner. It *hides* ground
-    // from everyone else, which Redshift's visibility model has no way to
-    // express: explored is cumulative and never taken away.
-    panic!("visibility only ever adds; explored ground cannot be un-explored");
+    // from everyone else — the only subtractive operation in a model where
+    // everything else adds and `explored` is otherwise cumulative for the whole
+    // match.
+    //
+    // Vision now runs in three passes: everyone looks, concealed ground is
+    // taken back, and then anything standing *inside* the area looks again.
+    // The order is the design. Hiding before the first pass would let a distant
+    // watchtower see straight in; skipping the third would mean walking a scout
+    // into the area told you nothing, and the answer to a Gap Generator would
+    // have to be another structure. Exercised in tests/gap_generator.rs.
+    let mut generator = unit(
+        "gap",
+        "structure",
+        Locomotor::Foot,
+        vec![Trait::HidesGround {
+            radius: Hundredths(800),
+        }],
+    );
+    generator
+        .traits
+        .retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![generator], vec![]);
+    let sim = one_unit(rules, Map::new(32, 32), "gap", Cell::new(10, 10));
+    let kind = sim.rules().kind_of("gap").unwrap();
+    let stats = sim.stats().get(PlayerId(0), kind);
+
+    assert!(stats.hides_ground > redshift_sim::Fx::ZERO);
+    assert!(
+        stats.vision < stats.hides_ground,
+        "hiding ground must not double as revealing it — a generator that \
+         helped its owner see would be a radar with a side effect"
+    );
 }
 
 #[test]
@@ -896,11 +970,51 @@ fn a_unit_on_high_ground_outranges_one_below() {
 }
 
 #[test]
-#[ignore = "gap: bridges — destructible terrain, repaired through a hut beside them"]
 fn a_destroyed_bridge_is_repaired_by_an_engineer_at_its_hut() {
-    // Worth noting that this is *not* a new mechanic: the repair hut is entered
-    // like a tech building, so bridge repair is capture with a different effect.
-    panic!("no bridges, no destructible terrain, and no capture");
+    // The researched correction: the repair hut is entered like a tech
+    // building, so bridge repair is capture with a different effect rather than
+    // a new mechanic — which is why there is no bridge-repair command anywhere.
+    //
+    // A bridge is the only footprint that *opens* ground instead of claiming
+    // it, and the only entity destroyed without being removed: the ruined span
+    // is still there, and taking the entity away would leave nothing to repair.
+    // Exercised end to end in tests/bridges.rs.
+    let mut span = unit(
+        "bridge",
+        "terrain",
+        Locomotor::Foot,
+        vec![
+            Trait::Footprint {
+                width: 5,
+                height: 1,
+            },
+            Trait::Bridge,
+        ],
+    );
+    span.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+    let mut hut = unit(
+        "hut",
+        "structure",
+        Locomotor::Foot,
+        vec![Trait::RepairsBridges { radius: 8 }],
+    );
+    hut.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![span, hut], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "hut", Cell::new(5, 5));
+
+    assert!(
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of("bridge").unwrap())
+            .is_bridge
+    );
+    assert_eq!(
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of("hut").unwrap())
+            .bridge_repair_radius,
+        8,
+        "a hut serves the bridge it was built for, and proximity says which"
+    );
 }
 
 #[test]

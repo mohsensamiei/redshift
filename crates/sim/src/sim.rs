@@ -657,14 +657,21 @@ impl Sim {
             if self.is_unpowered(unit) {
                 continue;
             }
-            self.visibility
-                .reveal(unit.owner, unit.cell(), stats.vision);
+            // You can see further from a hill. Applied here as well as to
+            // weapon range because the two have to agree: a unit that shot
+            // further than it could see would be firing into fog, and one that
+            // saw further than it shot would just be a spotter.
+            let vision = Fx::from_raw(
+                ((stats.vision.raw() as i64 * self.map.elevation_bonus(unit.cell()) as i64) / 100)
+                    as i32,
+            );
+            self.visibility.reveal(unit.owner, unit.cell(), vision);
             // A detector reveals cloaked things across the same ground it
             // watches. A separate layer, because a player can see a patch of
             // ground perfectly well and still not see what is standing on it.
             if stats.detector {
                 self.visibility
-                    .reveal_cloaked(unit.owner, unit.cell(), stats.vision);
+                    .reveal_cloaked(unit.owner, unit.cell(), vision);
             }
         }
     }
@@ -1298,7 +1305,11 @@ impl Sim {
             // into a lake, or through a cliff.
             let stats = self.stats.get(unit.owner, unit.kind);
             let target_cell = moved.cell();
-            if self.map.is_passable(target_cell, stats.movement) {
+            if self.map.is_passable(target_cell, stats.movement)
+                && self
+                    .map
+                    .step_is_climbable(unit.cell(), target_cell, stats.movement)
+            {
                 unit.pos = self.map.clamp_pos(moved);
             }
         }
@@ -1362,6 +1373,7 @@ impl Sim {
             };
             // The longer of the two, for the search radius.
             let kind_of_attacker = unit.kind;
+            let ground_bonus = self.map.elevation_bonus(unit.cell());
             let Some(weapon) = self
                 .combat
                 .weapon(unit.kind)
@@ -1372,9 +1384,12 @@ impl Sim {
             else {
                 continue;
             };
+            // The search radius carries the hill's advantage too. If only the
+            // firing check did, a unit on high ground would never look far
+            // enough to find what its extended reach could hit.
             let weapon = WeaponStats {
                 targets: reach,
-                ..weapon
+                ..weapon.with_range_percent(ground_bonus)
             };
             // A defence with no power does not shoot. This is most of what
             // makes cutting an enemy's power worth doing.
@@ -1448,11 +1463,18 @@ impl Sim {
             // and a missile fires whichever reaches, and the reload and
             // ammunition it spends belong to that weapon rather than to the
             // primary.
+            // High ground reaches further. Applied to the resolved weapon rather
+            // than to the range check alone, so a unit on a hill both acquires
+            // and engages at the longer distance — checking only one would let
+            // it lock onto something it then refused to shoot.
+            let elevation = self.map.elevation_bonus(unit.cell());
+
             let firing_weapon = target
                 .and_then(|t| self.units.get(t))
                 .map(|t| self.stats.get(t.owner, t.kind).layer)
                 .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
                 .unwrap_or(weapon);
+            let firing_weapon = firing_weapon.with_range_percent(elevation);
 
             let Some(unit) = self.units.get_mut(attacker) else {
                 continue;

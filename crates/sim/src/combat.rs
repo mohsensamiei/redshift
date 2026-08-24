@@ -108,6 +108,23 @@ impl LayerMask {
     }
 }
 
+impl WeaponStats {
+    /// The same weapon with its reach scaled by a percentage.
+    ///
+    /// Returns a copy rather than mutating, because the resolved stats are
+    /// shared across every unit of a kind — scaling in place would give the
+    /// whole army a hill's advantage the moment one unit climbed one.
+    pub fn with_range_percent(mut self, percent: u32) -> WeaponStats {
+        if percent == 100 {
+            return self;
+        }
+        let scaled = ((self.range.raw() as i64 * percent as i64) / 100) as i32;
+        self.range = Fx::from_raw(scaled);
+        self.range_sq = self.range.sq();
+        self
+    }
+}
+
 /// A warhead, interned to an index at load so the hot path compares integers
 /// rather than strings.
 #[derive(

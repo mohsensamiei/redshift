@@ -243,6 +243,12 @@ pub fn find_path(
             if !map.is_passable(next, movement) {
                 continue;
             }
+            // A cliff blocks the step rather than the cell. High ground is
+            // somewhere a unit can stand and fight; what it cannot do is walk
+            // up the side.
+            if !map.step_is_climbable(cell, next, movement) {
+                continue;
+            }
             if !map.allows_diagonal(cell, next, movement) {
                 continue;
             }

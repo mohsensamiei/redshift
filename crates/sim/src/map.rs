@@ -183,6 +183,19 @@ pub enum Terrain {
 /// a conversion between them would be one refactor away from disagreeing.
 pub use redshift_data::traits::{Locomotor, Surface};
 
+/// The largest height difference a ground unit can step across.
+///
+/// One level is a slope; two is a cliff. The original's maps are built from
+/// ramps between adjacent levels, so anything larger is meant to be an
+/// obstacle rather than a climb.
+pub const MAX_WALKABLE_STEP: u8 = 1;
+
+/// Extra range per level of elevation, as a percentage.
+///
+/// **Not verified against the original.** The advantage is faithful; the size
+/// of it is a guess, flagged in TODO.md with the other unverified rates.
+pub const HEIGHT_RANGE_BONUS_PERCENT: u32 = 15;
+
 /// The set of surfaces a unit may cross.
 ///
 /// A bitmask rather than a `Vec<Surface>`: pathfinding reads this millions of
@@ -253,6 +266,17 @@ pub struct Map {
     /// beneath never does. Folding it into the terrain enum would mean
     /// mutating passability every time a harvester took a load.
     ore: Vec<u16>,
+    /// Ground level per cell.
+    ///
+    /// A parallel array for the same reason ore is one: elevation is a property
+    /// *of* a cell rather than a kind of cell. A unit walks on level 2 ground
+    /// exactly as it walks on level 0 — what matters is the difference between
+    /// adjacent cells, not the number itself.
+    ///
+    /// Rock previously stood in for high ground, which kept the movement
+    /// restriction and lost everything else: real elevation blocks a *step*
+    /// rather than a cell, and gives whoever holds it a longer reach.
+    elevation: Vec<u8>,
     /// Cells covered by a building's footprint.
     ///
     /// Kept on the map rather than derived from the units each time a path is
@@ -274,6 +298,7 @@ impl Map {
             width,
             height,
             ore: vec![0; width as usize * height as usize],
+            elevation: vec![0; width as usize * height as usize],
             blocked: vec![false; width as usize * height as usize],
             terrain: vec![Terrain::Ground; width as usize * height as usize],
         }
@@ -513,6 +538,63 @@ impl Map {
     }
 }
 
+impl Map {
+    /// The ground level of a cell. Off-map reads as level zero.
+    ///
+    /// Named `elevation` rather than `height` because `height` is already the
+    /// map's second dimension, and two meanings for one word in the same type
+    /// is how a bug gets written that reads perfectly.
+    #[inline]
+    pub fn elevation(&self, cell: Cell) -> u8 {
+        self.index(cell)
+            .map(|i| self.elevation[i as usize])
+            .unwrap_or(0)
+    }
+
+    /// Raises or lowers a cell.
+    pub fn set_elevation(&mut self, cell: Cell, level: u8) {
+        if let Some(i) = self.index(cell) {
+            self.elevation[i as usize] = level;
+        }
+    }
+
+    /// Raises a rectangle of cells to a level.
+    pub fn raise_rect(&mut self, from: Cell, to: Cell, level: u8) {
+        for y in from.y.min(to.y)..=from.y.max(to.y) {
+            for x in from.x.min(to.x)..=from.x.max(to.x) {
+                self.set_elevation(Cell::new(x, y), level);
+            }
+        }
+    }
+
+    /// Whether a ground unit can step between two adjacent cells.
+    ///
+    /// Elevation blocks a *step*, not a cell. That is the whole difference
+    /// from the rock that used to stand in for it: high ground is somewhere a
+    /// unit can stand and fight, and the cliff is the edge between levels
+    /// rather than the plateau itself.
+    ///
+    /// A step of one level is a slope and is walkable; anything steeper is a
+    /// cliff. Flight ignores all of it.
+    #[inline]
+    pub fn step_is_climbable(&self, from: Cell, to: Cell, movement: SurfaceMask) -> bool {
+        if movement.allows(Surface::Height) {
+            return true;
+        }
+        self.elevation(from).abs_diff(self.elevation(to)) <= MAX_WALKABLE_STEP
+    }
+
+    /// How much further a unit standing here can see and shoot.
+    ///
+    /// High ground is worth taking, which it is not if it only stops movement.
+    /// Expressed as a percentage so it composes with everything else that
+    /// scales a range.
+    #[inline]
+    pub fn elevation_bonus(&self, cell: Cell) -> u32 {
+        100 + self.elevation(cell) as u32 * HEIGHT_RANGE_BONUS_PERCENT
+    }
+}
+
 impl StateHash for Map {
     fn state_hash(&self, h: &mut StateHasher) {
         h.write_u16(self.width);
@@ -527,6 +609,9 @@ impl StateHash for Map {
         }
         for b in &self.blocked {
             h.write_bool(*b);
+        }
+        for level in &self.elevation {
+            h.write_u8(*level);
         }
     }
 }

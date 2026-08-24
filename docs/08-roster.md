@@ -44,8 +44,8 @@ Researched.
 |---|---|---|
 | Ground | Buildable, drivable | ✅ |
 | Water | Naval only, unless amphibious | ✅ |
-| Cliffs / elevation | Blocks ground movement, and **units on high ground have the advantage** — greater effective range | ❌ height is faked with impassable rock |
-| Ramps | The only way between elevations | ❌ |
+| Cliffs / elevation | Blocks ground movement, and **units on high ground have the advantage** — greater effective range | ✅ a height layer per cell; the cliff is the *step*, and the plateau is standable |
+| Ramps | The only way between elevations | ✅ a one-level step is walkable, two is a cliff face |
 | Shore | Where amphibious transports load and unload | ❌ |
 | Bridges | Crossable, **destructible** — Crazy Ivan is the usual way — and **repaired by an engineer entering a separate repair hut beside them** | ❌ |
 | Ore | Gathered by faction-specific miners. **Can be destroyed** by force-firing on it with a weapon allowed to | ⚠️ ore ✅, destroying it ❌ |
@@ -59,8 +59,13 @@ a separate capturable-style structure beside the bridge, which makes bridge
 repair the same mechanic as capturing a tech building rather than a new one.
 
 **High ground gives a range advantage**, not merely a movement restriction.
-Modelling elevation as impassable rock — which is what Redshift does — loses the
-part that actually affects a fight.
+Modelling elevation as impassable rock — which is what Redshift used to do —
+loses the part that actually affects a fight. It is now a height layer parallel
+to terrain and ore: the cliff is the *step* between levels rather than the
+plateau, so high ground is somewhere a unit stands and fights, and standing
+there lengthens both its sight and its reach. The size of that bonus
+(`HEIGHT_RANGE_BONUS_PERCENT`, 15% per level) is a guess and is flagged with the
+project's other unverified rates.
 
 ## 2. Neutral and civilian things
 
@@ -528,7 +533,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 36 capabilities confirmed, 21 gaps.**
+**As of the last run: 38 capabilities confirmed, 19 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -580,7 +585,6 @@ Consolidated from everything above, ordered by how much each represents.
 
 ### Large — each is a subsystem
 
-19. **Elevation** — real height, ramps, and its effect on sight and combat
 20. **Aircraft** — basing, rearming, a separate movement model
 21. **Naval** — shoreline transports, water as a surface
 22. **Superweapons and powers** — timers, targeting modes, novel effects
@@ -603,9 +607,10 @@ nothing distinguishes an air target from a ground one. Everything built on top
 of the current combat model has to be revisited when those change, so the longer
 they wait the more expensive they get.
 
-**Items 19–26 need a decision, not a schedule.** Some may be Phase 5 work done
-alongside the units that need them. Elevation probably is not — it changes the
-map format, which everything else is built on.
+**Items 20–26 need a decision, not a schedule.** Some may be Phase 5 work done
+alongside the units that need them. Elevation was the one that could not wait,
+because it changes the map format that everything else is built on — so it is
+done, and the map now carries a height per cell.
 
 **And this document needs verifying.** It is a memory dump. Its value is in
 having something concrete to check the engine against, and getting it wrong

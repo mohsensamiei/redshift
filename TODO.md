@@ -122,7 +122,7 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ## Phase 3 — Core gameplay
 
-- [ ] Map format: heightmap, tile types, cliffs, buildability — *water and ore done*
+- [ ] Map format: heightmap, tile types, cliffs, buildability — *water, ore and elevation done*
 - [ ] Map editor or an authoring-format converter
 - [x] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [x] Trait system and the initial trait catalogue
@@ -181,7 +181,10 @@ and reasoning in docs/08-roster.md.
 
 ### Subsystems needing a decision before a schedule
 
-- [ ] **Elevation** — real height, ramps, and its effect on sight and combat.
+- [x] **Elevation** — a height layer per cell. The cliff is the *step* between
+      levels, not the plateau, so high ground is standable; one level is a ramp
+      and two is a wall. Standing higher lengthens sight and weapon range
+      together, so a unit never shoots into fog or spots what it cannot hit.
       Probably not deferrable: it changes the map format everything is built on
 - [ ] Aircraft — basing, rearming, a movement model that is not the pathfinder
 - [ ] Naval — shoreline transports, water as a surface rather than an obstacle
@@ -193,8 +196,8 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Sixteen capabilities
-confirmed, twenty-one gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. Thirty-eight capabilities
+confirmed, nineteen gaps, each an ignored test with its reason attached.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -284,6 +287,11 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 - [ ] **Veterancy bonuses.** `rank::VETERAN_BONUS` and `ELITE_BONUS` are 115%
       and 135%, chosen by feel. Promotion on kills is faithful; the numbers are
       not verified.
+- [ ] **Elevation range bonus.** `map::HEIGHT_RANGE_BONUS_PERCENT` is 15% per
+      level, by feel. That high ground helps is faithful; how much is not
+      verified. `map::MAX_WALKABLE_STEP` of one level is the more confident of
+      the two — the original's maps are built from ramps between adjacent
+      levels — but it deserves the same check.
 - [ ] **Repair-everywhere rate.** `sim::BOON_REPAIR_RATE` is a guess.
 - [ ] **Sell refund rate.** `sim::SELL_REFUND_PERCENT` is 50%, a guess.
 - [ ] **Build radius.** `sim::BUILD_RADIUS` is 8 cells, chosen by feel. The

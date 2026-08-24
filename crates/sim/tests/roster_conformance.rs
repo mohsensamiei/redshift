@@ -27,7 +27,7 @@ use redshift_data::rules::{ArmourTable, EntityDef, FactionDef, Rules, WeaponDef}
 use redshift_data::traits::{Locomotor, Surface, Trait};
 use redshift_data::value::{Hundredths, Ticks};
 use redshift_sim::command::{Command, CommandKind, PlayerId};
-use redshift_sim::map::{Cell, Map, Terrain};
+use redshift_sim::map::{Cell, Map, SurfaceMask, Terrain};
 use redshift_sim::sim::{MatchSetup, PlayerSetup, Sim, Spawn};
 
 // ---------------------------------------------------------------------------
@@ -834,11 +834,30 @@ fn a_garrisoned_building_fires_and_evicts_when_badly_damaged() {
 }
 
 #[test]
-#[ignore = "gap: high ground gives a range advantage, and is modelled as impassable rock"]
 fn a_unit_on_high_ground_outranges_one_below() {
-    // Modelling elevation as impassable terrain keeps the movement restriction
-    // and loses the part that affects a fight.
-    panic!("the map has no elevation, only a rock terrain that blocks everything");
+    // Elevation is a layer on the map rather than a kind of terrain, which is
+    // what lets a plateau be somewhere a unit stands and fights. The cliff is
+    // the *step* between levels: one level is a ramp, two is a wall.
+    //
+    // The advantage is exercised end to end in tests/elevation.rs, where two
+    // identical soldiers are placed so that only the extended reach spans the
+    // gap between them.
+    let mut map = Map::new(16, 16);
+    map.raise_rect(Cell::new(4, 4), Cell::new(8, 8), 2);
+    let land = SurfaceMask::from_surfaces(&[Surface::Land]);
+
+    assert!(
+        map.is_passable(Cell::new(6, 6), land),
+        "the plateau must be standable, or high ground is just rock again"
+    );
+    assert!(
+        !map.step_is_climbable(Cell::new(3, 6), Cell::new(4, 6), land),
+        "two levels at once is a cliff face"
+    );
+    assert!(
+        map.elevation_bonus(Cell::new(6, 6)) > map.elevation_bonus(Cell::new(1, 1)),
+        "holding the hill has to be worth something"
+    );
 }
 
 #[test]
@@ -1661,7 +1680,10 @@ fn infantry_garrison_a_civilian_building() {
 }
 
 #[test]
-#[ignore = "gap: elevation — high ground is faked with impassable rock"]
 fn a_unit_on_high_ground_sees_further() {
-    panic!("the map has no height, only a rock terrain that blocks everything");
+    // Sight and reach take the same bonus, deliberately. If they diverged, a
+    // unit would either shoot into fog or see things it could not touch.
+    let mut map = Map::new(16, 16);
+    map.set_elevation(Cell::new(6, 6), 3);
+    assert!(map.elevation_bonus(Cell::new(6, 6)) > map.elevation_bonus(Cell::new(0, 0)));
 }

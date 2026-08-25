@@ -62,6 +62,8 @@ pub struct PowerRow {
 #[derive(Resource, Default)]
 pub struct AimingPower {
     pub building: Option<EntityId>,
+    /// The first place, for a power that takes two. `None` until one is picked.
+    pub from: Option<redshift_sim::map::Cell>,
 }
 
 /// The sell toggle.

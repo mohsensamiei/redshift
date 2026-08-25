@@ -93,11 +93,23 @@ pub enum CommandKind {
     SetRally { building: EntityId, at: Cell },
     /// Demolish a structure for part of its cost back.
     Sell { building: EntityId },
+    /// Fire a charged superweapon at a place, and optionally at a second one.
+    ///
+    /// The second place is `None` for every power but one. A Chronosphere takes
+    /// a source *and* a destination, and threading that through as an option is
+    /// less bad than a separate command that is the same command with one more
+    /// field.
+    ///
     /// Fire a charged superweapon at a place.
     ///
     /// Names the building rather than the player: a player with two silos has
     /// two charges, and which one they spend is theirs to decide.
-    FirePower { building: EntityId, at: Cell },
+    FirePower {
+        building: EntityId,
+        at: Cell,
+        #[serde(default)]
+        to: Option<Cell>,
+    },
     /// Turn the listed units into their deployed form, or back out of it.
     ///
     /// One command for both directions, because from the player's side it is
@@ -204,11 +216,18 @@ impl StateHash for Command {
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
             }
-            CommandKind::FirePower { building, at } => {
+            CommandKind::FirePower { building, at, to } => {
                 h.write_u8(14);
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
                 h.write(at);
+                match to {
+                    Some(cell) => {
+                        h.write_u8(1);
+                        h.write(cell);
+                    }
+                    None => h.write_u8(0),
+                }
             }
             CommandKind::Deploy { units } => {
                 h.write_u8(13);

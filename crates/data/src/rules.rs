@@ -90,6 +90,14 @@ pub struct WeaponDef {
     /// an infantryman are both on the ground.
     #[serde(default)]
     pub target_categories: Vec<String>,
+    /// Whether this takes the target's side rather than damaging it.
+    ///
+    /// Yuri, and the Psychic Beacon. Not damage of any amount: a mind-controlled
+    /// tank arrives at full health with its veterancy intact, and the player who
+    /// lost it has lost a tank rather than had one destroyed. It is also the
+    /// only weapon whose effect is undone when the *attacker* dies.
+    #[serde(default)]
+    pub mind_control: bool,
     /// Whether this restores health instead of taking it away.
     ///
     /// A Medic, Yuri's repair drones, and the turret mode an engineer gives an

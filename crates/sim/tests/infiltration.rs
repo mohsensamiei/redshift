@@ -215,6 +215,7 @@ fn cannon() -> WeaponDef {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     }
 }

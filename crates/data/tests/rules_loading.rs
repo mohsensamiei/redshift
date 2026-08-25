@@ -373,6 +373,7 @@ fn a_weapon_without_an_armour_row_is_refused() {
             ammo: 0,
             intercepts: false,
             target_categories: vec![],
+            mind_control: false,
             heals: false,
         }],
         minimal_armour(),

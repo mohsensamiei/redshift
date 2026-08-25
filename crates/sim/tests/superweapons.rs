@@ -175,6 +175,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            mind_control: false,
             heals: false,
         }],
         armour(),
@@ -223,7 +224,11 @@ fn fire(sim: &mut Sim, owner: u8, building: EntityId, at: Cell) {
     sim.tick(&[Command::new(
         PlayerId(owner),
         0,
-        CommandKind::FirePower { building, at },
+        CommandKind::FirePower {
+            building,
+            at,
+            to: None,
+        },
     )]);
 }
 

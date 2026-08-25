@@ -180,8 +180,7 @@ impl Commander {
     fn place_ready_building(&self, sim: &Sim) -> Option<CommandKind> {
         let (producer, kind) = sim.ready_to_place(self.player)?;
         let base = self.base(sim)?;
-        let footprint = sim.stats().get(self.player, kind).footprint;
-        let at = self.site_for(sim, base, footprint)?;
+        let at = self.site_for(sim, base, kind)?;
         Some(CommandKind::PlaceBuilding { producer, at })
     }
 
@@ -190,7 +189,7 @@ impl Commander {
     /// A deterministic scan rather than a random spot. Random placement is the
     /// obvious way to write this and it is wrong twice over: it desyncs, and it
     /// produces bases that look like somebody spilled them.
-    fn site_for(&self, sim: &Sim, base: Cell, footprint: (u8, u8)) -> Option<Cell> {
+    fn site_for(&self, sim: &Sim, base: Cell, kind: EntityKind) -> Option<Cell> {
         for ring in 2..=LAYOUT_RADIUS {
             for dy in -ring..=ring {
                 for dx in -ring..=ring {
@@ -200,7 +199,7 @@ impl Commander {
                         continue;
                     }
                     let at = Cell::new(base.x + dx, base.y + dy);
-                    if sim.can_build_at(self.player, at, footprint) {
+                    if sim.can_place_kind(self.player, kind, at) {
                         return Some(at);
                     }
                 }

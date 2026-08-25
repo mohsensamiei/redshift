@@ -59,6 +59,7 @@ fn rifle() -> WeaponDef {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     }
 }
@@ -1843,6 +1844,7 @@ fn a_medic_heals_the_infantry_around_it() {
             ammo: 0,
             intercepts: false,
             target_categories: vec![],
+            mind_control: false,
             heals: true,
         }],
         armour(),
@@ -1925,6 +1927,7 @@ fn a_slow_projectile_takes_time_to_arrive() {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
@@ -2090,6 +2093,7 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
@@ -2228,6 +2232,7 @@ fn air_rules() -> Rules {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     };
 
@@ -2381,6 +2386,7 @@ fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                mind_control: false,
                 heals: false,
             },
             WeaponDef {
@@ -2397,6 +2403,7 @@ fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                mind_control: false,
                 heals: false,
             },
         ],

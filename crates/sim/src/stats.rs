@@ -28,6 +28,7 @@ use crate::command::PlayerId;
 use crate::fx::Fx;
 use crate::hash::{StateHash, StateHasher};
 use crate::map::SurfaceMask;
+use crate::map::Terrain;
 
 /// A full turn in binary angle units.
 const FULL_TURN: i64 = 65_536;
@@ -110,6 +111,18 @@ pub struct UnitStats {
     pub self_powered_at: u8,
     /// Whether this vehicle takes its weapon from whoever is riding inside.
     pub weapon_from_cargo: bool,
+    /// Whether this plants charges rather than shooting.
+    pub plants_charges: bool,
+    /// What this appears to be to everyone else, if it is disguised.
+    pub disguised_as: Option<EntityKind>,
+    /// Terrain this must be placed beside, if any.
+    ///
+    /// `None` for almost everything. A Naval Shipyard says `Water`, and the
+    /// placement rule falls out of the data rather than out of a case in the
+    /// placement code.
+    pub needs_adjacent: Option<Terrain>,
+    /// Whether this joins up with its own kind. For the renderer.
+    pub connects: bool,
     /// Ticks a superweapon here takes to charge. Zero for everything else.
     pub charge_time: u32,
     /// Whether this can be demolished for money.
@@ -223,6 +236,10 @@ impl Default for UnitStats {
             max_supporters: 0,
             self_powered_at: 0,
             weapon_from_cargo: false,
+            plants_charges: false,
+            disguised_as: None,
+            needs_adjacent: None,
+            connects: false,
             charge_time: 0,
             sellable: true,
             wander_radius: Fx::ZERO,
@@ -489,6 +506,16 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.wander_interval = interval.0;
             }
             Trait::Superweapon { charge, .. } => stats.charge_time = charge.0,
+            Trait::NeedsAdjacent { terrain } => {
+                stats.needs_adjacent = Some(match terrain {
+                    redshift_data::map::Ground::Land => Terrain::Ground,
+                    redshift_data::map::Ground::Water => Terrain::Water,
+                    redshift_data::map::Ground::Rock => Terrain::Rock,
+                })
+            }
+            Trait::Connects => stats.connects = true,
+            Trait::PlantsCharge { .. } => stats.plants_charges = true,
+            Trait::Disguised { looks_like } => stats.disguised_as = rules.kind_of(looks_like),
             Trait::Unsellable => stats.sellable = false,
             Trait::Bridge => stats.is_bridge = true,
             Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,

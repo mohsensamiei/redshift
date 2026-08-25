@@ -279,6 +279,23 @@ pub struct Unit {
     pub carrier: Option<EntityId>,
     /// Who is riding in this, in the order they boarded.
     pub cargo: Vec<EntityId>,
+    /// A charge planted on this, and the tick it goes off.
+    ///
+    /// Rides on the unit rather than sitting on the ground, so a bombed tank
+    /// driving into a crowd takes the crowd with it — which is the original's
+    /// behaviour and the reason a player runs away from one rather than
+    /// towards it.
+    pub charge_planted: Option<PlantedCharge>,
+    /// The tick this stops being switched off. Zero means it is not.
+    pub disabled_until: Tick,
+    /// Who is controlling this against its will, and whose it was before.
+    ///
+    /// Both halves are needed. The controller, because the effect ends when
+    /// they die — that is the whole counter to mind control, and a version
+    /// without it would make the ability permanent and unanswerable. And the
+    /// original owner, because "give it back" has to have somewhere to give it
+    /// back *to*.
+    pub controlled_by: Option<(EntityId, PlayerId)>,
     /// Ticks of charge a superweapon has accumulated.
     ///
     /// On the building rather than on the player, which is the faithful choice
@@ -347,6 +364,9 @@ impl Unit {
             carrier: None,
             cargo: Vec::new(),
             infestation: None,
+            charge_planted: None,
+            disabled_until: 0,
+            controlled_by: None,
             charge: 0,
             shielded_until: 0,
             home: pos.cell(),
@@ -390,6 +410,18 @@ impl Unit {
     }
 }
 
+/// A charge waiting to go off.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct PlantedCharge {
+    /// The tick it detonates.
+    pub goes_off: Tick,
+    pub damage: u32,
+    pub warhead: crate::combat::WarheadId,
+    pub radius: Fx,
+    /// Who planted it, so the kill is credited.
+    pub planted_by: EntityId,
+}
+
 impl StateHash for Unit {
     fn state_hash(&self, h: &mut StateHasher) {
         h.write(&self.owner);
@@ -431,6 +463,28 @@ impl StateHash for Unit {
         for id in &self.cargo {
             h.write_u32(id.index());
             h.write_u32(id.generation());
+        }
+        match &self.charge_planted {
+            Some(c) => {
+                h.write_u8(1);
+                h.write_u32(c.goes_off);
+                h.write_u32(c.damage);
+                h.write_u16(c.warhead.0);
+                h.write_i32(c.radius.raw());
+                h.write_u32(c.planted_by.index());
+                h.write_u32(c.planted_by.generation());
+            }
+            None => h.write_u8(0),
+        }
+        h.write_u32(self.disabled_until);
+        match &self.controlled_by {
+            Some((id, was)) => {
+                h.write_u8(1);
+                h.write_u32(id.index());
+                h.write_u32(id.generation());
+                h.write(was);
+            }
+            None => h.write_u8(0),
         }
         h.write_u32(self.charge);
         h.write_u32(self.shielded_until);

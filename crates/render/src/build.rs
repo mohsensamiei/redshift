@@ -79,7 +79,7 @@ pub fn update_placement_preview(
     };
     let stats = session.sim().stats().get(local, kind);
     let (w, h) = stats.footprint;
-    let legal = session.sim().can_build_at(local, cell, (w, h));
+    let legal = session.sim().can_place_kind(local, kind, cell);
 
     if existing.is_empty() {
         commands.spawn((

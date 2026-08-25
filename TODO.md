@@ -155,7 +155,7 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
 - [x] Superweapon and support-power framework — a charge on the *building*, an
       effect in the data, and a place chosen by the player. Four of them ship:
       nuclear missile, Iron Curtain, spy satellite, paradrop
-- [x] Chronosphere — needs teleportation, which is being built now
+- [x] Chronosphere — expressible now that teleportation exists
 - [ ] Weather Control — a persistent roaming effect, and the only superweapon
       that is genuinely a *moving* thing rather than an event. Phase 5, with
       the other content that needs a subsystem of its own
@@ -242,12 +242,21 @@ These have no failing test standing for them, which is the honest position: the
 audit answers "can the engine express what we have described", not "have we
 built everything". When a unit arrives that needs one, the gap comes back.
 
-- [ ] Walls — one-cell structures that connect to their neighbours
+- [x] Walls — `Connects`. The simulation does not care: a wall blocks ground
+      because it has a footprint, like any building. The trait is for the
+      renderer and for drag placement
 - [x] Map reveal — `PowerEffect::Reveal`, which the spy satellite uses. Closed
       when the superweapon framework landed and never ticked here
-- [ ] Placement rules per structure — a naval yard must touch water
-- [ ] Placed charges — armed now, detonating later
-- [ ] Temporary status effects — invulnerable, irradiated, disabled
+- [x] Placement rules per structure — `NeedsAdjacent`, a requirement on the
+      *structure* rather than a case in the placement code. Enforced in the
+      simulation, not only in the preview: a rule a modified client could
+      ignore is not a rule
+- [x] Placed charges — the delay is the mechanic. The charge rides on what it
+      was planted on, so a bombed tank driving into a crowd takes the crowd
+      with it
+- [x] Temporary status effects — invulnerable (Iron Curtain), irradiated
+      (contamination) and disabled. Disable reuses `is_unpowered`, so one check
+      reaches production, radar, superweapon charging and defences at once
 - [→] Aircraft and Naval — **moved to Phase 5**, and this is a decision rather
       than a deferral. Both are engine work, but they exist *for* content: the
       Kirov, the Rocketeer, the Black Eagle, the Dreadnought. Nothing in
@@ -256,9 +265,14 @@ built everything". When a unit arrives that needs one, the gap comes back.
       there is a single aircraft to fly would be building against a guess.
       They are listed under Phase 5 with the units that need them.
 - [ ] Superweapons and powers — charge timers, targeting modes, novel effects
-- [ ] Mind control — changing a unit's owner mid-match
-- [ ] Teleportation — movement without a path
-- [ ] Disguise — appearing as something else to one side only
+- [x] Mind control — and its counter, which is the part that makes it an
+      ability rather than a way to win: kill the controller and the army walks
+      home
+- [x] Teleportation — the Chronosphere, and the first power that takes two
+      places. Formation is kept: each unit arrives at the offset it had
+- [x] Disguise — the simulation goes on knowing the truth. A version that
+      swapped the kind in the arena would have a Mirage Tank shooting like a
+      tree
 
 ### World state the renderer could not see
 

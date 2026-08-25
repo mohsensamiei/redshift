@@ -70,6 +70,27 @@ pub enum PowerEffect {
     Reveal { radius: Hundredths },
     /// Puts units on the ground from off-map. Paratroopers.
     Paradrop { units: Vec<String> },
+    /// Moves everything it covers somewhere else, ignoring the ground between.
+    ///
+    /// The Chronosphere. Two places rather than one, which is why it could not
+    /// be expressed until the framework had somewhere to put a second target —
+    /// and why it is worth saying that a power takes an *area* and a
+    /// *destination* rather than just a point.
+    ///
+    /// `carries` names what may be moved. The original cannot move infantry,
+    /// and that is a rule about the power rather than about infantry, so it
+    /// lives here.
+    Teleport {
+        radius: Hundredths,
+        carries: Vec<String>,
+    },
+    /// Switches off what it covers for a while, without damaging it.
+    ///
+    /// The same effect as [`Trait::Disables`] on a unit, delivered as a power.
+    /// Both exist because both exist in the original — an EMP is a superweapon
+    /// in one game and a vehicle's gun in another, and the effect is the same
+    /// thing either way.
+    Disables { radius: Hundredths, duration: Ticks },
     /// Makes what it covers invulnerable for a while — and kills the infantry
     /// caught in it, which is the part everyone forgets. It also shakes off a
     /// parasite, so it is a way to save an infested tank as well as to protect
@@ -505,6 +526,67 @@ pub enum Trait {
         effect: PowerEffect,
     },
 
+    /// Plants a charge that goes off later.
+    ///
+    /// Crazy Ivan, and Tanya's C4. The delay is the whole mechanic: a bomb that
+    /// detonated on contact would be an ordinary weapon with a large number,
+    /// and the thing that makes it interesting — seeing it, and having time to
+    /// do something — would be gone.
+    ///
+    /// The charge rides on what it was planted on, so a bombed tank driving
+    /// into a crowd takes the crowd with it. That is the original's behaviour
+    /// and it is also the reason a player runs *away* from a bombed unit
+    /// instead of towards it.
+    PlantsCharge {
+        /// Ticks between planting and going off.
+        fuse: Ticks,
+        damage: u32,
+        warhead: WarheadId,
+        radius: Hundredths,
+        /// Categories it can be planted on. Empty means anything.
+        #[serde(default)]
+        categories: Vec<String>,
+    },
+
+    /// Switches things off for a while rather than destroying them.
+    ///
+    /// An EMP. The distinction that makes it worth having: a disabled building
+    /// is not damaged, so repairing it does nothing and the player simply has
+    /// to wait — and a disabled defence is a hole in a base that closes on its
+    /// own, which is a very different thing to attack into than rubble.
+    Disables { radius: Hundredths, duration: Ticks },
+
+    /// Looks like something else to everyone but its owner.
+    ///
+    /// The Spy and the Mirage Tank. Researched, and the two rules that matter:
+    /// **firing drops it**, and a detector sees through it. Both already exist
+    /// for the cloak, which is why this is a small trait rather than a large
+    /// one — what differs is that a disguised thing is *visible*, and wrong,
+    /// rather than absent.
+    Disguised {
+        /// What it appears to be. An entity id, so the lie is as specific as
+        /// the truth.
+        looks_like: String,
+    },
+
+    /// Where this may be put down, beyond the ordinary rules.
+    ///
+    /// A Naval Shipyard must touch water; everything else must not be on it.
+    /// Expressed as a requirement on the *structure* rather than as a case in
+    /// the placement code, so a mod that adds a second waterside building needs
+    /// no engine change — which is the whole of ADR 0006 applied to placement.
+    NeedsAdjacent { terrain: crate::map::Ground },
+
+    /// Joins up with its own kind into a continuous line.
+    ///
+    /// A wall is a structure in every other respect, and the only thing that
+    /// distinguishes it is being drawn as a run rather than as a row of
+    /// separate objects. The simulation does not care — a wall blocks ground
+    /// because it has a footprint, like any building — so this exists for the
+    /// renderer, and for the placement rule that lets a player drag a line of
+    /// them rather than clicking each one.
+    Connects,
+
     /// Cannot be demolished for money.
     ///
     /// Tech structures — an oil derrick, a hospital, an airport. Capturing one
@@ -795,6 +877,11 @@ impl Trait {
             Trait::Crews { .. } => "Crews",
             Trait::WeaponFromCargo => "WeaponFromCargo",
             Trait::HidesGround { .. } => "HidesGround",
+            Trait::PlantsCharge { .. } => "PlantsCharge",
+            Trait::Disables { .. } => "Disables",
+            Trait::Disguised { .. } => "Disguised",
+            Trait::NeedsAdjacent { .. } => "NeedsAdjacent",
+            Trait::Connects => "Connects",
             Trait::Superweapon { .. } => "Superweapon",
             Trait::Unsellable => "Unsellable",
             Trait::Wanders { .. } => "Wanders",
@@ -847,9 +934,12 @@ impl Trait {
                 }
                 _ => Vec::new(),
             },
-            Trait::Infests { warhead, .. } | Trait::Contaminates { warhead, .. } => {
+            Trait::Infests { warhead, .. }
+            | Trait::Contaminates { warhead, .. }
+            | Trait::PlantsCharge { warhead, .. } => {
                 vec![("warhead", warhead.clone())]
             }
+            Trait::Disguised { looks_like } => vec![("disguise", looks_like.clone())],
             Trait::Garrisonable { weapon, .. } => vec![("weapon", weapon.clone())],
             Trait::Infiltrated {
                 effect: InfiltrationEffect::Unlocks { unit },
@@ -927,6 +1017,11 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Crews",
     "WeaponFromCargo",
     "HidesGround",
+    "PlantsCharge",
+    "Disables",
+    "Disguised",
+    "NeedsAdjacent",
+    "Connects",
     "Superweapon",
     "Unsellable",
     "Wanders",

@@ -45,6 +45,7 @@ fn hitting(id: &str, range: i32, damage: u32, reload: u32) -> WeaponDef {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     }
 }

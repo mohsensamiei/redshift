@@ -46,6 +46,7 @@ fn gun(id: &str, warhead: &str, range: i32, categories: Vec<String>) -> WeaponDe
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        mind_control: false,
         heals: false,
     }
 }

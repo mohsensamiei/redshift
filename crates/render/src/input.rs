@@ -128,7 +128,20 @@ pub fn handle_selection(
             aiming.building = None;
             let at = Cell::new(ground.x.floor() as i32, ground.y.floor() as i32);
             if session.sim().map().contains(at) {
-                session.issue(CommandKind::FirePower { building, at });
+                // A power that wants a second place asks for another click; the
+                // rest fire now. Which is which is a fact about the power, so
+                // the interface asks the simulation rather than deciding.
+                if session.sim().power_wants_destination(building) && aiming.from.is_none() {
+                    aiming.building = Some(building);
+                    aiming.from = Some(at);
+                } else {
+                    let from = aiming.from.take();
+                    session.issue(CommandKind::FirePower {
+                        building,
+                        at: from.unwrap_or(at),
+                        to: from.map(|_| at),
+                    });
+                }
             }
             drag.is_box = false;
             return;

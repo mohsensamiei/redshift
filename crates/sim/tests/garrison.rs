@@ -41,6 +41,7 @@ fn gun(id: &str, damage: u32, range: i32) -> WeaponDef {
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     }
 }

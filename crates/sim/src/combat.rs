@@ -59,6 +59,8 @@ pub struct WeaponStats {
     /// Which categories this may be used against, as a bitmask over the
     /// interned category list. Zero means anything.
     pub target_categories: u32,
+    /// Whether this takes the target's side rather than damaging it.
+    pub mind_control: bool,
     /// Whether this restores health instead of taking it away.
     pub heals: bool,
     /// Whether the shot follows its target.
@@ -253,6 +255,8 @@ impl StateHash for CombatState {
 /// deterministic but arbitrary, and that changes when slots are reused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PendingHit {
+    /// Whether this takes the target's side rather than hurting it.
+    pub mind_control: bool,
     /// Whether this restores health rather than removing it.
     pub heals: bool,
     pub attacker: EntityId,
@@ -318,6 +322,7 @@ fn build_weapon(
         ammo: weapon.ammo,
         intercepts: weapon.intercepts,
         target_categories: categories_mask(&weapon.target_categories),
+        mind_control: weapon.mind_control,
         heals: weapon.heals,
         targets: if weapon.targets.is_empty() {
             // Ground only. The default almost every weapon wants, and the one
@@ -567,6 +572,8 @@ pub struct CombatTable {
     /// What each kind does to the ground it stands on. Interned here with the
     /// other warheads, for the same reason as all of them.
     contamination: Vec<Option<Contamination>>,
+    /// What each kind plants, if it plants anything.
+    charge: Vec<Option<Charge>>,
     damage: DamageTable,
 }
 
@@ -576,6 +583,15 @@ pub struct CombatTable {
 /// it is infantry — so the mode it grants needs a figure from somewhere, and a
 /// named constant is better than the same magic number in two places.
 const DEFAULT_TURRET_RATE: u32 = 3600;
+
+/// What a charge does when it goes off, and how long it waits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Charge {
+    pub fuse: u32,
+    pub damage: u32,
+    pub warhead: WarheadId,
+    pub radius: Fx,
+}
 
 /// What a contaminating unit does to the ground around it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -633,6 +649,7 @@ impl CombatTable {
         let mut contamination: Vec<Option<Contamination>> =
             Vec::with_capacity(rules.entity_count());
         let mut crew_weapon: Vec<Option<WeaponStats>> = Vec::with_capacity(rules.entity_count());
+        let mut charge: Vec<Option<Charge>> = Vec::with_capacity(rules.entity_count());
         let mut category_bit: Vec<u32> = Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index, &categories_mask));
@@ -671,6 +688,21 @@ impl CombatTable {
                 _ => None,
             }));
             category_bit.push(category_index(&def.category));
+            charge.push(def.traits.iter().find_map(|t| match t {
+                Trait::PlantsCharge {
+                    fuse,
+                    damage,
+                    warhead,
+                    radius,
+                    ..
+                } => Some(Charge {
+                    fuse: fuse.0,
+                    damage: *damage,
+                    warhead: warhead_index(warhead),
+                    radius: Fx::from_raw(radius.to_fx_raw()),
+                }),
+                _ => None,
+            }));
             crew_weapon.push(def.traits.iter().find_map(|t| match t {
                 // A crewed weapon always has a turret: it is a turret mode.
                 Trait::Crews { weapon } => build_weapon(
@@ -708,6 +740,7 @@ impl CombatTable {
             infestation,
             garrison_weapon,
             contamination,
+            charge,
             crew_weapon,
             category_bit,
             warhead_names: warheads.iter().map(|w| w.to_string()).collect(),
@@ -761,6 +794,11 @@ impl CombatTable {
         self.crew_weapon
             .get(kind.0 as usize)
             .and_then(|w| w.as_ref())
+    }
+
+    /// What this kind plants, if it plants anything.
+    pub fn charge(&self, kind: EntityKind) -> Option<Charge> {
+        self.charge.get(kind.0 as usize).copied().flatten()
     }
 
     /// What this kind does to the ground around it, if it does anything.
@@ -889,6 +927,7 @@ mod tests {
                 ammo: 0,
                 intercepts: false,
                 target_categories: vec![],
+                mind_control: false,
                 heals: false,
             },
             WeaponDef {
@@ -905,6 +944,7 @@ mod tests {
                 ammo: 0,
                 intercepts: false,
                 target_categories: vec![],
+                mind_control: false,
                 heals: false,
             },
         ];

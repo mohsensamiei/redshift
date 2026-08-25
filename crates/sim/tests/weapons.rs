@@ -27,6 +27,7 @@ fn weapon(id: &str, targets: Vec<Layer>, extra: fn(&mut WeaponDef)) -> WeaponDef
         ammo: 0,
         intercepts: false,
         target_categories: vec![],
+        mind_control: false,
         heals: false,
     };
     extra(&mut w);

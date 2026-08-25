@@ -51,6 +51,8 @@ pub struct Projectile {
     pub splash_radius: Fx,
     /// Whether the shot kills outright on arrival.
     pub instant_kill: bool,
+    /// Whether this takes the target's side rather than hurting it.
+    pub mind_control: bool,
     /// Whether this restores health rather than removing it.
     pub heals: bool,
     /// Ticks left before it is given up on.
@@ -127,6 +129,7 @@ impl StateHash for Projectile {
         h.write_u16(self.warhead.0);
         h.write_i32(self.splash_radius.raw());
         h.write_bool(self.instant_kill);
+        h.write_bool(self.mind_control);
         h.write_bool(self.heals);
         h.write_u32(self.fuse);
     }
@@ -149,6 +152,7 @@ mod tests {
             warhead: WarheadId(0),
             splash_radius: Fx::ZERO,
             instant_kill: false,
+            mind_control: false,
             heals: false,
             fuse: MAX_FLIGHT_TICKS,
         }

@@ -66,21 +66,21 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when superweapons landed. Every unit now carries a charge
-/// counter and a shield expiry, so every value moved even though nothing in
-/// this scenario has either. Determinism was confirmed first across every
-/// suite.
+/// Re-recorded when the last seven capabilities landed. Every unit now carries
+/// a planted charge, a disable expiry and a controller, so every value moved
+/// even though nothing in this scenario has any of them. Determinism was
+/// confirmed first across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0x7c53a9fc5f8dbd01),
-    (50, 0x10c900f31b9d6ebb),
-    (100, 0x9af2b839abd50528),
-    (200, 0x9c79f3672a770fda),
-    (400, 0xc5de51fad3d9d239),
+    (10, 0x2c39bb6897f163f9),
+    (50, 0xacf3487fc256998b),
+    (100, 0x826bd2d5ab22a2e0),
+    (200, 0xc86895d5dd4ad2c2),
+    (400, 0x10ca39d40adecb49),
 ];
 
 #[test]

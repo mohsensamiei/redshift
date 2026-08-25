@@ -162,7 +162,6 @@ fn demo_build(mut session: ResMut<Session>, mut frames: Local<u32>, mut queued: 
 
     // Once it is ready, put it somewhere legal near the yard.
     if let Some((producer, kind)) = session.sim().ready_to_place(local) {
-        let footprint = session.sim().stats().get(local, kind).footprint;
         let origin = session
             .sim()
             .units()
@@ -176,7 +175,7 @@ fn demo_build(mut session: ResMut<Session>, mut frames: Local<u32>, mut queued: 
                 let cell = redshift_sim::map::Cell::new(origin.x + r, origin.y + d);
                 session
                     .sim()
-                    .can_build_at(local, cell, footprint)
+                    .can_place_kind(local, kind, cell)
                     .then_some(cell)
             });
         if let Some(at) = spot {

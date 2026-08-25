@@ -510,21 +510,34 @@ pub fn sync_units(
         if drawn.remove(&id).is_some() {
             continue;
         }
+        // What it *looks* like, which is not always what it is. A disguised
+        // spy is drawn as the thing it is pretending to be; the simulation goes
+        // on knowing the truth, because a disguise fools players rather than
+        // physics.
+        let looks_like = session.sim().appears_as(viewer, unit);
         let half_height = assets
             .unit_half_heights
-            .get(unit.kind.0 as usize)
+            .get(looks_like.0 as usize)
             .copied()
             .unwrap_or(UNIT_HEIGHT / 2.0);
+        // Wearing the other side's colours too, which is the half of a disguise
+        // that actually fools anyone — a spy in his own team's red would be a
+        // spy with a hat on.
+        let seems_to_belong_to = if looks_like == unit.kind {
+            unit.owner
+        } else {
+            viewer
+        };
         let material = assets
             .team_materials
-            .get(unit.owner.0 as usize % assets.team_materials.len())
+            .get(seems_to_belong_to.0 as usize % assets.team_materials.len())
             .expect("at least one team material")
             .clone();
         commands.spawn((
             Mesh3d(
                 assets
                     .unit_meshes
-                    .get(unit.kind.0 as usize)
+                    .get(looks_like.0 as usize)
                     .unwrap_or(&assets.unit_mesh)
                     .clone(),
             ),

@@ -609,11 +609,13 @@ impl Sim {
         // Parasites bite through the ordinary damage path, so armour still
         // means something and the kill is credited to the drone like any other.
         let bites = self.run_infestations();
+        let charges = self.detonate_charges();
         self.spread_contamination();
         let poison = self.run_hazards();
         self.resolve_damage(&landed);
         self.resolve_damage(&hits);
         self.resolve_damage(&bites);
+        self.resolve_damage(&charges);
         self.resolve_damage(&poison);
         self.crush_underfoot();
         // After damage and before deaths, so a building shot below the
@@ -632,6 +634,7 @@ impl Sim {
         // Recomputing at the start instead left it a tick stale: a base whose
         // only plant had just been destroyed still reported itself powered.
         self.recompute_power();
+        self.release_the_controlled();
         self.recompute_boons();
         // Last, so it judges the world as it stands at the end of the tick.
         self.resolve_outcome();
@@ -1037,6 +1040,20 @@ impl Sim {
         })
     }
 
+    /// Whether this superweapon needs a second place before it can fire.
+    ///
+    /// Only the Chronosphere does. The interface asks rather than deciding,
+    /// because which powers take two places is a fact about the rules.
+    pub fn power_wants_destination(&self, building: EntityId) -> bool {
+        let Some(unit) = self.units.get(building) else {
+            return false;
+        };
+        matches!(
+            self.power_effect(unit.kind),
+            Some(redshift_data::traits::PowerEffect::Teleport { .. })
+        )
+    }
+
     /// How far along a superweapon is, as a percentage. `None` if it is not one.
     pub fn power_progress(&self, building: EntityId) -> Option<u32> {
         let unit = self.units.get(building)?;
@@ -1052,7 +1069,7 @@ impl Sim {
     /// Spends the charge whatever the effect turns out to do. A missile aimed
     /// at empty ground is a missile spent, which is the player's mistake to
     /// make rather than something for the engine to protect them from.
-    fn fire_power(&mut self, building: EntityId, at: Cell) {
+    fn fire_power(&mut self, building: EntityId, at: Cell, to: Option<Cell>) {
         if !self.power_ready(building) {
             return;
         }
@@ -1063,10 +1080,16 @@ impl Sim {
         let Some(effect) = self.power_effect(kind) else {
             return;
         };
+        // A power that cannot act keeps its charge. Spending a Chronosphere on
+        // an order the player did not finish would be the engine punishing them
+        // for a misclick, which is not the kind of mistake worth punishing.
+        if matches!(effect, redshift_data::traits::PowerEffect::Teleport { .. }) && to.is_none() {
+            return;
+        }
         if let Some(unit) = self.units.get_mut(building) {
             unit.charge = 0;
         }
-        self.apply_power(owner, building, at, &effect);
+        self.apply_power(owner, building, at, to, &effect);
     }
 
     /// What a kind of superweapon does. Read from the rules, like every other
@@ -1083,6 +1106,7 @@ impl Sim {
         owner: PlayerId,
         source: EntityId,
         at: Cell,
+        to: Option<Cell>,
         effect: &redshift_data::traits::PowerEffect,
     ) {
         use redshift_data::traits::PowerEffect;
@@ -1099,6 +1123,7 @@ impl Sim {
                 // the kill is credited. A missile that ignored the armour table
                 // would be a second damage model to keep in step with the first.
                 let hits = vec![PendingHit {
+                    mind_control: false,
                     heals: false,
                     attacker: source,
                     instant_kill: false,
@@ -1143,6 +1168,97 @@ impl Sim {
                     if let Some(cell) = cell {
                         taken.push(cell);
                         self.spawn_unit(owner, kind, cell.centre());
+                    }
+                }
+            }
+            PowerEffect::Teleport { radius, carries } => {
+                // Nowhere to go, nothing happens. A Chronosphere fired at one
+                // place is a player who has not finished the order.
+                let Some(destination) = to else {
+                    return;
+                };
+                let radius = Fx::from_raw(radius.to_fx_raw());
+                let allowed: Vec<EntityKind> = carries
+                    .iter()
+                    .filter_map(|c| self.rules.kind_of(c))
+                    .collect();
+                let categories: Vec<&str> = carries.iter().map(|c| c.as_str()).collect();
+
+                let moving: Vec<EntityId> = self
+                    .units
+                    .iter()
+                    .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+                    .filter(|(_, u)| Self::are_allied(u.owner, owner) && !u.owner.is_neutral())
+                    .filter(|(_, u)| self.stats.get(u.owner, u.kind).mobile)
+                    .filter(|(_, u)| {
+                        allowed.contains(&u.kind)
+                            || categories.contains(&self.rules.entity(u.kind).category.as_str())
+                    })
+                    .filter(|(_, u)| {
+                        Fx::dist_sq(
+                            Fx::from_int(u.cell().x - at.x),
+                            Fx::from_int(u.cell().y - at.y),
+                        ) <= radius.sq()
+                    })
+                    .map(|(id, _)| id)
+                    .collect();
+
+                // Keeping the formation: each unit arrives at the same offset
+                // from the destination that it had from the source. A version
+                // that piled everything on one cell would spend the seconds
+                // after arrival untangling itself, which is exactly when a
+                // player needs the army to work.
+                let mut taken: Vec<Cell> = Vec::new();
+                for id in moving {
+                    let Some(unit) = self.units.get(id) else {
+                        continue;
+                    };
+                    let (from, movement) =
+                        (unit.cell(), self.stats.get(unit.owner, unit.kind).movement);
+                    let wanted = Cell::new(
+                        destination.x + (from.x - at.x),
+                        destination.y + (from.y - at.y),
+                    );
+                    let Some(cell) = self
+                        .nearest_free_cell(wanted, movement, &taken)
+                        .or_else(|| self.free_cell_near(destination, movement, PARADROP_SPREAD))
+                    else {
+                        // Nowhere to put it, so it stays where it is. Losing a
+                        // unit to a full destination would be a strange way to
+                        // punish a player for using their own superweapon.
+                        continue;
+                    };
+                    taken.push(cell);
+                    if let Some(unit) = self.units.get_mut(id) {
+                        unit.pos = cell.centre();
+                        // Whatever it was walking towards, it is not walking
+                        // there from here. Arriving mid-path would send it back
+                        // the way it came.
+                        unit.order = Order::Idle;
+                    }
+                }
+            }
+            PowerEffect::Disables { radius, duration } => {
+                let radius = Fx::from_raw(radius.to_fx_raw());
+                let until = self.tick + duration.0;
+                // Everyone's, not just the enemy's. An EMP does not check
+                // whose things it is switching off, and a version that spared
+                // the caster's would be a different weapon.
+                let covered: Vec<EntityId> = self
+                    .units
+                    .iter()
+                    .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+                    .filter(|(_, u)| {
+                        Fx::dist_sq(
+                            Fx::from_int(u.cell().x - at.x),
+                            Fx::from_int(u.cell().y - at.y),
+                        ) <= radius.sq()
+                    })
+                    .map(|(id, _)| id)
+                    .collect();
+                for id in covered {
+                    if let Some(unit) = self.units.get_mut(id) {
+                        unit.disabled_until = until;
                     }
                 }
             }
@@ -1375,6 +1491,7 @@ impl Sim {
             };
             let hazard = self.hazards[at];
             hits.push(PendingHit {
+                mind_control: false,
                 heals: false,
                 attacker: hazard.source,
                 instant_kill: false,
@@ -1391,6 +1508,138 @@ impl Sim {
     /// Ground currently dangerous to stand on. For the renderer.
     pub fn hazards(&self) -> &[Hazard] {
         &self.hazards
+    }
+
+    /// Whether this unit can put a charge on that one.
+    fn may_plant(&self, bomber: EntityId, victim: EntityId) -> bool {
+        let (Some(b), Some(v)) = (self.units.get(bomber), self.units.get(victim)) else {
+            return false;
+        };
+        if !b.is_alive() || !v.is_alive() || b.is_aboard() || Self::are_allied(b.owner, v.owner) {
+            return false;
+        }
+        // One at a time. A second charge would overwrite the first, and one of
+        // the two bombs would simply never have existed.
+        if v.charge_planted.is_some() || self.combat.charge(b.kind).is_none() {
+            return false;
+        }
+        // Within the bomber's own reach. Without this a charge could be planted
+        // from anywhere the target is visible, which is not planting a bomb.
+        let Some(weapon) = self.combat.weapon(b.kind) else {
+            return false;
+        };
+        if Fx::dist_sq(v.pos.x - b.pos.x, v.pos.y - b.pos.y) > weapon.range_sq {
+            return false;
+        }
+        let category = &self.rules.entity(v.kind).category;
+        self.rules.entity(b.kind).traits.iter().any(|t| match t {
+            redshift_data::traits::Trait::PlantsCharge { categories, .. } => {
+                categories.is_empty() || categories.contains(category)
+            }
+            _ => false,
+        })
+    }
+
+    /// Puts a charge on something.
+    fn plant_charge(&mut self, bomber: EntityId, victim: EntityId) {
+        let Some(charge) = self
+            .units
+            .get(bomber)
+            .and_then(|b| self.combat.charge(b.kind))
+        else {
+            return;
+        };
+        let goes_off = self.tick + charge.fuse;
+        if let Some(v) = self.units.get_mut(victim) {
+            v.charge_planted = Some(crate::unit::PlantedCharge {
+                goes_off,
+                damage: charge.damage,
+                warhead: charge.warhead,
+                radius: charge.radius,
+                planted_by: bomber,
+            });
+        }
+        // The bomber stops attacking it. Standing there shooting something it
+        // has already bombed is not what a demolitions expert does.
+        if let Some(b) = self.units.get_mut(bomber) {
+            b.combat.target = None;
+            b.order = Order::Idle;
+        }
+    }
+
+    /// Sets off every charge whose fuse has run out.
+    ///
+    /// Returns hits like every other source of damage, so a bombed building
+    /// dies through the same path as a shelled one — bounty, rubble, the crew
+    /// getting out, all of it.
+    fn detonate_charges(&mut self) -> Vec<PendingHit> {
+        let tick = self.tick;
+        let due: Vec<(EntityId, crate::unit::PlantedCharge, WorldPos)> = self
+            .units
+            .iter()
+            .filter_map(|(id, u)| {
+                let charge = u.charge_planted?;
+                (charge.goes_off <= tick).then_some((id, charge, u.pos))
+            })
+            .collect();
+
+        let mut hits = Vec::new();
+        for (id, charge, at) in due {
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.charge_planted = None;
+            }
+            hits.push(PendingHit {
+                mind_control: false,
+                heals: false,
+                attacker: charge.planted_by,
+                instant_kill: false,
+                target: id,
+                damage: charge.damage,
+                warhead: charge.warhead,
+                splash_radius: charge.radius,
+                at,
+            });
+        }
+        hits
+    }
+
+    /// Whether a unit is switched off.
+    ///
+    /// Not damaged — switched off. Repairing a disabled building does nothing
+    /// and the player simply waits, which is what makes an EMP a different
+    /// thing to attack into than rubble.
+    pub fn is_disabled(&self, unit: &Unit) -> bool {
+        unit.disabled_until > self.tick
+    }
+
+    /// Gives back everything whose controller has died.
+    ///
+    /// The whole counter to mind control, and the reason it is an ability
+    /// rather than a way to win: kill the controller and the army walks home.
+    /// Without this the effect is permanent and there is nothing to be done
+    /// about it, which is not a mechanic so much as a bug with a name.
+    fn release_the_controlled(&mut self) {
+        let freed: Vec<(EntityId, PlayerId)> = self
+            .units
+            .iter()
+            .filter_map(|(id, unit)| {
+                let (controller, was) = unit.controlled_by?;
+                let gone = self
+                    .units
+                    .get(controller)
+                    .is_none_or(|c| !c.is_alive() || c.is_aboard());
+                gone.then_some((id, was))
+            })
+            .collect();
+        for (id, was) in freed {
+            self.change_owner(id, was);
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.controlled_by = None;
+                // Whatever it was told to do, it was told by somebody else.
+                unit.order = Order::Idle;
+                unit.combat.target = None;
+            }
+        }
     }
 
     /// One tick of every parasite eating its host.
@@ -1417,6 +1666,7 @@ impl Sim {
                 continue;
             };
             bites.push(PendingHit {
+                mind_control: false,
                 heals: false,
                 attacker: parasite_id,
                 instant_kill: false,
@@ -1559,6 +1809,7 @@ impl Sim {
                 // death, and it is worth paying explicitly rather than by
                 // hoping nobody gives a bridge a death charge.
                 (stats.death_damage > 0 && !stats.is_bridge).then(|| PendingHit {
+                    mind_control: false,
                     heals: false,
                     attacker: id,
                     instant_kill: false,
@@ -1754,6 +2005,33 @@ impl Sim {
         stats.cloakable && unit.since_fired >= stats.recloak_delay
     }
 
+    /// What a unit appears to be, to a given player.
+    ///
+    /// Its own kind for its owner and for anyone with a detector; the lie for
+    /// everybody else. Returned rather than applied, because the *simulation*
+    /// must go on knowing what it really is — a disguise fools players, not
+    /// physics, and a version that swapped the kind in the arena would have a
+    /// Mirage Tank shooting like a tree.
+    ///
+    /// Broken by firing, on the same timer as the cloak. That is researched:
+    /// the two share the rule because the original shares it.
+    pub fn appears_as(&self, viewer: PlayerId, unit: &Unit) -> EntityKind {
+        let stats = self.stats.get(unit.owner, unit.kind);
+        let Some(disguise) = stats.disguised_as else {
+            return unit.kind;
+        };
+        if unit.owner == viewer || Self::are_allied(unit.owner, viewer) {
+            return unit.kind;
+        }
+        if unit.since_fired < stats.recloak_delay {
+            return unit.kind;
+        }
+        if self.visibility.is_detected(viewer, unit.cell()) {
+            return unit.kind;
+        }
+        disguise
+    }
+
     /// Whether a unit is currently below the surface.
     ///
     /// Two triggers, not one. A submarine that had only been given the cloak's
@@ -1888,6 +2166,13 @@ impl Sim {
     /// that consume none — a wall, a refinery — carry on regardless, which is
     /// what makes a power plant worth attacking rather than merely worth owning.
     pub fn is_unpowered(&self, unit: &Unit) -> bool {
+        // Switched off counts as unpowered for everything that asks. One check
+        // here reaches production, radar vision, superweapon charging and
+        // defences at once — an EMP that had to be handled separately in each
+        // of those would be handled in three of them.
+        if unit.disabled_until > self.tick {
+            return true;
+        }
         let stats = self.stats.get(unit.owner, unit.kind);
         // Enough support cuts a structure loose from the grid entirely. Three
         // Tesla Troopers at a coil, and it keeps firing through a blackout —
@@ -2454,6 +2739,7 @@ impl Sim {
         let mut hits = Vec::new();
         let mut launched: Vec<Projectile> = Vec::new();
         let mut burrows: Vec<(EntityId, EntityId)> = Vec::new();
+        let mut plants: Vec<(EntityId, EntityId)> = Vec::new();
 
         // A snapshot for targeting, so every attacker sees the same world.
         // Cloning the arena each tick would be wasteful; the targeting pass
@@ -2651,6 +2937,31 @@ impl Sim {
             // Resolved here, before the mutable borrow below, for the same
             // reason `firing_weapon` is.
             let can_burrow = target.is_some_and(|t| self.may_infest(attacker, t));
+            // A bomber does not shoot what it has already bombed. Without this
+            // it plants a charge, auto-acquires the same target on the next
+            // tick — `may_plant` now says no, since one charge is the limit —
+            // and stands there emptying a sidearm into a bomb it set itself.
+            let bombed_it_already = self
+                .units
+                .get(attacker)
+                .is_some_and(|a| self.stats.get(a.owner, a.kind).plants_charges)
+                && target
+                    .and_then(|t| self.units.get(t))
+                    .is_some_and(|t| t.charge_planted.is_some());
+            if bombed_it_already {
+                continue;
+            }
+
+            // Planting is not a shot and does not wait for one. Checked before
+            // the aiming and reload gates rather than after: a demolitions
+            // expert who has walked up to a tank does not stand there emptying
+            // a rifle into it until his weapon happens to be ready.
+            if target.is_some_and(|t| self.may_plant(attacker, t)) {
+                if let Some(t) = target {
+                    plants.push((attacker, t));
+                }
+                continue;
+            }
 
             let Some(unit) = self.units.get_mut(attacker) else {
                 continue;
@@ -2728,12 +3039,14 @@ impl Sim {
                         warhead: firing_weapon.warhead,
                         splash_radius: firing_weapon.splash_radius,
                         instant_kill: firing_weapon.instant_kill,
+                        mind_control: firing_weapon.mind_control,
                         heals: firing_weapon.heals,
                         fuse: crate::projectile::MAX_FLIGHT_TICKS,
                     });
                 } else {
                     // A rifle. Instant, exactly as before.
                     hits.push(PendingHit {
+                        mind_control: firing_weapon.mind_control,
                         heals: firing_weapon.heals,
                         attacker,
                         instant_kill: firing_weapon.instant_kill,
@@ -2747,6 +3060,14 @@ impl Sim {
             }
         }
         self.projectiles.extend(launched);
+        for (bomber, victim) in plants {
+            // Re-checked, because another charge may have gone on this one
+            // already: two bombs on one tank would overwrite each other and
+            // one of them would simply not exist.
+            if self.may_plant(bomber, victim) {
+                self.plant_charge(bomber, victim);
+            }
+        }
         for (parasite, host) in burrows {
             // Re-checked, because an earlier burrow this tick may have taken
             // the host: two drones reaching the same tank on the same tick must
@@ -2817,6 +3138,7 @@ impl Sim {
             let arrived = shot.advance();
             if arrived {
                 hits.push(PendingHit {
+                    mind_control: shot.mind_control,
                     heals: shot.heals,
                     attacker: shot.attacker,
                     instant_kill: shot.instant_kill,
@@ -2857,6 +3179,26 @@ impl Sim {
                     && target.is_alive()
                 {
                     target.health = (target.health + hit.damage).min(ceiling);
+                }
+                continue;
+            }
+
+            // Taking a side rather than doing harm. A mind-controlled tank
+            // arrives at full health with its veterancy intact: the player who
+            // lost it has lost a tank, not had one destroyed.
+            if hit.mind_control {
+                let taker = self.units.get(hit.attacker).map(|a| a.owner);
+                if let Some(owner) = taker
+                    && self
+                        .units
+                        .get(hit.target)
+                        .is_some_and(|t| t.is_alive() && t.owner != owner)
+                {
+                    let was = self.units.get(hit.target).map(|t| t.owner);
+                    self.change_owner(hit.target, owner);
+                    if let (Some(was), Some(target)) = (was, self.units.get_mut(hit.target)) {
+                        target.controlled_by = Some((hit.attacker, was));
+                    }
                 }
                 continue;
             }
@@ -3161,9 +3503,9 @@ impl Sim {
                 CommandKind::Sell { building } => {
                     self.sell(command.player, *building);
                 }
-                CommandKind::FirePower { building, at } => {
+                CommandKind::FirePower { building, at, to } => {
                     if self.owned_by(*building, command.player) {
-                        self.fire_power(*building, *at);
+                        self.fire_power(*building, *at, *to);
                     }
                 }
                 CommandKind::Deploy { units } => {
@@ -4174,7 +4516,11 @@ impl Sim {
         };
 
         let footprint = self.stats.get(player, kind).footprint;
-        if !self.can_build_at(player, at, footprint) {
+        // The kind-aware check, not the footprint one. This is the place the
+        // decision is actually made — the preview in the renderer only tells
+        // the player what will happen, and a rule enforced there and not here
+        // would be a rule a modified client could ignore.
+        if !self.can_place_kind(player, kind, at) {
             return;
         }
 
@@ -4222,6 +4568,41 @@ impl Sim {
             return false;
         }
         self.within_build_radius(player, at, footprint)
+    }
+
+    /// Whether a *particular kind* of structure may go here.
+    ///
+    /// Everything `can_build_at` checks, plus whatever the structure itself
+    /// requires. Separate rather than folded in, because most callers only have
+    /// a footprint — the placement preview knows the kind and the build radius
+    /// check does not.
+    pub fn can_place_kind(&self, player: PlayerId, kind: EntityKind, at: Cell) -> bool {
+        let stats = self.stats.get(player, kind);
+        if !self.can_build_at(player, at, stats.footprint) {
+            return false;
+        }
+        let Some(wanted) = stats.needs_adjacent else {
+            return true;
+        };
+        // Beside, not underneath. A shipyard stands on land and touches water;
+        // requiring it to stand *on* water would be a different building.
+        let origin = footprint_origin(at, stats.footprint);
+        for dy in -1..=stats.footprint.1 as i32 {
+            for dx in -1..=stats.footprint.0 as i32 {
+                let edge = dx < 0
+                    || dy < 0
+                    || dx == stats.footprint.0 as i32
+                    || dy == stats.footprint.1 as i32;
+                if !edge {
+                    continue;
+                }
+                let cell = Cell::new(origin.x + dx, origin.y + dy);
+                if self.map.contains(cell) && self.map.terrain(cell) == wanted {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Whether a site is close enough to one of the player's existing buildings.

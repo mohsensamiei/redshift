@@ -254,6 +254,15 @@ impl Rules {
         self.entities.len()
     }
 
+    /// Every weapon, in id order.
+    ///
+    /// A `BTreeMap`, so the order is the ids' order rather than whatever the
+    /// files happened to say — which matters because anything built from this
+    /// feeds the rules hash, and two peers must agree.
+    pub fn weapons(&self) -> impl Iterator<Item = &WeaponDef> {
+        self.weapons.values()
+    }
+
     pub fn weapon(&self, id: &str) -> Option<&WeaponDef> {
         self.weapons.get(id)
     }

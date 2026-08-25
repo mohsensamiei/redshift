@@ -13,6 +13,9 @@
             name_key: "faction.america",
             side: "allied",
             colour: (60, 110, 220),
+            // America's advantage in the original is a free paradrop, which
+            // wants the support-power framework nothing has built yet. The
+            // build-speed bonus here is a stand-in, flagged in TODO.md.
             unique_units: [],
             modifiers: [
                 BuildSpeed(category: "structure", multiplier: 110),
@@ -20,10 +23,44 @@
             voice_set: "allied_a",
         ),
         (
+            id: "france",
+            name_key: "faction.france",
+            side: "allied",
+            colour: (90, 130, 240),
+            unique_units: ["grand_cannon"],
+            modifiers: [
+                BuildSpeed(category: "structure", multiplier: 105),
+            ],
+            voice_set: "allied_c",
+        ),
+        (
+            id: "germany",
+            name_key: "faction.germany",
+            side: "allied",
+            colour: (170, 170, 175),
+            unique_units: ["tank_destroyer"],
+            modifiers: [
+                UnitHealth(unit: "grizzly_tank", multiplier: 110),
+            ],
+            voice_set: "allied_d",
+        ),
+        (
+            id: "great_britain",
+            name_key: "faction.great_britain",
+            side: "allied",
+            colour: (60, 90, 190),
+            unique_units: ["sniper"],
+            modifiers: [
+                UnitHealth(unit: "gi", multiplier: 110),
+            ],
+            voice_set: "allied_e",
+        ),
+        (
             id: "korea",
             name_key: "faction.korea",
             side: "allied",
             colour: (70, 180, 190),
+            // Korea's is the Black Eagle, an aircraft. Waiting on flight.
             unique_units: [],
             modifiers: [
                 UnitCost(unit: "gi", multiplier: 90),

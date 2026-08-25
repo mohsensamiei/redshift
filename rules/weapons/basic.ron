@@ -28,6 +28,119 @@
             projectile_speed: 800,
         ),
         (
+            // The Rhino's gun: more damage and reach than a Grizzly's, slower
+            // to reload. The trade the original draws between the two sides'
+            // main tanks, and one of the few places it is this legible.
+            id: "125mm",
+            damage: 75,
+            warhead: "ap_shell",
+            reload: 50,
+            range: 600,
+            splash_radius: 30,
+            projectile_speed: 2000,
+        ),
+        (
+            // Conscript rifle. Cheaper and worse than a GI's, which is most of
+            // what makes a Conscript a Conscript.
+            id: "ak47",
+            damage: 12,
+            warhead: "small_arms",
+            reload: 14,
+            range: 350,
+        ),
+        (
+            // A dog kills a person outright and can do nothing else at all.
+            // Expressing it as enormous damage would make it excellent against
+            // tanks, which is exactly wrong.
+            id: "jaws",
+            damage: 1,
+            warhead: "small_arms",
+            reload: 40,
+            range: 200,
+            instant_kill: true,
+            target_categories: ["infantry"],
+        ),
+        (
+            // Flak: splash, and useful against both light vehicles and air.
+            id: "flak_cannon",
+            damage: 25,
+            warhead: "flak",
+            reload: 20,
+            range: 600,
+            splash_radius: 40,
+            projectile_speed: 2600,
+        ),
+        (
+            // Tesla. Short-ranged, and enough to hurt anything.
+            id: "tesla_bolt",
+            damage: 100,
+            warhead: "explosive",
+            reload: 45,
+            range: 550,
+        ),
+        (
+            // The Desolator's beam, and the radiation it leaves are separate
+            // things: this is what it does to what it is aimed at.
+            id: "rad_beam",
+            damage: 40,
+            warhead: "radiation",
+            reload: 30,
+            range: 400,
+        ),
+        (
+            // Terror Drone claws, for what it cannot get inside.
+            id: "drone_claws",
+            damage: 20,
+            warhead: "small_arms",
+            reload: 12,
+            range: 150,
+        ),
+        (
+            // V3 rocket: long, slow and interceptable. The flight time is the
+            // point — a shot that landed instantly could not be shot down.
+            id: "v3_rocket",
+            damage: 120,
+            warhead: "explosive",
+            reload: 140,
+            range: 1400,
+            splash_radius: 160,
+            projectile_speed: 500,
+            homing: true,
+        ),
+        (
+            // Britain's sniper: one shot, one infantryman, from a long way off.
+            // Instant kill rather than enormous damage — the second would make
+            // a sniper excellent against tanks, which is exactly wrong.
+            id: "sniper_rifle",
+            damage: 1,
+            warhead: "small_arms",
+            reload: 70,
+            range: 900,
+            instant_kill: true,
+            target_categories: ["infantry"],
+        ),
+        (
+            // Germany's Tank Destroyer. Very strong against armour and close to
+            // useless otherwise, which is entirely the armour table's doing.
+            id: "at_cannon",
+            damage: 90,
+            warhead: "ap_shell",
+            reload: 45,
+            range: 500,
+            projectile_speed: 2400,
+            target_categories: ["vehicle"],
+        ),
+        (
+            // France's Grand Cannon. Fixed, and outranges anything that walks.
+            id: "grand_cannon",
+            damage: 130,
+            warhead: "explosive",
+            reload: 100,
+            range: 1600,
+            splash_radius: 120,
+            projectile_speed: 1400,
+        ),
+        (
             id: "aa_gun",
             damage: 30,
             warhead: "flak",

@@ -342,9 +342,17 @@ mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
 
 ## Phase 5 — Content and factions
 
-- [ ] Complete rosters for both sides
+- [x] The Soviet roster — structures, infantry and vehicles, with the
+      researched costs. Only what the engine can express: Crazy Ivan, Yuri and
+      the Kirov are absent rather than approximated, because a Crazy Ivan who
+      threw grenades would be a different unit wearing his name
+- [ ] The rest of both rosters — the ones waiting on aircraft, mind control,
+      placed charges and indirect fire
 - [ ] Country modifiers and unique units
-- [ ] All nine of the original's countries, each with its unique unit and modifier
+- [x] All nine of the original's countries. Six have their unique unit; three
+      wait on a capability — America's paradrop needs support powers, Korea's
+      Black Eagle needs flight, Russia's Tesla Tank needs indirect fire. Each is
+      recorded in the country's own entry rather than left to be discovered
 - [ ] AI improvements and difficulty levels
 - [ ] Additional maps
 - [ ] Balance pass against the faithful baseline
@@ -404,6 +412,11 @@ docs/adr/0005-faithful-remaster-scope.md for why.
       its source is faithful; the numbers are not yet anything.
 - [ ] **Gap Generator radius.** `rules/buildings/allied.ron` says ten cells, by
       feel. The mechanic is faithful; the reach is not verified.
+- [ ] **America's country bonus is a stand-in.** The original gives a free
+      paradrop; this gives a build-speed bonus because support powers do not
+      exist. It should be replaced rather than balanced.
+- [ ] **Soviet weapon figures.** The costs and power draws are researched; the
+      damage, reload and range numbers are not.
 - [ ] **Stalemate quiet period.** `sim::STALEMATE_QUIET_TICKS` is five minutes,
       chosen so that calling one early is unlikely. It also stands in for "can
       these two players still reach each other", which is the question a

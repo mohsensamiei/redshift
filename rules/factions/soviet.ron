@@ -1,0 +1,61 @@
+// Soviet countries.
+//
+// The other four of the original's nine. See the Allied file for what a country
+// is; the shape is the same on both sides.
+(
+    factions: [
+        (
+            // Its unique unit is the Tesla Tank, which fires over obstacles.
+            // Indirect fire is not something the engine can do yet, and a Tesla
+            // Tank without it would be a Rhino with a different gun wearing the
+            // name. Left out rather than approximated.
+            id: "russia",
+            name_key: "faction.russia",
+            side: "soviet",
+            colour: (200, 50, 45),
+            unique_units: [],
+            modifiers: [
+                UnitCost(unit: "rhino_tank", multiplier: 90),
+            ],
+            voice_set: "soviet_a",
+        ),
+        (
+            id: "iraq",
+            name_key: "faction.iraq",
+            side: "soviet",
+            colour: (150, 140, 60),
+            unique_units: ["desolator"],
+            modifiers: [
+                UnitHealth(unit: "conscript", multiplier: 110),
+            ],
+            voice_set: "soviet_b",
+        ),
+        (
+            // The Demolition Truck detonates when destroyed *or* on impact.
+            // The first half is `Explodes` and works; the second needs a unit
+            // able to be ordered to kill itself, which nothing has yet.
+            id: "libya",
+            name_key: "faction.libya",
+            side: "soviet",
+            colour: (180, 110, 40),
+            unique_units: ["demolition_truck"],
+            modifiers: [
+                BuildSpeed(category: "vehicle", multiplier: 110),
+            ],
+            voice_set: "soviet_c",
+        ),
+        (
+            // The Terrorist is the same story as the Demolition Truck: it
+            // explodes when killed, and cannot yet be told to.
+            id: "cuba",
+            name_key: "faction.cuba",
+            side: "soviet",
+            colour: (90, 160, 70),
+            unique_units: ["terrorist"],
+            modifiers: [
+                UnitCost(unit: "conscript", multiplier: 80),
+            ],
+            voice_set: "soviet_d",
+        ),
+    ],
+)

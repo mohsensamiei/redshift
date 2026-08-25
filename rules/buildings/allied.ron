@@ -166,6 +166,30 @@
             ],
         ),
         (
+            // France's. Fixed, and outranges anything that walks — which makes
+            // a French base something an attacker has to answer rather than
+            // simply reach.
+            id: "grand_cannon",
+            name_key: "building.grand_cannon",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 800, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 1700),
+                Armed(weapon: "grand_cannon", turret: true, turret_rate: 360),
+                PowerDraw(amount: 100, works_unpowered: false),
+                Capturable,
+                Selectable(priority: 4),
+                Buildable(
+                    cost: 2000,
+                    build_time: 70,
+                    prerequisites: ["war_factory"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
             // Costs and power draw are the researched figures. The repair
             // rate and the price of a repair are not — see TODO.md.
             id: "service_depot",

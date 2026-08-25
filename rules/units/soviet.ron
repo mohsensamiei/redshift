@@ -1,0 +1,384 @@
+// Soviet units.
+//
+// Only what the engine can express. The ones that need capabilities nothing
+// has built yet — Crazy Ivan's placed charges, Yuri's mind control, the Kirov's
+// flight — are absent rather than approximated, because a Crazy Ivan that threw
+// grenades would be a different unit wearing his name.
+(
+    entities: [
+        (
+            // Cheaper and worse than a GI, which is most of what makes a
+            // Conscript a Conscript.
+            id: "conscript",
+            name_key: "unit.conscript",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 100, armour: "none"),
+                Mobile(speed: 180, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "ak47", turret: false, turret_rate: 0),
+                Vision(range: 450),
+                Crushable(class: "infantry"),
+                Selectable(priority: 1),
+                Buildable(
+                    cost: 100,
+                    build_time: 15,
+                    prerequisites: ["soviet_barracks"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            // Kills a person outright and can do nothing whatever else. The
+            // weapon says so rather than the unit: one instant-kill weapon
+            // restricted to infantry, and the armour table is not consulted for
+            // what it cannot hurt at all.
+            id: "attack_dog",
+            name_key: "unit.attack_dog",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 75, armour: "none"),
+                Mobile(speed: 400, turn_rate: 720, locomotor: Foot),
+                Armed(weapon: "jaws", turret: false, turret_rate: 0),
+                Vision(range: 600),
+                Detector,
+                Crushable(class: "infantry"),
+                Selectable(priority: 1),
+                Buildable(
+                    cost: 200,
+                    build_time: 15,
+                    prerequisites: ["soviet_barracks"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            id: "flak_trooper",
+            name_key: "unit.flak_trooper",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 125, armour: "none"),
+                Mobile(speed: 180, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "flak_cannon", turret: false, turret_rate: 0),
+                Vision(range: 500),
+                Crushable(class: "infantry"),
+                Selectable(priority: 1),
+                Buildable(
+                    cost: 300,
+                    build_time: 25,
+                    prerequisites: ["soviet_radar"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            // Not crushable, which is the point of it — and one word of data
+            // rather than an exception in the crushing code. The other half of
+            // what it does is on the Tesla Coil, which names it as a supporter.
+            id: "tesla_trooper",
+            name_key: "unit.tesla_trooper",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 200, armour: "none"),
+                Mobile(speed: 150, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "tesla_bolt", turret: false, turret_rate: 0),
+                Vision(range: 400),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 600,
+                    build_time: 35,
+                    prerequisites: ["soviet_barracks"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            // Iraq's. Deployed, it poisons the ground around it and keeps
+            // poisoning it after the Desolator itself has gone — which is the
+            // only reason denying that ground is worth doing.
+            id: "desolator",
+            name_key: "unit.desolator",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 150, armour: "none"),
+                Mobile(speed: 150, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "rad_beam", turret: false, turret_rate: 0),
+                Vision(range: 500),
+                Deploys(into: "desolator_deployed"),
+                Crushable(class: "infantry"),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 600,
+                    build_time: 35,
+                    prerequisites: ["soviet_radar"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            // The deployed form is an ordinary entity with no Mobile trait.
+            // That *is* "cannot move while deployed" — not a flag the movement
+            // code has to remember to check.
+            id: "desolator_deployed",
+            name_key: "unit.desolator.deployed",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 150, armour: "none"),
+                Armed(weapon: "rad_beam", turret: true, turret_rate: 3600),
+                Vision(range: 500),
+                Contaminates(
+                    radius: 250,
+                    damage: 6,
+                    warhead: "radiation",
+                    lingers: 200,
+                    when: WhileStanding,
+                ),
+                Deploys(into: "desolator"),
+                Selectable(priority: 2),
+            ],
+        ),
+        (
+            id: "war_miner",
+            name_key: "unit.war_miner",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 1000, armour: "heavy"),
+                Mobile(speed: 300, turn_rate: 70, locomotor: Tracked),
+                Vision(range: 400),
+                // Armed, and slower and tougher than a Chrono Miner. The
+                // trade the original draws between the two economies.
+                Armed(weapon: "ak47", turret: true, turret_rate: 720),
+                Harvester(capacity: 100, gather_rate: 100),
+                Crushes(classes: ["infantry"]),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 1400,
+                    build_time: 60,
+                    prerequisites: ["soviet_refinery"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            id: "rhino_tank",
+            name_key: "unit.rhino_tank",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 400, armour: "heavy"),
+                Mobile(speed: 250, turn_rate: 90, locomotor: Tracked),
+                Armed(weapon: "125mm", turret: true, turret_rate: 540),
+                Vision(range: 500),
+                Crushes(classes: ["infantry"]),
+                Veterancy(kills_for_veteran: 3, kills_for_elite: 8),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 900,
+                    build_time: 40,
+                    prerequisites: ["soviet_war_factory"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Anti-air *and* a transport for five. Two jobs in one chassis, and
+            // both of them are traits rather than special cases.
+            id: "flak_track",
+            name_key: "unit.flak_track",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 200, armour: "light"),
+                Mobile(speed: 450, turn_rate: 180, locomotor: Wheeled),
+                Armed(weapon: "aa_gun", turret: true, turret_rate: 3600),
+                Vision(range: 500),
+                Transport(capacity: 5, allowed: [
+                    "conscript",
+                    "attack_dog",
+                    "flak_trooper",
+                    "tesla_trooper",
+                    "desolator",
+                ]),
+                Crushes(classes: ["infantry"]),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 500,
+                    build_time: 30,
+                    prerequisites: ["soviet_war_factory"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Gets inside an enemy vehicle and takes it apart from there, where
+            // nothing can shoot it. Against infantry it just bites, which is
+            // the same unit doing two different things depending on what it is
+            // pointed at.
+            id: "terror_drone",
+            name_key: "unit.terror_drone",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 100, armour: "light"),
+                Mobile(speed: 700, turn_rate: 3600, locomotor: Wheeled),
+                Armed(weapon: "drone_claws", turret: true, turret_rate: 3600),
+                Infests(categories: ["vehicle"], damage: 6, warhead: "small_arms"),
+                Vision(range: 500),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 500,
+                    build_time: 30,
+                    prerequisites: ["soviet_war_factory"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Outranges everything, and its rocket can be shot down on the way.
+            // The flight time is the whole point: a shot that landed instantly
+            // could not be intercepted, and outranging would be strictly better
+            // rather than a trade.
+            id: "v3_launcher",
+            name_key: "unit.v3_launcher",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 150, armour: "light"),
+                Mobile(speed: 200, turn_rate: 90, locomotor: Tracked),
+                Armed(weapon: "v3_rocket", turret: false, turret_rate: 0),
+                Vision(range: 1500),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 800,
+                    build_time: 45,
+                    prerequisites: ["soviet_radar"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Twin cannon against the ground and twin missiles against the air,
+            // which is `Armed` and `Secondary` rather than a stance the player
+            // has to set.
+            id: "apocalypse",
+            name_key: "unit.apocalypse",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 800, armour: "heavy"),
+                Mobile(speed: 150, turn_rate: 60, locomotor: Tracked),
+                Armed(weapon: "125mm", turret: true, turret_rate: 360),
+                Secondary(weapon: "aa_gun", turret: true, turret_rate: 3600),
+                Vision(range: 550),
+                Crushes(classes: ["infantry", "light_vehicle"]),
+                Veterancy(kills_for_veteran: 4, kills_for_elite: 10),
+                Selectable(priority: 4),
+                Buildable(
+                    cost: 1750,
+                    build_time: 80,
+                    prerequisites: ["soviet_battle_lab"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Cuba's. It explodes when it dies, which is half of what it does;
+            // being *ordered* to explode is the other half and needs a unit
+            // able to be told to kill itself, which nothing has yet.
+            id: "terrorist",
+            name_key: "unit.terrorist",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 75, armour: "none"),
+                Mobile(speed: 220, turn_rate: 360, locomotor: Foot),
+                Vision(range: 400),
+                Explodes(warhead: "explosive", damage: 200),
+                Crushable(class: "infantry"),
+                Selectable(priority: 1),
+                Buildable(
+                    cost: 200,
+                    build_time: 15,
+                    prerequisites: ["soviet_radar"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+        (
+            // Libya's, and the same story as the Terrorist at a larger scale.
+            id: "demolition_truck",
+            name_key: "unit.demolition_truck",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 150, armour: "light"),
+                Mobile(speed: 300, turn_rate: 120, locomotor: Wheeled),
+                Vision(range: 400),
+                Explodes(warhead: "explosive", damage: 800),
+                Contaminates(
+                    radius: 300,
+                    damage: 6,
+                    warhead: "radiation",
+                    lingers: 300,
+                    when: OnDeath,
+                ),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 1500,
+                    build_time: 60,
+                    prerequisites: ["soviet_radar"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            id: "soviet_mcv",
+            name_key: "unit.mcv",
+            side: "soviet",
+            category: "vehicle",
+            traits: [
+                Health(max: 1000, armour: "heavy"),
+                Mobile(speed: 200, turn_rate: 50, locomotor: Wheeled),
+                Vision(range: 500),
+                Deploys(into: "soviet_construction_yard"),
+                Selectable(priority: 4),
+                Buildable(
+                    cost: 3000,
+                    build_time: 120,
+                    prerequisites: ["soviet_service_depot"],
+                    produced_by: "soviet_war_factory",
+                ),
+            ],
+        ),
+        (
+            // Engineers are the same on both sides, so this is the Allied one
+            // with a different side tag. Worth stating rather than sharing an
+            // entity: a country modifier could make them differ later, and the
+            // roster should be able to say so without an exception.
+            id: "soviet_engineer",
+            name_key: "unit.engineer",
+            side: "soviet",
+            category: "infantry",
+            traits: [
+                Health(max: 100, armour: "none"),
+                Mobile(speed: 200, turn_rate: 360, locomotor: Foot),
+                Vision(range: 400),
+                Engineer(consumed: true),
+                Crushable(class: "infantry"),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 500,
+                    build_time: 30,
+                    prerequisites: ["soviet_barracks"],
+                    produced_by: "soviet_barracks",
+                ),
+            ],
+        ),
+    ],
+)

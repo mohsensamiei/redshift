@@ -93,10 +93,11 @@ fn the_rules_hash_changes_when_a_value_changes() {
         }
     }
 
-    let weapons: Vec<WeaponDef> = ["rifle", "120mm", "artillery", "aa_gun"]
-        .iter()
-        .filter_map(|id| base.weapon(id).cloned())
-        .collect();
+    // Every weapon the project ships, not a hand-written list. The list was
+    // literal and broke the moment a roster arrived that used a weapon it did
+    // not name — a test that fails when unrelated data is *added* is testing
+    // its own fixture.
+    let weapons: Vec<WeaponDef> = base.weapons().cloned().collect();
     let factions = base.factions().cloned().collect();
     let altered = Rules::from_parts(entities, weapons, base.armour().clone(), factions)
         .expect("the altered rules should still be valid");
@@ -435,10 +436,11 @@ fn a_new_country_needs_no_rust() {
     // has slipped.
     let base = load();
     let entities: Vec<EntityDef> = base.entities().map(|(_, e)| e.clone()).collect();
-    let weapons: Vec<WeaponDef> = ["rifle", "120mm", "artillery", "aa_gun"]
-        .iter()
-        .filter_map(|id| base.weapon(id).cloned())
-        .collect();
+    // Every weapon the project ships, not a hand-written list. The list was
+    // literal and broke the moment a roster arrived that used a weapon it did
+    // not name — a test that fails when unrelated data is *added* is testing
+    // its own fixture.
+    let weapons: Vec<WeaponDef> = base.weapons().cloned().collect();
 
     let mut factions: Vec<_> = base.factions().cloned().collect();
     let before = factions.len();

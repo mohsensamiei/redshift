@@ -91,6 +91,52 @@
             ],
         ),
         (
+            // Great Britain's. One shot kills a person and does nothing at all
+            // to anything else — the weapon says both, so the unit is three
+            // lines of data.
+            id: "sniper",
+            name_key: "unit.sniper",
+            side: "allied",
+            category: "infantry",
+            traits: [
+                Health(max: 100, armour: "none"),
+                Mobile(speed: 200, turn_rate: 360, locomotor: Foot),
+                Armed(weapon: "sniper_rifle", turret: false, turret_rate: 0),
+                Vision(range: 1000),
+                Crushable(class: "infantry"),
+                Selectable(priority: 2),
+                Buildable(
+                    cost: 600,
+                    build_time: 35,
+                    prerequisites: ["barracks"],
+                    produced_by: "barracks",
+                ),
+            ],
+        ),
+        (
+            // Germany's. Strong against armour and weak against everything
+            // else, which is the armour table's doing rather than the unit's.
+            id: "tank_destroyer",
+            name_key: "unit.tank_destroyer",
+            side: "allied",
+            category: "vehicle",
+            traits: [
+                Health(max: 350, armour: "heavy"),
+                Mobile(speed: 280, turn_rate: 90, locomotor: Tracked),
+                Armed(weapon: "at_cannon", turret: true, turret_rate: 540),
+                Vision(range: 500),
+                Crushes(classes: ["infantry"]),
+                Veterancy(kills_for_veteran: 3, kills_for_elite: 8),
+                Selectable(priority: 3),
+                Buildable(
+                    cost: 1000,
+                    build_time: 45,
+                    prerequisites: ["war_factory"],
+                    produced_by: "war_factory",
+                ),
+            ],
+        ),
+        (
             id: "harvester",
             name_key: "unit.harvester",
             side: "allied",

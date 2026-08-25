@@ -69,6 +69,12 @@
             range: 600,
             splash_radius: 40,
             projectile_speed: 2600,
+            // Anti-air *and* anti-vehicle, which is what the Flak Trooper is
+            // for. Nothing shipped declared a layer at all until now, so every
+            // anti-air weapon in the game silently defaulted to ground-only —
+            // the air-targeting system was built and then never exercised by a
+            // single shipped rule.
+            targets: [Ground, Air],
         ),
         (
             // Tesla. Short-ranged, and enough to hurt anything.
@@ -141,12 +147,17 @@
             projectile_speed: 1400,
         ),
         (
+            // Air only, and it shoots down missiles. A Flak Cannon that also
+            // engaged tanks would be a general-purpose turret, which is not the
+            // trade the original offers for its power draw.
             id: "aa_gun",
             damage: 30,
             warhead: "flak",
             reload: 15,
             range: 700,
             projectile_speed: 3000,
+            targets: [Air],
+            intercepts: true,
         ),
     ],
 )

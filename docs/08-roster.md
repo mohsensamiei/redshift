@@ -215,11 +215,11 @@ the interesting part.
 | Cloning Vats | 2500 | −200 | Battle Lab | **Duplicates every infantry you train, free**; sells units for a refund; **one per player** | ❌ all three |
 | Fortress Wall | 100 | 0 | Barracks | **Four sections placed at once** | ❌ walls |
 | Sentry Gun | 500 | **0** | Barracks | Anti-infantry. **Needs no power** | ✅ |
-| Flak Cannon | 1000 | −50 | Barracks | Anti-air; **shoots down missiles**; **switches off in low power** | ❌ interception, ❌ disable |
+| Flak Cannon | 1000 | −50 | Barracks | Anti-air; **shoots down missiles**; **switches off in low power** | ✅ |
 | Tesla Coil | 1500 | −75 | Radar | **Troopers charge it** for more range and power; **three charged troopers make it work without power at all** | ✅ the same rule as Prism chaining, with a different list of supporters |
 | Psychic Sensor | 1000 | −50 | Battle Lab | **Shows the orders enemy units have been given**; reveals spies | ❌ |
-| Iron Curtain | 2500 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
-| Nuclear Missile Silo | 5000 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
+| Iron Curtain | 2500 | −200 | Battle Lab | Superweapon. **One per player** | ✅ |
+| Nuclear Missile Silo | 5000 | −200 | Battle Lab | Superweapon. **One per player** | ✅ |
 
 Five mechanics in that table alone that were not on any earlier list:
 
@@ -350,17 +350,17 @@ says whether Redshift can express the behaviour at all.
 |---|---|---|---|---|---|
 | GI | A | 200 | — | **Deploys** into a machine-gun emplacement: more range and power, cannot move. **Can garrison** civilian buildings | ✅ |
 | Conscript | S | 100 | — | Basic, cheap, slow. Also garrisons | ✅ garrison — one word in a category list |
-| Engineer | both | 500 | — | **Captures** enemy and neutral buildings, **repairs** friendly ones **and bridges**, **defuses bombs**, and is **consumed** | ❌ all of it |
-| Attack Dog | both | 200 | — | Kills infantry outright; **detects spies**; useless against vehicles and structures | ❌ instant kill, ❌ see through disguise |
+| Engineer | both | 500 | — | **Captures** enemy and neutral buildings, **repairs** friendly ones **and bridges**, **defuses bombs**, and is **consumed** | ✅ except defusing, which needs placed charges |
+| Attack Dog | both | 200 | — | Kills infantry outright; **detects spies**; useless against vehicles and structures | ✅ kill and detection; disguise itself is still a gap |
 | Rocketeer | A | 600 | Air HQ | Jet-pack infantry: flies, hits air and ground | ❌ flying infantry |
-| Sniper | GB | 600 | Air HQ | Kills infantry with **one shot** at long range | ❌ instant kill |
+| Sniper | GB | 600 | Air HQ | Kills infantry with **one shot** at long range | ✅ |
 | Navy SEAL | A | 1000 | Air HQ | Rifle plus **C4**; **crosses land and water** | ❌ charges, ✅ amphibious |
-| Spy | A | 1000 | Battle Lab | **Disguised** as enemy infantry; infiltrates for a per-building effect | ❌ disguise, ✅ infiltration |
+| Spy | A | 1000 | Battle Lab | **Disguised** as enemy infantry; infiltrates for a per-building effect | ⚠️ infiltration ✅, disguise ❌ |
 | Tanya | A | 1000 | Battle Lab | **One-shot kills** infantry, **swims**, **C4** destroys buildings and ships | ❌ instant kill, ❌ charges |
 | Chrono Legionnaire | A | 1500 | Battle Lab | **Erases** a target progressively; **interrupting it undoes the erasure**; teleports | ❌ |
-| Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ❌ crush immunity, ❌ charging a structure |
+| Tesla Trooper | S | 600 | — | **Immune to being crushed**; can **charge a Tesla Coil** to extend its range and power | ✅ |
 | Flak Trooper | S | 300 | Radar | Anti-air and anti-vehicle, **splash** | ✅ since air targeting landed |
-| Terrorist | Cuba | 200 | Radar | Suicide explosion with splash | ❌ |
+| Terrorist | Cuba | 200 | Radar | Suicide explosion with splash | ⚠️ explodes when killed; being *ordered* to needs a self-destruct command |
 | Desolator | Iraq | 600 | Radar | Melts infantry; **deployed, irradiates ground and makes it impassable** | ✅ |
 | Crazy Ivan | S | 600 | Radar | **Places dynamite** on structures, units **and bridges** | ❌ |
 | Yuri / Psi-Corps | S | 1200 | Battle Lab | **Mind control**; a psychic blast that kills surrounding infantry | ❌ |
@@ -372,22 +372,22 @@ says whether Redshift can express the behaviour at all.
 
 | Unit | Side | Cost | Needs | What it actually does | Engine |
 |---|---|---|---|---|---|
-| Grizzly | A | 700 | — | Main tank. Faster and cheaper than a Rhino; **crushes infantry** | ❌ crushing |
+| Grizzly | A | 700 | — | Main tank. Faster and cheaper than a Rhino; **crushes infantry** | ✅ |
 | Rhino | S | 900 | — | Main tank. More armour and range, slower | ✅ |
-| Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ❌ transport |
+| Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ✅ |
 | IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ✅ including the repair mode, which is a turret mode whose weapon heals |
 | Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ✅ |
-| V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ❌ interception |
+| V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ✅ |
 | Tesla Tank | Russia | 1200 | Radar | **Fires over obstacles** | ❌ indirect fire |
-| Demolition Truck | Libya | 1500 | Radar | Nuclear charge, detonates **on destruction or on impact** | ❌ |
+| Demolition Truck | Libya | 1500 | Radar | Nuclear charge, detonates **on destruction or on impact** | ⚠️ on destruction only |
 | Chrono Miner | A | 1400 | Refinery | **Teleports home** when full; can be ordered to teleport as an escape | ❌ |
-| War Miner | S | 1400 | Refinery | Armed, higher capacity | ❌ armed harvester |
+| War Miner | S | 1400 | Refinery | Armed, higher capacity | ✅ |
 | Tank Destroyer | Germany | 1000 | Air HQ | Very strong against vehicles, weak against everything else | ✅ armour table does this |
 | Mirage Tank | A | 1000 | Battle Lab | Looks like a **tree** when still. **Can fire while disguised**, and firing drops it | ❌ |
 | Prism Tank | A | 1200 | Battle Lab | Beam **reflects onto further targets**; weak armour, poor against vehicles | ❌ chaining |
 | Battle Fortress | A | — | Battle Lab | Five passengers **firing from inside**; crushes even things normally uncrushable | ❌ |
 | Robot Tank | A | — | Battle Lab | **Hovers**, so crosses water; **immune to mind control** — no driver | ✅ hover, ❌ immunity |
-| Apocalypse | S | 1750 | Battle Lab | **Twin cannon vs ground and twin missiles vs air**; slow | ❌ two weapons |
+| Apocalypse | S | 1750 | Battle Lab | **Twin cannon vs ground and twin missiles vs air**; slow | ✅ |
 | MCV | both | 3000 | Service Depot | **Becomes a Construction Yard**, and back | ✅ |
 | Siege Chopper | S | — | — | Flies, **lands and becomes artillery** | ❌ |
 | Grand Cannon | France | — | — | Fixed, very long range | ✅ armed structure |

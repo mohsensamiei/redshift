@@ -1954,7 +1954,8 @@ impl Sim {
                         continue;
                     }
 
-                    let wanted = (capacity - state.load).min(economy::ORE_PER_BITE as u32) as u16;
+                    let bite = economy::bite_for(stats.gather_rate);
+                    let wanted = (capacity - state.load).min(bite as u32) as u16;
                     let taken = self.map.take_ore(cell, wanted) as u32;
                     let load = state.load + taken;
 

@@ -56,7 +56,6 @@ pub struct UnitStats {
     pub cost: u32,
     /// Ticks to produce.
     pub build_time: u32,
-    pub can_crush: bool,
     /// Classes this can drive over and kill.
     pub crushes: u8,
     /// The class this belongs to for crushing. Zero means it cannot be crushed.
@@ -201,7 +200,6 @@ impl Default for UnitStats {
             selection_priority: 0,
             cost: 0,
             build_time: 0,
-            can_crush: false,
             crushes: 0,
             crush_class: 0,
             self_heal: 0,
@@ -267,7 +265,6 @@ impl StateHash for UnitStats {
         h.write_i32(self.vision.raw());
         h.write_u32(self.cost);
         h.write_u32(self.build_time);
-        h.write_bool(self.can_crush);
         h.write_u8(self.crushes);
         h.write_u8(self.crush_class);
         h.write_u32(self.self_heal);
@@ -444,7 +441,6 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             // and — because the comparison order would come from a Vec built
             // per unit — a determinism hazard waiting to be introduced.
             Trait::Crushes { classes } => {
-                stats.can_crush = !classes.is_empty();
                 stats.crushes = crush_mask(classes);
             }
             Trait::Crushable { class } => {
@@ -719,7 +715,9 @@ mod tests {
         assert_eq!(stats.vision, Fx::from_raw(Hundredths(600).to_fx_raw()));
         assert_eq!(stats.cost, 900);
         assert_eq!(stats.build_time, 60);
-        assert!(stats.can_crush);
+        // The bitmask is the authority; there used to be a `can_crush` bool
+        // beside it that nothing ever read.
+        assert!(stats.crushes != 0);
         assert!(stats.mobile);
         assert_eq!(stats.selection_priority, 2);
     }

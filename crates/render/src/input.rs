@@ -138,22 +138,39 @@ pub fn handle_selection(
             let Some(ground) = screen_to_ground(camera, camera_transform, cursor) else {
                 return;
             };
-            // Nearest unit within the click radius, rather than the first one
-            // found — with units overlapping, "first" would depend on iteration
-            // order and feel arbitrary.
-            let mut best: Option<(EntityId, f32)> = None;
+            // Highest priority within the click radius, nearest breaking the
+            // tie. Distance alone was the first attempt and it is wrong in the
+            // case that matters: click a crowd of infantry standing on a tank
+            // and you get whichever body happens to be a pixel closer, when
+            // what you meant was obviously the tank.
+            //
+            // `Selectable`'s priority existed for exactly this and nothing read
+            // it — the third instance of the same defect in this codebase, and
+            // the only one a player would have felt every single match.
+            let mut candidates: Vec<Candidate> = Vec::new();
+            let mut ids: Vec<EntityId> = Vec::new();
             for (id, unit) in session.sim().view().units() {
                 if unit.owner != session.local_player() {
                     continue;
                 }
                 let pos = Vec2::new(fx_to_f32(unit.pos.x), fx_to_f32(unit.pos.y));
                 let distance = pos.distance(ground);
-                if distance <= CLICK_RADIUS && best.is_none_or(|(_, d)| distance < d) {
-                    best = Some((id, distance));
+                if distance > CLICK_RADIUS {
+                    continue;
                 }
+                ids.push(id);
+                candidates.push(Candidate {
+                    priority: session
+                        .sim()
+                        .stats()
+                        .get(unit.owner, unit.kind)
+                        .selection_priority,
+                    distance,
+                });
             }
+            let best = pick_one(&candidates).map(|i| ids[i]);
             match best {
-                Some((id, _)) => picked.push(id),
+                Some(id) => picked.push(id),
                 // Clicking empty ground clears the selection, unless the player
                 // is adding to it.
                 None if !additive => picked.clear(),
@@ -164,6 +181,51 @@ pub fn handle_selection(
         selection.set(picked);
         drag.is_box = false;
     }
+}
+
+/// What decides whether the player meant this one, for something under the
+/// pointer.
+///
+/// Deliberately not carrying the unit's id. The rule is about *ordering*, and
+/// keeping it that way is what lets it be tested without conjuring entity ids
+/// the arena has no public way to make.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Candidate {
+    pub priority: u8,
+    pub distance: f32,
+}
+
+/// Which of the things under the pointer the player meant.
+///
+/// Highest priority wins; nearest breaks the tie. Distance alone was the first
+/// attempt and it is wrong in the case that matters: click a crowd of infantry
+/// standing around a tank and you get whichever body happens to be a pixel
+/// closer, when what you obviously meant was the tank.
+///
+/// `Selectable`'s priority existed for exactly this and nothing read it — the
+/// same defect as the harvester's gather rate, and the only one of the three a
+/// player would have felt in every single match.
+///
+/// A free function over plain data rather than a loop inside the Bevy system,
+/// so the rule can be tested at all. The renderer has no other tests, and a
+/// rule about what the player meant is worth more than most of what does.
+pub fn pick_one(candidates: &[Candidate]) -> Option<usize> {
+    candidates
+        .iter()
+        .enumerate()
+        .fold(
+            None,
+            |best: Option<(usize, &Candidate)>, (i, c)| match best {
+                Some((_, b))
+                    if b.priority > c.priority
+                        || (b.priority == c.priority && b.distance <= c.distance) =>
+                {
+                    best
+                }
+                _ => Some((i, c)),
+            },
+        )
+        .map(|(i, _)| i)
 }
 
 /// Right-click issues a move order for the current selection.
@@ -392,5 +454,54 @@ pub fn move_selection_rings(
     for (ring, position) in ring_transforms.iter_mut().zip(positions) {
         ring.translation.x = position.x;
         ring.translation.z = position.z;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(priority: u8, distance: f32) -> Candidate {
+        Candidate { priority, distance }
+    }
+
+    #[test]
+    fn nothing_under_the_pointer_picks_nothing() {
+        assert_eq!(pick_one(&[]), None);
+    }
+
+    #[test]
+    fn the_only_thing_under_the_pointer_wins() {
+        assert_eq!(pick_one(&[at(0, 5.0)]), Some(0));
+    }
+
+    #[test]
+    fn the_nearest_wins_when_priorities_match() {
+        let far = at(3, 9.0);
+        let near = at(3, 1.0);
+        assert_eq!(pick_one(&[far, near]), Some(1));
+        assert_eq!(pick_one(&[near, far]), Some(0));
+    }
+
+    #[test]
+    fn priority_beats_distance() {
+        // The case the whole rule exists for: infantry crowding a tank. The
+        // nearest body is a soldier and the player meant the tank.
+        let soldier = at(1, 0.2);
+        let tank = at(4, 0.9);
+        assert_eq!(pick_one(&[soldier, tank]), Some(1));
+        assert_eq!(pick_one(&[tank, soldier]), Some(0));
+    }
+
+    #[test]
+    fn the_answer_does_not_depend_on_the_order_they_were_found_in() {
+        // Iteration order is an arena detail and shifts as slots are reused. A
+        // pick that depended on it would feel arbitrary in a way no bug report
+        // could describe.
+        // Identical candidates: whichever is looked at first is kept, so the
+        // answer is the *same* candidate either way round rather than the same
+        // index.
+        let a = at(2, 3.0);
+        assert_eq!(pick_one(&[a, a]), Some(0));
     }
 }

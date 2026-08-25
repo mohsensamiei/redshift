@@ -137,12 +137,25 @@ pub fn nearest_refinery(
     best.map(|(id, _)| id)
 }
 
-/// How much ore a harvester takes in one bite.
+/// How much ore a harvester takes in one bite, from its own gather rate.
 ///
 /// Bites rather than a continuous trickle, so a field visibly thins in steps
 /// and a half-full harvester is a meaningful state. Also keeps the arithmetic
 /// integral without a fractional accumulator per unit.
-pub const ORE_PER_BITE: u16 = 25;
+///
+/// This used to be a flat constant, and `Trait::Harvester`'s `gather_rate` was
+/// resolved into the stat table and never read — so every harvester in the game
+/// gathered at the same speed no matter what its rules said. A faster miner was
+/// not expressible, which is the sort of thing that looks fine until somebody
+/// tries to add one and cannot work out why it changes nothing.
+///
+/// Rounded up, so a rate slow enough to round to zero still takes something.
+/// A harvester that gathers nothing would sit on a full field forever.
+#[inline]
+pub fn bite_for(gather_rate_hundredths: u32) -> u16 {
+    let per_bite = (gather_rate_hundredths as u64 * GATHER_INTERVAL as u64).div_ceil(100);
+    per_bite.clamp(1, u16::MAX as u64) as u16
+}
 
 /// Ticks between bites.
 pub const GATHER_INTERVAL: u32 = 8;

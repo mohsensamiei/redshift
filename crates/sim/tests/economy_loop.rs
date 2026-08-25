@@ -47,6 +47,34 @@ fn rules() -> Rules {
                 },
             ],
         },
+        // The same miner at a quarter of the speed. Two rates are the only way
+        // to show that the rate is read at all — a single harvester works
+        // exactly as convincingly whether its declared rate is consulted or
+        // silently replaced by a constant, which is how that went unnoticed.
+        EntityDef {
+            id: "slow_harvester".into(),
+            name_key: "unit.slow_harvester".into(),
+            side: None,
+            category: "vehicle".into(),
+            traits: vec![
+                Trait::Health {
+                    max: 600,
+                    armour: "none".into(),
+                },
+                Trait::Mobile {
+                    speed: Hundredths(500),
+                    turn_rate: 720,
+                    locomotor: Locomotor::Wheeled,
+                    surfaces: None,
+                    size: None,
+                    layer: None,
+                },
+                Trait::Harvester {
+                    capacity: 100,
+                    gather_rate: Hundredths(25),
+                },
+            ],
+        },
         EntityDef {
             id: "refinery".into(),
             name_key: "building.refinery".into(),
@@ -395,5 +423,60 @@ fn the_economy_is_deterministic() {
     assert!(
         first_credits > 5_000,
         "nothing was earned, so this proves nothing"
+    );
+}
+
+#[test]
+fn a_harvester_gathers_at_its_own_declared_rate() {
+    // `gather_rate` was resolved into the stat table and never read: the bite
+    // size was a flat constant, so every miner in the game worked at the same
+    // speed however its rules were written. A faster one was not expressible,
+    // which looks fine right up until somebody adds a Chrono Miner and cannot
+    // work out why it changes nothing.
+    //
+    // Two rates, one field each, same distance. The fast one should deliver
+    // meaningfully more.
+    let earned = |kind: &str| -> u32 {
+        let rules = rules();
+        let miner = rules.kind_of(kind).unwrap();
+        let refinery = rules.kind_of("refinery").unwrap();
+        let mut map = Map::new(48, 48);
+        map.add_ore_field(Cell::new(24, 24), 3, 400);
+        let mut sim = Sim::new(MatchSetup {
+            seed: 0x_6A7E,
+            map,
+            players: vec![PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            }],
+            spawns: vec![
+                Spawn {
+                    owner: PlayerId(0),
+                    kind: refinery,
+                    pos: Cell::new(10, 10).centre(),
+                },
+                Spawn {
+                    owner: PlayerId(0),
+                    kind: miner,
+                    pos: Cell::new(13, 10).centre(),
+                },
+            ],
+            rules,
+        });
+        let start = sim.treasury().credits(PlayerId(0));
+        for _ in 0..4_000 {
+            sim.tick(&[]);
+        }
+        sim.treasury().credits(PlayerId(0)) - start
+    };
+
+    let fast = earned("harvester");
+    let slow = earned("slow_harvester");
+
+    assert!(fast > 0, "the fast miner delivered nothing at all");
+    assert!(
+        fast > slow,
+        "a miner declaring four times the rate earned {fast} against {slow} — \
+         the declared rate is not being read"
     );
 }

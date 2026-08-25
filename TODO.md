@@ -224,6 +224,28 @@ built everything". When a unit arrives that needs one, the gap comes back.
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
 
+### Declared and never read — the defect this codebase keeps producing
+
+Three found in one audit, all the same shape: a trait resolves into the stat
+table, validates, and nothing consults it. Each is silent, so nothing fails —
+the feature simply is not there, and the rules file says it is.
+
+- [x] `Harvester`'s `gather_rate` — the bite size was a flat constant, so every
+      miner in the game worked at the same speed however its rules read. A
+      faster one was not expressible. Worse: the shipped harvester's capacity
+      was smaller than the constant bite, so it filled in a single mouthful and
+      the "field thins in steps" the comment described never happened.
+- [x] `Selectable`'s `priority` — selection picked the nearest thing under the
+      pointer and ignored priority entirely. Click a crowd of infantry standing
+      around a tank and you got a soldier. The only one of the three a player
+      would have felt in every single match.
+- [x] `can_crush` — a bool beside the crush bitmask that nothing read. Dead
+      weight rather than a bug, but it was in the state hash.
+
+Worth a standing habit rather than a one-off sweep: when a trait lands, the
+test that proves it must observe the *effect*, not the resolved stat. Two of
+these three had passing tests asserting the value was resolved correctly.
+
 ### The gap list is executable
 
 `crates/sim/tests/roster_conformance.rs` holds it. **Fifty-nine capabilities

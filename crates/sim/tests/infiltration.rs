@@ -214,6 +214,7 @@ fn cannon() -> WeaponDef {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }
 }
 

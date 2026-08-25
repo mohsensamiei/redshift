@@ -56,6 +56,8 @@ pub struct WeaponStats {
     pub ammo: u32,
     /// Whether this can shoot down projectiles in flight.
     pub intercepts: bool,
+    /// Whether this restores health instead of taking it away.
+    pub heals: bool,
     /// Whether the shot follows its target.
     ///
     /// A missile hits what it was aimed at; a shell flies to where the target
@@ -248,6 +250,8 @@ impl StateHash for CombatState {
 /// deterministic but arbitrary, and that changes when slots are reused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PendingHit {
+    /// Whether this restores health rather than removing it.
+    pub heals: bool,
     pub attacker: EntityId,
     /// Whether this shot kills outright rather than dealing damage.
     pub instant_kill: bool,
@@ -302,6 +306,7 @@ fn build_weapon(
         instant_kill: weapon.instant_kill,
         ammo: weapon.ammo,
         intercepts: weapon.intercepts,
+        heals: weapon.heals,
         targets: if weapon.targets.is_empty() {
             // Ground only. The default almost every weapon wants, and the one
             // that keeps every existing rules file working unchanged.
@@ -353,6 +358,7 @@ pub fn choose_target(
         alliance,
         &|_| true,
         &|_| Layer::Ground,
+        &|_| true,
     )
 }
 
@@ -371,6 +377,7 @@ pub fn choose_target_where(
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
     can_see: &dyn Fn(&Unit) -> bool,
     layer_of: &dyn Fn(&Unit) -> Layer,
+    wounded: &dyn Fn(&Unit) -> bool,
 ) -> Option<EntityId> {
     let mut best: Option<(EntityId, FxWide)> = None;
 
@@ -378,7 +385,15 @@ pub fn choose_target_where(
         if id == attacker || !other.is_alive() {
             continue;
         }
-        if alliance(attacker_unit.owner, other.owner) {
+        // A healing weapon looks for the opposite of what every other weapon
+        // looks for. Inverting the alliance test rather than adding a second
+        // search keeps one answer to "what is in reach", and means a medic
+        // carrying one is useless against an enemy rather than mildly helpful
+        // to them.
+        if alliance(attacker_unit.owner, other.owner) != weapon.heals {
+            continue;
+        }
+        if weapon.heals && !wounded(other) {
             continue;
         }
         if !can_see(other) {
@@ -412,11 +427,18 @@ pub fn target_is_valid(
     units: &crate::arena::Arena<Unit>,
     alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
     layer_of: &dyn Fn(&Unit) -> Layer,
+    wounded: &dyn Fn(&Unit) -> bool,
 ) -> bool {
     let Some(other) = units.get(target) else {
         return false;
     };
-    if !other.is_alive() || alliance(attacker_unit.owner, other.owner) {
+    if !other.is_alive() || alliance(attacker_unit.owner, other.owner) != weapon.heals {
+        return false;
+    }
+    // A patient who is already whole is no longer a target. Without this a
+    // medic keeps its beam on the first friend it healed and never notices the
+    // next one.
+    if weapon.heals && !wounded(other) {
         return false;
     }
     if !weapon.targets.engages(layer_of(other)) {
@@ -493,6 +515,8 @@ pub struct Contamination {
     pub damage: u32,
     pub warhead: WarheadId,
     pub lingers: u32,
+    /// Whether this poisons the ground by standing there or by dying.
+    pub when: redshift_data::traits::Contaminate,
 }
 
 /// What a parasite does to its host, per tick.
@@ -569,11 +593,13 @@ impl CombatTable {
                     damage,
                     warhead,
                     lingers,
+                    when,
                 } => Some(Contamination {
                     radius: Fx::from_raw(radius.to_fx_raw()),
                     damage: *damage,
                     warhead: warhead_index(warhead),
                     lingers: lingers.0,
+                    when: *when,
                 }),
                 _ => None,
             }));
@@ -744,6 +770,7 @@ mod tests {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                heals: false,
             },
             WeaponDef {
                 id: "cannon".into(),
@@ -758,6 +785,7 @@ mod tests {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                heals: false,
             },
         ];
 
@@ -1066,6 +1094,7 @@ mod tests {
             &units,
             &all_hostile,
             &|_| Layer::Ground,
+            &|_| true,
         ));
 
         // Out of range.
@@ -1077,6 +1106,7 @@ mod tests {
             &units,
             &all_hostile,
             &|_| Layer::Ground,
+            &|_| true,
         ));
 
         // Dead.
@@ -1089,6 +1119,7 @@ mod tests {
             &units,
             &all_hostile,
             &|_| Layer::Ground,
+            &|_| true,
         ));
 
         // Gone entirely — a stale handle must not resolve to whatever now
@@ -1101,6 +1132,7 @@ mod tests {
             &units,
             &all_hostile,
             &|_| Layer::Ground,
+            &|_| true,
         ));
     }
 

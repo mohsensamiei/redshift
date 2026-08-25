@@ -110,6 +110,20 @@ pub struct UnitStats {
     pub chain_max_supporters: u8,
     /// Whether this vehicle takes its weapon from whoever is riding inside.
     pub weapon_from_cargo: bool,
+    /// Whether anything is left where this falls.
+    ///
+    /// Only the flag, not the list. `UnitStats` is `Copy` — every hot path
+    /// takes one by value — and a `Vec` here would cost that for the sake of
+    /// something read a handful of times a match. What is actually left is read
+    /// from the rules at the moment of death, the same way a producer's
+    /// categories are.
+    pub leaves_something: bool,
+    /// How far this grows ore around itself. Zero for anything that does not.
+    pub grow_radius: Fx,
+    /// Ticks between one unit of ore appearing and the next.
+    pub grow_interval: u32,
+    /// The most ore a grown cell reaches.
+    pub grow_cell_limit: u16,
     /// How far this hides ground from other players. Zero for everything that
     /// does not.
     pub hides_ground: Fx,
@@ -200,6 +214,10 @@ impl Default for UnitStats {
             chain_bonus_percent: 0,
             chain_max_supporters: 0,
             weapon_from_cargo: false,
+            leaves_something: false,
+            grow_radius: Fx::ZERO,
+            grow_interval: 0,
+            grow_cell_limit: 0,
             hides_ground: Fx::ZERO,
             is_bridge: false,
             bridge_repair_radius: 0,
@@ -442,6 +460,16 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.chain_max_supporters = *max_supporters;
             }
             Trait::WeaponFromCargo => stats.weapon_from_cargo = true,
+            Trait::Grows {
+                radius,
+                interval,
+                cell_limit,
+            } => {
+                stats.grow_radius = Fx::from_raw(radius.to_fx_raw());
+                stats.grow_interval = interval.0;
+                stats.grow_cell_limit = *cell_limit;
+            }
+            Trait::Leaves { units, .. } => stats.leaves_something = !units.is_empty(),
             Trait::Bridge => stats.is_bridge = true,
             Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),

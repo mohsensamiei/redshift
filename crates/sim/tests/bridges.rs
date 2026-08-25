@@ -136,6 +136,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            heals: false,
         }],
         armour(),
         Vec::new(),

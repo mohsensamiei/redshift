@@ -37,6 +37,7 @@ fn rules() -> Rules {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }];
 
     let unit = |id: &str, vision: i32| EntityDef {

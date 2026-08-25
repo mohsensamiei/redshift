@@ -81,6 +81,15 @@ pub struct WeaponDef {
     /// Whether this weapon can shoot down projectiles in flight.
     #[serde(default)]
     pub intercepts: bool,
+    /// Whether this restores health instead of taking it away.
+    ///
+    /// A Medic, Yuri's repair drones, and the turret mode an engineer gives an
+    /// IFV. Not a damage number with a minus sign: what changes is what counts
+    /// as a *target*. A healing weapon looks for friends who are hurt, and a
+    /// unit carrying one is useless against an enemy rather than mildly
+    /// helpful to them.
+    #[serde(default)]
+    pub heals: bool,
     /// Which layers this weapon can engage.
     ///
     /// Empty means ground only, which is what almost every weapon wants and

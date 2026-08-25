@@ -18,6 +18,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{Hundredths, Percent, Ticks};
 
+/// Serde default for a percentage that is certain unless stated otherwise.
+pub(crate) fn always() -> u32 {
+    100
+}
+
 /// Serde default for flags that are true unless stated otherwise.
 pub(crate) fn yes() -> bool {
     true
@@ -36,6 +41,24 @@ pub enum Layer {
     #[default]
     Ground,
     Air,
+}
+
+/// When a contaminating thing poisons the ground.
+///
+/// A Desolator does it by standing there; a nuclear reactor does it by being
+/// destroyed. Two triggers rather than two traits, because everything after the
+/// trigger — the radius, the warhead, how long the ground stays hot — is
+/// identical, and a second copy of all of it would be one edit away from
+/// disagreeing with the first.
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
+)]
+pub enum Contaminate {
+    /// While it is alive and standing there.
+    #[default]
+    WhileStanding,
+    /// Once, when it is destroyed.
+    OnDeath,
 }
 
 /// A standing effect on a player.
@@ -415,6 +438,52 @@ pub enum Trait {
         radius: u8,
     },
 
+    /// What a death leaves behind.
+    ///
+    /// Two things in the original, and they turned out to be one mechanism:
+    /// rubble where a building stood, and the crew climbing out of a wrecked
+    /// vehicle. The second is not decoration — survivors change the value of
+    /// every vehicle kill, because destroying a full transport stops being the
+    /// same as destroying an empty one.
+    ///
+    /// What is left belongs to whoever owned the thing that died. That is the
+    /// point for a crew; for rubble it is merely harmless, since rubble has no
+    /// traits that care whose it is.
+    Leaves {
+        /// Entity ids to put where it fell.
+        units: Vec<String>,
+        /// The chance each one actually appears, as a percentage.
+        ///
+        /// A crew that always got out would make a vehicle a free infantry
+        /// squad. This is the one place the simulation's RNG decides something
+        /// a player notices.
+        #[serde(default = "crate::traits::always")]
+        chance_percent: u32,
+    },
+
+    /// Grows ore in the ground around it.
+    ///
+    /// The Ore Mine: a neutral structure, and the reason a field beside one is
+    /// worth holding while a plain field is worth stripping. This is the
+    /// widest-reaching thing in the roster — an economy where ore runs out and
+    /// one where it does not are different games, not the same game with a
+    /// different number.
+    ///
+    /// Growth is a *rule*, not a random walk. A field that spread by dice would
+    /// be a second thing the RNG had to stay in step about across peers, for no
+    /// gain over filling outward from the middle.
+    Grows {
+        /// How far the field can reach, in hundredths of a cell.
+        radius: Hundredths,
+        /// Ticks between one unit of ore appearing and the next.
+        interval: Ticks,
+        /// The most ore a cell will grow to.
+        ///
+        /// Below the map's own ceiling, usually: a grown field should be worth
+        /// coming back to rather than worth camping on forever.
+        cell_limit: u16,
+    },
+
     /// Poisons the ground around it while it stands there.
     ///
     /// The deployed Desolator, and — later — anything else that leaves a place
@@ -440,6 +509,9 @@ pub enum Trait {
         /// killed to make the ground safe again immediately would be a slow gun
         /// rather than an area denied.
         lingers: Ticks,
+        /// When the ground is poisoned.
+        #[serde(default)]
+        when: Contaminate,
     },
 
     /// What a spy gets for reaching this building.
@@ -623,6 +695,8 @@ impl Trait {
             Trait::Crews { .. } => "Crews",
             Trait::WeaponFromCargo => "WeaponFromCargo",
             Trait::HidesGround { .. } => "HidesGround",
+            Trait::Leaves { .. } => "Leaves",
+            Trait::Grows { .. } => "Grows",
             Trait::Bridge => "Bridge",
             Trait::RepairsBridges { .. } => "RepairsBridges",
             Trait::Contaminates { .. } => "Contaminates",
@@ -661,6 +735,7 @@ impl Trait {
                 .map(|a| ("transportable", a.clone()))
                 .collect(),
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
+            Trait::Leaves { units, .. } => units.iter().map(|u| ("wreckage", u.clone())).collect(),
             Trait::Infests { warhead, .. } | Trait::Contaminates { warhead, .. } => {
                 vec![("warhead", warhead.clone())]
             }
@@ -741,6 +816,8 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Crews",
     "WeaponFromCargo",
     "HidesGround",
+    "Leaves",
+    "Grows",
     "Bridge",
     "RepairsBridges",
     "Contaminates",

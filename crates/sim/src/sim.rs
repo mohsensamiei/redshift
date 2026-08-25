@@ -555,6 +555,7 @@ impl Sim {
         self.apply_commands(commands);
         self.run_production();
         self.run_harvesters();
+        self.grow_ore();
         self.update_engagements();
         self.service_path_requests();
         self.move_units();
@@ -642,6 +643,114 @@ impl Sim {
         }
     }
 
+    /// What a kind of thing leaves where it falls.
+    ///
+    /// Read from the rules rather than kept in [`UnitStats`], which is `Copy`
+    /// and taken by value on every hot path. A `Vec` there would cost that for
+    /// something consulted a handful of times a match.
+    fn leavings_of(&self, kind: EntityKind) -> Vec<EntityKind> {
+        self.rules
+            .entity(kind)
+            .traits
+            .iter()
+            .find_map(|t| match t {
+                redshift_data::traits::Trait::Leaves { units, .. } => {
+                    Some(units.iter().filter_map(|u| self.rules.kind_of(u)).collect())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// How likely each of a kind's leavings is to appear.
+    ///
+    /// Takes the kind of the thing that *died*, not of what it leaves — a crew
+    /// does not decide how often it survives. Reading the wrong one of those
+    /// two is a mistake that looks correct and silently makes every chance
+    /// certain.
+    fn leaving_chance(&self, died_as: EntityKind) -> u32 {
+        self.rules
+            .entity(died_as)
+            .traits
+            .iter()
+            .find_map(|t| match t {
+                redshift_data::traits::Trait::Leaves { chance_percent, .. } => {
+                    Some(*chance_percent)
+                }
+                _ => None,
+            })
+            .unwrap_or(100)
+    }
+
+    /// Grows one unit of ore around every ore mine that is due.
+    ///
+    /// The widest-reaching rule in the game: an economy where ore runs out and
+    /// one where it does not are different games, not the same game with a
+    /// different number. A field beside a mine is worth *holding*; a plain
+    /// field is worth stripping and leaving.
+    ///
+    /// Deterministic by construction rather than by seeding. Growth fills the
+    /// nearest cell that has room, so a field thickens from the middle and
+    /// spreads outward — which looks right, and means the RNG has one fewer
+    /// thing to stay in step about across peers.
+    fn grow_ore(&mut self) {
+        let mines: Vec<(Cell, i32, u32, u16)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive())
+            .filter_map(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                (stats.grow_radius > Fx::ZERO && stats.grow_interval > 0).then(|| {
+                    (
+                        u.cell(),
+                        stats.grow_radius.floor_int(),
+                        stats.grow_interval,
+                        stats.grow_cell_limit,
+                    )
+                })
+            })
+            .collect();
+
+        for (centre, reach, interval, limit) in mines {
+            if !self.tick.is_multiple_of(interval) {
+                continue;
+            }
+            // Nearest cell with room, ties broken by the fixed scan order. A
+            // "random cell in radius" would need the RNG; a "first cell with
+            // room" would fill one corner. This fills outward.
+            let mut best: Option<(i32, Cell)> = None;
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    let cell = Cell::new(centre.x + dx, centre.y + dy);
+                    if !self.map.contains(cell) {
+                        continue;
+                    }
+                    // Ore under a building would be unreachable for good, and
+                    // ore in water is not a thing. Growth respects both, or a
+                    // mine slowly makes its own surroundings unbuildable.
+                    if self.map.terrain(cell) != crate::map::Terrain::Ground
+                        || self.map.is_blocked(cell)
+                    {
+                        continue;
+                    }
+                    if dx * dx + dy * dy > reach * reach {
+                        continue;
+                    }
+                    if self.map.ore(cell) >= limit {
+                        continue;
+                    }
+                    let distance = dx * dx + dy * dy;
+                    if best.is_none_or(|(d, _)| distance < d) {
+                        best = Some((distance, cell));
+                    }
+                }
+            }
+            if let Some((_, cell)) = best {
+                self.map.set_ore(cell, self.map.ore(cell) + 1);
+            }
+        }
+    }
+
     /// Refreshes the ground under everything that poisons it, and forgets
     /// patches that have gone cold.
     ///
@@ -661,6 +770,11 @@ impl Sim {
             let Some(c) = self.combat.contamination(unit.kind) else {
                 continue;
             };
+            // A reactor does not irradiate while it is working. Its trigger is
+            // dying, and that is handled with the other consequences of death.
+            if c.when != redshift_data::traits::Contaminate::WhileStanding {
+                continue;
+            }
             let centre = unit.cell();
             let reach = c.radius.floor_int();
             for dy in -reach..=reach {
@@ -687,18 +801,59 @@ impl Sim {
         }
 
         for hazard in laid {
-            match self.hazards.binary_search_by_key(&hazard.cell, |h| h.cell) {
-                // Already dangerous. The later expiry wins rather than the
-                // damage stacking: two Desolators standing together make an
-                // area denied for longer, not a cell that kills twice as fast.
-                Ok(at) => {
-                    let existing = &mut self.hazards[at];
-                    if hazard.until > existing.until {
-                        *existing = hazard;
-                    }
+            self.mark_hazard(hazard);
+        }
+    }
+
+    /// Marks one cell dangerous, or extends how long it stays that way.
+    fn mark_hazard(&mut self, hazard: Hazard) {
+        match self.hazards.binary_search_by_key(&hazard.cell, |h| h.cell) {
+            // Already dangerous. The later expiry wins rather than the damage
+            // stacking: two Desolators standing together make an area denied
+            // for longer, not a cell that kills twice as fast.
+            Ok(at) => {
+                let existing = &mut self.hazards[at];
+                if hazard.until > existing.until {
+                    *existing = hazard;
                 }
-                Err(at) => self.hazards.insert(at, hazard),
             }
+            Err(at) => self.hazards.insert(at, hazard),
+        }
+    }
+
+    /// Poisons a circle of ground around a point.
+    ///
+    /// Shared by the thing that stands there doing it and the thing that does
+    /// it by dying, so the shape of a patch is decided in one place.
+    fn lay_contamination(
+        &mut self,
+        source: EntityId,
+        centre: Cell,
+        c: crate::combat::Contamination,
+    ) {
+        let tick = self.tick;
+        let reach = c.radius.floor_int();
+        let mut laid = Vec::new();
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                let cell = Cell::new(centre.x + dx, centre.y + dy);
+                if !self.map.contains(cell) {
+                    continue;
+                }
+                if Fx::dist_sq(Fx::from_int(dx), Fx::from_int(dy)) > c.radius.sq() {
+                    continue;
+                }
+                laid.push(Hazard {
+                    cell,
+                    until: tick + c.lingers,
+                    damage: c.damage,
+                    warhead: c.warhead,
+                    source,
+                });
+            }
+        }
+        for hazard in laid {
+            self.mark_hazard(hazard);
         }
     }
 
@@ -837,6 +992,7 @@ impl Sim {
             };
             let hazard = self.hazards[at];
             hits.push(PendingHit {
+                heals: false,
                 attacker: hazard.source,
                 instant_kill: false,
                 target: id,
@@ -878,6 +1034,7 @@ impl Sim {
                 continue;
             };
             bites.push(PendingHit {
+                heals: false,
                 attacker: parasite_id,
                 instant_kill: false,
                 target: host_id,
@@ -1019,6 +1176,7 @@ impl Sim {
                 // death, and it is worth paying explicitly rather than by
                 // hoping nobody gives a bridge a death charge.
                 (stats.death_damage > 0 && !stats.is_bridge).then(|| PendingHit {
+                    heals: false,
                     attacker: id,
                     instant_kill: false,
                     // No primary target: a blast is entirely splash, and hits
@@ -2001,6 +2159,12 @@ impl Sim {
                 _ => None,
             };
 
+            // Whether a unit still has health missing. Only a healing weapon
+            // asks, and it is the difference between a medic that moves on and
+            // one that keeps its beam on the first friend it patched up.
+            let wounded =
+                |other: &Unit| other.health < self.stats.get(other.owner, other.kind).max_health;
+
             let keep = unit.combat.target.filter(|t| {
                 combat::target_is_valid(
                     unit,
@@ -2009,6 +2173,7 @@ impl Sim {
                     &self.units,
                     &Self::are_allied,
                     &layer_of,
+                    &wounded,
                 ) && self.units.get(*t).is_some_and(&visible)
             });
             let target = ordered.or(keep).or_else(|| {
@@ -2020,6 +2185,7 @@ impl Sim {
                     &Self::are_allied,
                     &visible,
                     &layer_of,
+                    &wounded,
                 )
             });
 
@@ -2145,11 +2311,13 @@ impl Sim {
                         warhead: firing_weapon.warhead,
                         splash_radius: firing_weapon.splash_radius,
                         instant_kill: firing_weapon.instant_kill,
+                        heals: firing_weapon.heals,
                         fuse: crate::projectile::MAX_FLIGHT_TICKS,
                     });
                 } else {
                     // A rifle. Instant, exactly as before.
                     hits.push(PendingHit {
+                        heals: firing_weapon.heals,
                         attacker,
                         instant_kill: firing_weapon.instant_kill,
                         target,
@@ -2232,6 +2400,7 @@ impl Sim {
             let arrived = shot.advance();
             if arrived {
                 hits.push(PendingHit {
+                    heals: shot.heals,
                     attacker: shot.attacker,
                     instant_kill: shot.instant_kill,
                     // A homing shot damages what it was following; a ballistic
@@ -2256,6 +2425,25 @@ impl Sim {
         for hit in hits {
             // The primary target takes the shot even if it has moved, since the
             // shot was already committed this tick.
+            // A healing hit skips the whole damage machinery. Running it
+            // through the armour table with a negative sign was the obvious
+            // shortcut and would have made a medic's effectiveness depend on
+            // what its patient was armoured against, which is nonsense — and
+            // veterancy would have made a veteran medic heal *less*, since a
+            // rank resists what is aimed at it.
+            if hit.heals {
+                let ceiling = self
+                    .units
+                    .get(hit.target)
+                    .map(|t| self.stats.get(t.owner, t.kind).max_health);
+                if let (Some(ceiling), Some(target)) = (ceiling, self.units.get_mut(hit.target))
+                    && target.is_alive()
+                {
+                    target.health = (target.health + hit.damage).min(ceiling);
+                }
+                continue;
+            }
+
             if let Some(target) = self.units.get(hit.target) {
                 let armour = self.combat.armour(target.kind);
                 let base =
@@ -2407,6 +2595,58 @@ impl Sim {
                 p.carrier = None;
                 p.pos = at;
             }
+        }
+
+        // What the dead leave where they fell: rubble on a footprint, a crew
+        // climbing out of a wreck. Collected before the arena is swept, since
+        // the position comes from the thing that died.
+        let leavings: Vec<(PlayerId, EntityKind, EntityKind, WorldPos)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter(|(_, u)| self.stats.get(u.owner, u.kind).leaves_something)
+            .flat_map(|(_, u)| {
+                self.leavings_of(u.kind)
+                    .into_iter()
+                    // The dead thing's kind is carried alongside, because the
+                    // chance belongs to *it* rather than to what it leaves. A
+                    // crew does not decide how often it survives.
+                    .map(move |kind| (u.owner, u.kind, kind, u.pos))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for (owner, died_as, kind, pos) in leavings {
+            // The chance is rolled here rather than gathered above, because
+            // rolling inside an iterator would tie the RNG's advance to how the
+            // iterator happened to be evaluated.
+            let chance = self.leaving_chance(died_as);
+            if chance < 100 && !self.rng.chance(chance as i32, 100) {
+                continue;
+            }
+            // Beside the wreck rather than inside it: a crew that spawned on a
+            // cell its own rubble had just claimed would be stuck there.
+            let movement = self.stats.get(owner, kind).movement;
+            let at = self
+                .free_cell_near(pos.cell(), movement, ENTRY_SEARCH_RADIUS)
+                .map(|c| c.centre())
+                .unwrap_or(pos);
+            self.spawn_unit(owner, kind, at);
+        }
+
+        // Ground poisoned by a death rather than by something standing on it —
+        // a reactor going up. Laid here, with the other consequences of dying,
+        // so the patch is placed exactly once.
+        let fallout: Vec<(EntityId, Cell, crate::combat::Contamination)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| !u.is_alive())
+            .filter_map(|(id, u)| {
+                let c = self.combat.contamination(u.kind)?;
+                (c.when == redshift_data::traits::Contaminate::OnDeath).then_some((id, u.cell(), c))
+            })
+            .collect();
+        for (id, at, c) in fallout {
+            self.lay_contamination(id, at, c);
         }
 
         // A wrecked bridge stays. It is the one thing destroyed without being

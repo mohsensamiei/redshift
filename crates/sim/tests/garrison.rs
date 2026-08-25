@@ -40,6 +40,7 @@ fn gun(id: &str, damage: u32, range: i32) -> WeaponDef {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }
 }
 

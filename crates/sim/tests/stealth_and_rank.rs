@@ -29,6 +29,7 @@ fn rules() -> Rules {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }];
 
     let base = |id: &str, extra: Vec<Trait>| {

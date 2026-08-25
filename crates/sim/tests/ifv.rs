@@ -42,6 +42,7 @@ fn gun(id: &str, warhead: &str, damage: u32, range: i32, targets: Vec<Layer>) ->
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }
 }
 

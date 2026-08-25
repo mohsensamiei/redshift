@@ -24,7 +24,7 @@
 //! violated somewhere.
 
 use redshift_data::rules::{ArmourTable, EntityDef, FactionDef, Rules, WeaponDef};
-use redshift_data::traits::{Locomotor, Surface, Trait};
+use redshift_data::traits::{Contaminate, Locomotor, Surface, Trait};
 use redshift_data::value::{Hundredths, Ticks};
 use redshift_sim::command::{Command, CommandKind, PlayerId};
 use redshift_sim::map::{Cell, Map, SurfaceMask, Terrain};
@@ -58,6 +58,7 @@ fn rifle() -> WeaponDef {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     }
 }
 
@@ -589,12 +590,41 @@ fn an_engineer_captures_a_neutral_structure() {
 }
 
 #[test]
-#[ignore = "gap: a destroyed building clears its ground completely"]
 fn a_destroyed_building_leaves_rubble() {
     // From OpenRA's data rather than any description: a destroyed structure
-    // leaves a separate rubble object standing on its footprint. Redshift frees
-    // the ground the moment the building dies.
-    panic!("destruction removes the entity and releases its ground");
+    // leaves a separate rubble object where it stood.
+    //
+    // The ground itself is still freed — rubble is something to look at, not a
+    // wall. Leaving the footprint claimed would mean a player could never
+    // rebuild where a building fell. Exercised in tests/wreckage.rs.
+    let mut barracks = unit(
+        "barracks",
+        "structure",
+        Locomotor::Foot,
+        vec![
+            Trait::Footprint {
+                width: 3,
+                height: 3,
+            },
+            Trait::Leaves {
+                units: vec!["rubble".into()],
+                chance_percent: 100,
+            },
+        ],
+    );
+    barracks
+        .traits
+        .retain(|t| !matches!(t, Trait::Mobile { .. }));
+    let mut rubble = unit("rubble", "terrain", Locomotor::Foot, vec![]);
+    rubble.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![barracks, rubble], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "barracks", Cell::new(10, 10));
+    assert!(
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of("barracks").unwrap())
+            .leaves_something
+    );
 }
 
 #[test]
@@ -651,11 +681,32 @@ fn a_unit_runs_out_of_ammunition_and_returns_to_rearm() {
 }
 
 #[test]
-#[ignore = "gap: a destroyed vehicle releases nothing"]
 fn a_destroyed_vehicle_ejects_its_crew() {
     // Survivors change the value of every vehicle kill: destroying a transport
-    // full of infantry is not the same as destroying an empty one.
-    panic!("destruction removes the unit and leaves nothing behind");
+    // full of infantry stops being the same as destroying an empty one.
+    //
+    // The same mechanism as rubble, which is the reason both landed together —
+    // "put something where it fell" turned out to be one thing said twice. What
+    // differs is only what is put there, and how likely it is: a crew that
+    // always got out would make a vehicle a free infantry squad.
+    let tank = unit(
+        "tank",
+        "vehicle",
+        Locomotor::Tracked,
+        vec![Trait::Leaves {
+            units: vec!["crew".into()],
+            chance_percent: 50,
+        }],
+    );
+    let crew = unit("crew", "infantry", Locomotor::Foot, vec![]);
+
+    let rules = rules_with(vec![tank, crew], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "tank", Cell::new(10, 10));
+    assert!(
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of("tank").unwrap())
+            .leaves_something
+    );
 }
 
 #[test]
@@ -732,12 +783,37 @@ fn a_structure_can_be_sold_for_a_refund() {
 }
 
 #[test]
-#[ignore = "gap: ore is finite — it does not regrow"]
 fn an_ore_field_regrows_from_its_source() {
-    // The widest-reaching of the gaps found by cross-check. Redshift's economy
-    // assumes a fixed quantity on the map; a renewable one changes how long a
-    // match runs and whether holding a contested field is worth it.
-    panic!("ore is placed once and only ever decreases");
+    // The widest-reaching of the gaps found by cross-check: an economy where
+    // ore runs out and one where it does not are different games, not the same
+    // game with a different number.
+    //
+    // Growth belongs to the *mine*, not to ore. That is what keeps the contrast
+    // the original draws — a field beside a mine is worth holding, a plain
+    // field is worth stripping and leaving. And it is a rule rather than a
+    // random walk, so the RNG has one fewer thing to stay in step about across
+    // peers. Exercised end to end in tests/ore_growth.rs.
+    let mut mine = unit(
+        "ore_mine",
+        "structure",
+        Locomotor::Foot,
+        vec![Trait::Grows {
+            radius: Hundredths(300),
+            interval: Ticks(5),
+            cell_limit: 20,
+        }],
+    );
+    mine.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![mine], vec![]);
+    let mut sim = one_unit(rules, Map::new(32, 32), "ore_mine", Cell::new(10, 10));
+    assert_eq!(sim.map().total_ore(), 0, "the map should start bare");
+
+    for _ in 0..100 {
+        sim.tick(&[]);
+    }
+
+    assert!(sim.map().total_ore() > 0, "the mine grew nothing");
 }
 
 #[test]
@@ -760,6 +836,7 @@ fn irradiated_ground_damages_what_stands_on_it() {
             damage: 10,
             warhead: "shot".into(),
             lingers: Ticks(100),
+            when: Contaminate::WhileStanding,
         }],
     );
     dug_in.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
@@ -1195,11 +1272,47 @@ fn only_one_superweapon_of_a_kind_can_be_built() {
 }
 
 #[test]
-#[ignore = "gap: a destroyed structure has no death effect"]
 fn a_nuclear_reactor_explodes_when_destroyed() {
-    // `Explodes` is in the trait catalogue and unread, and the reactor case
-    // adds lasting ground contamination on top of the blast.
-    panic!("destruction removes the unit and does nothing else");
+    // Two separate consequences of one death: the blast, and ground that stays
+    // dangerous afterwards. A reactor whose only effect was the explosion would
+    // be a large bomb rather than a place you have to stop going.
+    //
+    // The fallout is the contamination that already existed, with a different
+    // trigger — two triggers rather than two traits, because everything after
+    // the trigger is identical and a second copy would be one edit from
+    // disagreeing. Exercised in tests/wreckage.rs.
+    let mut reactor = unit(
+        "reactor",
+        "structure",
+        Locomotor::Foot,
+        vec![
+            Trait::Explodes {
+                warhead: "shot".into(),
+                damage: 150,
+            },
+            Trait::Contaminates {
+                radius: Hundredths(250),
+                damage: 5,
+                warhead: "shot".into(),
+                lingers: Ticks(200),
+                when: Contaminate::OnDeath,
+            },
+        ],
+    );
+    reactor
+        .traits
+        .retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![reactor], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "reactor", Cell::new(10, 10));
+    let kind = sim.rules().kind_of("reactor").unwrap();
+
+    assert!(sim.stats().get(PlayerId(0), kind).death_damage > 0);
+    assert_eq!(
+        sim.combat().contamination(kind).map(|c| c.when),
+        Some(Contaminate::OnDeath),
+        "a working reactor must not irradiate its own base"
+    );
 }
 
 #[test]
@@ -1528,19 +1641,55 @@ fn an_ifv_changes_weapon_with_its_passenger() {
 }
 
 #[test]
-#[ignore = "gap: a weapon can only take health away, never give it back"]
 fn a_medic_heals_the_infantry_around_it() {
-    // Split out of the IFV gap rather than quietly shipped with it. An engineer
-    // riding in an IFV turns it into a repair vehicle, and that specific mode
-    // is the one thing the turret-mode mechanism cannot yet express — not
-    // because the mode does not resolve, but because there is no such thing as
-    // a weapon that restores health.
+    // Split out of the IFV gap rather than quietly shipped with it, and then
+    // closed: an engineer riding an IFV turns it into a repair vehicle, which
+    // is a turret mode whose weapon happens to heal.
+    // Closed. The inversion is the whole of it: a healing weapon looks for
+    // friends who are hurt, so a unit carrying one is useless against an enemy
+    // rather than mildly helpful to them.
     //
-    // The same missing piece is the Medic, and Yuri's repair drones. It wants
-    // targeting to invert for a healing weapon — friendly and damaged rather
-    // than hostile — which is a change to what a target *is*, not a damage
-    // number with a minus sign.
-    panic!("damage is subtracted, always; nothing restores health by firing at it");
+    // It also skips the damage machinery. Putting a heal through the armour
+    // table was the obvious shortcut, and it would make a medic's effectiveness
+    // depend on what its patient was armoured against — and make a *veteran*
+    // medic heal less, since a rank resists whatever is aimed at it. Exercised
+    // end to end in tests/healing.rs.
+    let rules = Rules::from_parts(
+        vec![unit(
+            "medic",
+            "infantry",
+            Locomotor::Foot,
+            vec![Trait::Armed {
+                weapon: "bandage".into(),
+                turret: true,
+                turret_rate: 3600,
+            }],
+        )],
+        vec![WeaponDef {
+            id: "bandage".into(),
+            damage: 20,
+            warhead: "shot".into(),
+            reload: Ticks(10),
+            range: Hundredths(300),
+            splash_radius: Hundredths::ZERO,
+            projectile_speed: Hundredths::ZERO,
+            homing: false,
+            targets: vec![],
+            instant_kill: false,
+            ammo: 0,
+            intercepts: false,
+            heals: true,
+        }],
+        armour(),
+        Vec::new(),
+    )
+    .expect("rules should validate");
+    let sim = one_unit(rules, Map::new(24, 24), "medic", Cell::new(5, 5));
+    let kind = sim.rules().kind_of("medic").unwrap();
+    assert!(
+        sim.combat().weapon(kind).is_some_and(|w| w.heals),
+        "the medic's weapon still takes health away"
+    );
 }
 
 #[test]
@@ -1610,6 +1759,7 @@ fn a_slow_projectile_takes_time_to_arrive() {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -1773,6 +1923,7 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
     // fire without a spotter, which is realistic and not what this is testing.
@@ -1909,6 +2060,7 @@ fn air_rules() -> Rules {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        heals: false,
     };
 
     let armed = |id: &str, weapon: &str, locomotor: Locomotor| {

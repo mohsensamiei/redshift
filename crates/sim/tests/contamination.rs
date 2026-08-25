@@ -12,7 +12,7 @@
 //! across, with no second mechanism to disagree with the first.
 
 use redshift_data::rules::{ArmourTable, EntityDef, Rules, WeaponDef};
-use redshift_data::traits::{Locomotor, Trait};
+use redshift_data::traits::{Contaminate, Locomotor, Trait};
 use redshift_data::value::{Hundredths, Ticks};
 use redshift_sim::EntityId;
 use redshift_sim::command::{Command, CommandKind, PlayerId};
@@ -85,6 +85,7 @@ fn desolator() -> Vec<EntityDef> {
                     // Long enough that the ground stays denied after the
                     // Desolator itself is gone.
                     lingers: Ticks(100),
+                    when: Contaminate::WhileStanding,
                 },
                 Trait::Deploys {
                     into: "desolator".into(),
@@ -137,6 +138,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            heals: false,
         }],
         armour(),
         Vec::new(),

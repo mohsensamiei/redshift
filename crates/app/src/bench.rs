@@ -190,6 +190,7 @@ fn bench_rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            heals: false,
         },
         WeaponDef {
             id: "cannon".into(),
@@ -204,6 +205,7 @@ fn bench_rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            heals: false,
         },
     ];
 

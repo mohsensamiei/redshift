@@ -189,6 +189,42 @@ fn flat_material(colour: Color) -> StandardMaterial {
 /// Raised cells get their side faces as well as their top. Emitting only the
 /// top leaves a gap at every step that the background shows through, which
 /// reads as a black crack along every wall.
+/// The drawn surface height of a cell.
+///
+/// Shared by the cell itself and by the neighbour a wall drops to, so the two
+/// cannot disagree — which is the only way a wall can end up floating above the
+/// ground it is supposed to meet.
+fn surface_height(
+    map: &Map,
+    visibility: &redshift_sim::Visibility,
+    viewer: redshift_sim::PlayerId,
+    cell: redshift_sim::Cell,
+) -> f32 {
+    // Flattened where the player has never looked. Blackening the colour alone
+    // still left the ridges catching the light, which drew a map of every cliff
+    // on ground nobody had scouted.
+    if visibility.sight(viewer, cell) == redshift_sim::Sight::Unseen {
+        return 0.0;
+    }
+    let level = map.elevation(cell) as f32 * LEVEL_HEIGHT;
+    level
+        + if map.terrain(cell) == Terrain::Rock {
+            0.5
+        } else {
+            0.0
+        }
+}
+
+/// The same, spelled differently at the call site for readability.
+fn neighbour_height(
+    map: &Map,
+    visibility: &redshift_sim::Visibility,
+    viewer: redshift_sim::PlayerId,
+    cell: redshift_sim::Cell,
+) -> f32 {
+    surface_height(map, visibility, viewer, cell)
+}
+
 pub fn build_terrain_mesh(
     map: &Map,
     hazards: &[redshift_sim::sim::Hazard],
@@ -282,13 +318,7 @@ pub fn build_terrain_mesh(
             // Flattened where the player has never looked. Blackening the
             // colour alone still left the ridges catching the light, which drew
             // a map of every cliff on ground nobody had scouted.
-            let height = match sight {
-                redshift_sim::Sight::Unseen => 0.0,
-                _ => {
-                    let level = map.elevation(cell) as f32 * LEVEL_HEIGHT;
-                    level + if terrain == Terrain::Rock { 0.5 } else { 0.0 }
-                }
-            };
+            let height = surface_height(map, visibility, viewer, cell);
 
             let (fx, fy) = (x as f32, y as f32);
 
@@ -356,11 +386,34 @@ pub fn build_terrain_mesh(
             ];
             for (dx, dy, normal, [b0, b1]) in neighbours {
                 let neighbour = redshift_sim::Cell::new(x + dx, y + dy);
-                // Off-map counts as lower, so the map edge is walled rather
-                // than open.
-                if map.terrain(neighbour) == Terrain::Rock && map.contains(neighbour) {
+                // How far down the wall goes: to the neighbour's own surface,
+                // not to zero. Dropping every skirt to the ground was fine when
+                // the only raised thing was rock standing on flat earth; with
+                // real elevation it pushes a level-two cliff face straight
+                // through the top of the level-one cell beside it.
+                //
+                // Off-map counts as the ground floor, so the map edge is walled
+                // rather than open.
+                let below = if map.contains(neighbour) {
+                    let level = neighbour_height(map, visibility, viewer, neighbour);
+                    // A rock neighbour is drawn standing proud too, so there is
+                    // nothing to see between them.
+                    if map.terrain(neighbour) == Terrain::Rock && level >= height {
+                        continue;
+                    }
+                    level
+                } else {
+                    0.0
+                };
+                // Nothing to draw when the neighbour is level with this cell or
+                // above it. Emitting it anyway buried four hidden quads per
+                // cell inside every plateau — invisible, and paid for on every
+                // rebuild.
+                if below >= height {
                     continue;
                 }
+                let b0 = [b0[0], below, b0[2]];
+                let b1 = [b1[0], below, b1[2]];
                 let t0 = [b0[0], height, b0[2]];
                 let t1 = [b1[0], height, b1[2]];
                 let base = positions.len() as u32;

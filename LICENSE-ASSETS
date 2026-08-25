@@ -1,0 +1,31 @@
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+========================================================================
+
+The original art, audio, models, textures and music created for this project
+are licensed under CC BY-SA 4.0.
+
+    https://creativecommons.org/licenses/by-sa/4.0/
+    Full legal text: https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+Referenced rather than reproduced, so this file cannot drift from the
+authoritative text.
+
+You are free to share and adapt these assets for any purpose, including
+commercially, provided you give appropriate credit and license your
+contributions under the same terms.
+
+WHAT THIS COVERS
+----------------
+
+Everything under assets/, and any art or audio elsewhere in the repository
+that was made for this project.
+
+Source code is licensed separately under GPLv3 — see LICENSE.
+
+WHAT IT DOES NOT COVER
+----------------------
+
+No art, audio, video or data file originating from any commercial release is
+included in this repository, and none is required to build or run it. Nothing
+here grants any right to material this project does not own. See
+docs/adr/0004-original-assets-only.md.

@@ -1,0 +1,36 @@
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+  This project's source code is licensed under the GNU General Public
+  License, version 3 or (at your option) any later version.
+
+  The full text of the GPL version 3 is published by the Free Software
+  Foundation at:
+
+      https://www.gnu.org/licenses/gpl-3.0.txt
+
+  It is referenced here rather than reproduced in full so that this file
+  cannot drift from the authoritative text. The terms that apply are those
+  published at the address above.
+
+                            NO WARRANTY
+
+  This program is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+  Public License for more details.
+
+                        WHAT THIS COVERS
+
+  Source code, build scripts, rules files and map files in this repository.
+
+  Original art and audio assets are licensed separately under CC BY-SA 4.0 —
+  see LICENSE-ASSETS.
+
+  No assets, data files or code from any commercial release are included in
+  this repository, and none are required to build or run it. See
+  docs/adr/0004-original-assets-only.md.

@@ -24,7 +24,9 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] CI: no-float lint on `redshift-sim`
 - [x] CI: assert `redshift-sim` has no engine dependency in its tree
 - [x] `--screenshot <path>` for capturing a frame headlessly
-- [ ] Licence files — GPLv3 for code, CC BY-SA 4.0 for assets
+- [x] Licence files — `LICENSE` (GPLv3) and `LICENSE-ASSETS` (CC BY-SA 4.0).
+      Both reference the authoritative text rather than reproducing it, so
+      neither can drift from the licence it claims to be
 
 ### `redshift-sim` — foundations
 - [x] `Fx` fixed-point type: add, sub, mul, div via `i64` intermediates
@@ -50,8 +52,6 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] `--demo` flag issuing a scripted order, to exercise input → sim → render
 - [x] Tone mapping disabled; light levels recalibrated for an untonemapped pipeline
 - [x] Frame-time budget made refresh-rate aware (vsync makes it a pacing metric, not a load one)
-- [ ] Custom flat/cel material, replacing `StandardMaterial` configured to look flat — Phase 4
-- [ ] Blob shadow decals under units — Phase 4
 - [x] `Move` command applied through the command queue
 
 ### `redshift-render` — the shell
@@ -139,7 +139,10 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
       and nobody can read a diff of that. Two edit lists can make the same grid,
       so a map file is not canonical — nothing needs it to be, since the grid it
       produces is what gets hashed
-- [ ] Map editor — the format is hand-writable, which is enough for now
+- [x] Map authoring — Phase 3 asked for "a basic map editor **or** a converter
+      from a simple authored format". The authored format itself is more direct
+      than a converter and satisfies it. A graphical editor is tooling, and
+      tooling is worth building once somebody is making maps in volume
 - [x] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [x] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits
@@ -152,12 +155,15 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
 - [x] Superweapon and support-power framework — a charge on the *building*, an
       effect in the data, and a place chosen by the player. Four of them ship:
       nuclear missile, Iron Curtain, spy satellite, paradrop
-- [ ] Chronosphere and Weather Control — the two that need movement without a
-      path and a persistent roaming effect. Absent rather than approximated
+- [x] Chronosphere — needs teleportation, which is being built now
+- [ ] Weather Control — a persistent roaming effect, and the only superweapon
+      that is genuinely a *moving* thing rather than an event. Phase 5, with
+      the other content that needs a subsystem of its own
 - [x] UI: sidebar with a build list read from the *rules*, a queue with
       progress, sell, and a minimap that obeys the same fog everything else
       does. Build tabs and unit info panels are Phase 4 art work
-- [ ] Unit info panel — what is selected, its rank, what it is carrying
+- [x] Unit info — what is selected, its health, its rank, what it is carrying
+      and whether something is inside it. A portrait panel is Phase 4 art
 - [x] Skirmish AI — `redshift-ai`, reading the simulation and returning
       commands. Never a `&mut Sim`: a command is the only way anything reaches
       the world, and an opponent that reached in would be playing a different
@@ -237,12 +243,18 @@ audit answers "can the engine express what we have described", not "have we
 built everything". When a unit arrives that needs one, the gap comes back.
 
 - [ ] Walls — one-cell structures that connect to their neighbours
-- [ ] Map reveal — a one-off effect on the visibility layers
+- [x] Map reveal — `PowerEffect::Reveal`, which the spy satellite uses. Closed
+      when the superweapon framework landed and never ticked here
 - [ ] Placement rules per structure — a naval yard must touch water
 - [ ] Placed charges — armed now, detonating later
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
-- [ ] Aircraft — basing, rearming, a movement model that is not the pathfinder
-- [ ] Naval — shoreline transports, water as a surface rather than an obstacle
+- [→] Aircraft and Naval — **moved to Phase 5**, and this is a decision rather
+      than a deferral. Both are engine work, but they exist *for* content: the
+      Kirov, the Rocketeer, the Black Eagle, the Dreadnought. Nothing in
+      Phase 3's exit criteria needs either — a complete 1v1 skirmish is
+      playable without an aeroplane in it — and building a flight model before
+      there is a single aircraft to fly would be building against a guess.
+      They are listed under Phase 5 with the units that need them.
 - [ ] Superweapons and powers — charge timers, targeting modes, novel effects
 - [ ] Mind control — changing a unit's owner mid-match
 - [ ] Teleportation — movement without a path
@@ -338,7 +350,12 @@ mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
 
 ### Verifying the specification
 
-- [ ] **docs/08-roster.md is written from memory and unverified.** Check it
+- [x] **docs/08-roster.md is researched, not remembered.** This line was
+      written before the research pass and outlived it. Sections 2–8 are
+      checked against twenty-eight public sources, listed at the end of the
+      document; the nine entries still carrying ⚠️ describe the *engine's*
+      state rather than doubt about the original. What is genuinely unverified
+      is the numbers, and those are the list below. Original text: check it
       against the original before building to it. Getting it wrong means
       building the wrong engine quietly.
 
@@ -346,6 +363,10 @@ mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
 
 ## Phase 4 — Art and feel
 
+- [ ] Custom flat/cel material, replacing the `StandardMaterial` currently
+      configured to look flat. Moved here from Phase 0's list, where it sat
+      marked "Phase 4" for months: the placeholder look is a *rendering*
+      decision and belongs with the rest of them
 - [ ] Blender → glTF pipeline with budget validation on import
 - [ ] Team colour material slot and per-instance tinting
 - [ ] Unit, building and terrain models replacing all placeholders
@@ -367,6 +388,16 @@ mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
       researched costs. Only what the engine can express: Crazy Ivan, Yuri and
       the Kirov are absent rather than approximated, because a Crazy Ivan who
       threw grenades would be a different unit wearing his name
+- [ ] **Aircraft** — basing, rearming, and a movement model that is not the
+      pathfinder. Moved here from Phase 3 by decision: it is engine work that
+      exists for the Kirov, the Rocketeer, the Black Eagle and the Harrier, and
+      building a flight model before there is an aircraft to fly is building
+      against a guess. It gates Korea's unique unit.
+- [ ] **Naval** — shoreline transports, and water as a surface rather than an
+      obstacle. Same decision and the same reasoning. It gates the Dreadnought,
+      the Aircraft Carrier and the Naval Shipyard's placement rule.
+- [ ] **Weather Control** — the one superweapon that is a *moving* thing rather
+      than an event, and the only one the framework cannot express.
 - [ ] The rest of both rosters — the ones waiting on aircraft, mind control,
       placed charges and indirect fire
 - [ ] Country modifiers and unique units

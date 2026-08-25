@@ -139,7 +139,12 @@ impl MapDef {
         Ok(map)
     }
 
-    pub fn from_str(text: &str) -> Result<MapDef, MapError> {
+    /// Reads a map from text.
+    ///
+    /// Not `FromStr`: that trait's `Err` would have to carry the same
+    /// information and the call site reads worse for it. Named to say what it
+    /// does rather than to satisfy a trait nothing asks for.
+    pub fn parse(text: &str) -> Result<MapDef, MapError> {
         let map: MapDef = ron::from_str(text).map_err(|e| MapError::Malformed {
             path: "<memory>".into(),
             message: e.to_string(),
@@ -212,5 +217,96 @@ impl MapDef {
         } else {
             Err(MapError::Invalid { problems })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The smallest map that is actually valid.
+    fn minimal() -> String {
+        r#"(
+            name: "Test",
+            width: 16,
+            height: 16,
+            players: 1,
+            starts: [(slot: 0, at: (4, 4), units: [(id: "tank", offset: (0, 0))])],
+        )"#
+        .to_string()
+    }
+
+    #[test]
+    fn a_minimal_map_loads() {
+        let map = MapDef::parse(&minimal()).expect("should be valid");
+        assert_eq!(map.name, "Test");
+        assert_eq!(map.starts.len(), 1);
+        // Edits and neutrals are optional: a map with neither is a flat field,
+        // which is a perfectly good thing to test on.
+        assert!(map.edits.is_empty());
+        assert!(map.neutrals.is_empty());
+    }
+
+    #[test]
+    fn a_start_off_the_map_is_refused() {
+        // The failure this exists to prevent produces a unit at the origin and
+        // a puzzled player twenty minutes later, rather than an error.
+        let text = minimal().replace("at: (4, 4)", "at: (40, 4)");
+        assert!(MapDef::parse(&text).is_err());
+    }
+
+    #[test]
+    fn two_starts_in_one_slot_are_refused() {
+        let text = r#"(
+            name: "Test", width: 16, height: 16, players: 2,
+            starts: [
+                (slot: 0, at: (2, 2), units: []),
+                (slot: 0, at: (9, 9), units: []),
+            ],
+        )"#;
+        assert!(MapDef::parse(text).is_err());
+    }
+
+    #[test]
+    fn a_map_that_cannot_seat_the_players_it_claims_is_refused() {
+        let text = minimal().replace("players: 1", "players: 4");
+        assert!(MapDef::parse(&text).is_err());
+    }
+
+    #[test]
+    fn an_edit_running_off_the_edge_is_allowed() {
+        // Painting past the edge means "to the edge", and clamping is the
+        // sensible reading. Only an edit that touches nothing at all is wrong.
+        let text = minimal().replace(
+            "players: 1,",
+            "players: 1,\n            edits: [Terrain(area: (from: (10, 10), to: (99, 99)), ground: Water)],",
+        );
+        assert!(MapDef::parse(&text).is_ok());
+    }
+
+    #[test]
+    fn an_edit_entirely_off_the_map_is_refused() {
+        let text = minimal().replace(
+            "players: 1,",
+            "players: 1,\n            edits: [Terrain(area: (from: (60, 60), to: (99, 99)), ground: Water)],",
+        );
+        assert!(MapDef::parse(&text).is_err());
+    }
+
+    #[test]
+    fn a_map_with_no_area_is_refused() {
+        let text = minimal().replace("width: 16", "width: 0");
+        assert!(MapDef::parse(&text).is_err());
+    }
+
+    #[test]
+    fn the_shipped_map_loads() {
+        // The one that actually gets played. A format nobody has written a real
+        // map in is a format that does not work yet.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../maps/crossing.ron");
+        let map = MapDef::load(&path).expect("the shipped map should load");
+        assert_eq!(map.players, 2);
+        assert_eq!(map.starts.len(), 2);
+        assert!(!map.edits.is_empty());
     }
 }

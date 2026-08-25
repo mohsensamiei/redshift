@@ -9,10 +9,10 @@ use redshift_render::RedshiftRenderPlugin;
 use redshift_render::session::Session;
 use redshift_sim::Rules;
 use redshift_sim::command::PlayerId;
-use redshift_sim::map::{Cell, Map, Terrain};
-use redshift_sim::sim::{MatchSetup, PlayerSetup, Spawn};
+use redshift_sim::sim::MatchSetup;
 
 mod bench;
+mod mapfile;
 mod netplay;
 
 fn main() {
@@ -188,138 +188,19 @@ fn demo_order(mut session: ResMut<Session>, mut frames: Local<u32>, mut issued: 
 /// it, and every peer must build a bit-identical starting world.
 fn skirmish_setup(seed: u64) -> MatchSetup {
     let rules = load_rules();
-    let map = skirmish_map();
-
-    // Kinds are looked up by name once, here, rather than deep in the spawn
-    // loop: a typo should stop the match starting with a clear message, not
-    // produce an army of whatever kind happened to be at index zero.
-    let kind = |id: &str| {
-        rules
-            .kind_of(id)
-            .unwrap_or_else(|| panic!("rules/ has no entity named {id:?}"))
-    };
-    let tank = kind("grizzly_tank");
-    let infantry = kind("gi");
-    let harvester = kind("harvester");
-    let refinery = kind("refinery");
-    let construction_yard = kind("construction_yard");
-    let mcv = kind("mcv");
-
-    let mut spawns = Vec::new();
-    // Close enough that a demo run reaches contact, far enough that the walk
-    // there still exercises pathfinding.
-    for (owner, base_x, base_y, dx, dy) in
-        [(PlayerId(0), 18, 20, 1, 1), (PlayerId(1), 28, 26, -1, -1)]
-    {
-        for i in 0..6i32 {
-            spawns.push(Spawn {
-                owner,
-                kind: tank,
-                pos: Cell::new(base_x + dx * (i % 3), base_y + dy * (i / 3)).centre(),
-            });
-        }
-        for i in 0..4i32 {
-            spawns.push(Spawn {
-                owner,
-                kind: infantry,
-                pos: Cell::new(base_x + dx * (i % 2 + 3), base_y + dy * (i / 2)).centre(),
-            });
-        }
-        // A refinery and two harvesters each, so the economy runs from the
-        // first tick. Placement is mirrored so neither side starts closer to
-        // its ore than the other.
-        // A construction yard, so the player has somewhere to build from and the
-        // placement rules have something to anchor a build area to.
-        spawns.push(Spawn {
-            owner,
-            kind: construction_yard,
-            pos: Cell::new(base_x - dx * 9, base_y - dy * 6).centre(),
-        });
-        spawns.push(Spawn {
-            owner,
-            kind: refinery,
-            pos: Cell::new(base_x - dx * 6, base_y - dy * 6).centre(),
-        });
-        for i in 0..2i32 {
-            spawns.push(Spawn {
-                owner,
-                kind: harvester,
-                pos: Cell::new(base_x - dx * 4, base_y - dy * (5 + i)).centre(),
-            });
-        }
-        // A spare MCV, so deploying is something the demo can actually be used
-        // to try. Parked clear of the base: it needs three by three of empty
-        // ground to unpack into.
-        spawns.push(Spawn {
-            owner,
-            kind: mcv,
-            pos: Cell::new(base_x - dx * 9, base_y - dy * 11).centre(),
-        });
-    }
-
-    MatchSetup {
-        seed,
-        map,
-        rules,
-        players: vec![
-            PlayerSetup {
-                id: PlayerId(0),
-                faction: Some("america".into()),
-            },
-            PlayerSetup {
-                id: PlayerId(1),
-                faction: Some("korea".into()),
-            },
-        ],
-        spawns,
-    }
+    let path = map_root().join("crossing.ron");
+    let def = redshift_data::map::MapDef::load(&path)
+        .unwrap_or_else(|e| panic!("could not load {}: {e}", path.display()));
+    mapfile::match_setup(&def, rules, seed, 2)
+        .unwrap_or_else(|e| panic!("could not start on {}: {e}", def.name))
 }
 
-/// The placeholder skirmish map, until maps become data.
+/// Where the shipped maps live.
 ///
-/// Laid out so pathfinding has something to do: two walls with staggered
-/// openings, and water between the starting positions, so a straight line is
-/// never the answer.
-fn skirmish_map() -> Map {
-    let mut map = Map::new(48, 48);
-
-    // The two dividing walls are high ground rather than rock, now that the map
-    // can tell the difference. Same barrier, but a plateau a player can fight
-    // for instead of a wall they can only walk around — three cells wide, so
-    // there is somewhere to stand on top.
-    map.raise_rect(Cell::new(15, 0), Cell::new(17, 30), 2);
-    map.raise_rect(Cell::new(31, 18), Cell::new(33, 47), 2);
-    // A ramp into each, so the high ground is worth contesting rather than
-    // merely being in the way. One level of step is walkable.
-    map.raise_rect(Cell::new(15, 12), Cell::new(17, 13), 1);
-    map.raise_rect(Cell::new(31, 30), Cell::new(33, 31), 1);
-
-    // Water is impassable to everything on the ground, and a clear visual break.
-    map.fill_rect(Cell::new(4, 38), Cell::new(14, 41), Terrain::Water);
-    map.fill_rect(Cell::new(36, 4), Cell::new(44, 8), Terrain::Water);
-
-    // Scattered rock, for texture and to give the A* tie-break something to do.
-    for (x, y) in [
-        (22, 8),
-        (23, 8),
-        (22, 9),
-        (40, 30),
-        (41, 30),
-        (41, 31),
-        (8, 20),
-        (9, 20),
-    ] {
-        map.set_terrain(Cell::new(x, y), Terrain::Rock);
-    }
-    // Ore fields: one near each start, and a contested pair in the middle.
-    // Placed rather than scattered randomly so the map reads the same every
-    // match and the two players start with the same opportunity.
-    map.add_ore_field(Cell::new(8, 8), 4, 400);
-    map.add_ore_field(Cell::new(40, 40), 4, 400);
-    map.add_ore_field(Cell::new(24, 12), 3, 300);
-    map.add_ore_field(Cell::new(24, 36), 3, 300);
-
-    map
+/// Beside the rules and found the same way: relative to the crate rather than
+/// to the working directory, so `cargo run` from anywhere finds them.
+fn map_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../maps")
 }
 
 /// Loads the shipped rules.

@@ -1,0 +1,90 @@
+// A two-player skirmish map.
+//
+// Authored as a list of edits rather than a grid of cells. A forty-eight by
+// forty-eight grid written out cell by cell is 2,304 entries of which about
+// thirty carry any information, and nobody can read a diff of it. What is here
+// is what the map is *for*: two ridges with a ramp each, water between the
+// starts, and ore worth arguing over in the middle.
+//
+// Costs nothing but canonicity: two different edit lists can make the same
+// grid, so this is not a canonical form. Nothing depends on it being one — the
+// resulting grid is what gets hashed.
+(
+    name: "Crossing",
+    width: 48,
+    height: 48,
+    players: 2,
+
+    edits: [
+        // Two dividing ridges. High ground rather than rock, so they are
+        // something to fight for rather than something to walk around — three
+        // cells wide, so there is somewhere to stand on top.
+        Elevation(area: (from: (15, 0), to: (17, 30)), level: 2),
+        Elevation(area: (from: (31, 18), to: (33, 47)), level: 2),
+        // A ramp into each. One level of step is walkable; two is a cliff.
+        Elevation(area: (from: (15, 12), to: (17, 13)), level: 1),
+        Elevation(area: (from: (31, 30), to: (33, 31)), level: 1),
+
+        // Water: impassable on the ground, and a clear visual break.
+        Terrain(area: (from: (4, 38), to: (14, 41)), ground: Water),
+        Terrain(area: (from: (36, 4), to: (44, 8)), ground: Water),
+
+        // Scattered rock, for texture and to give the pathfinder's tie-break
+        // something to do.
+        Terrain(area: (from: (22, 8), to: (23, 9)), ground: Rock),
+        Terrain(area: (from: (40, 30), to: (41, 31)), ground: Rock),
+        Terrain(area: (from: (8, 20), to: (9, 20)), ground: Rock),
+
+        // One field near each start and a contested pair in the middle. Placed
+        // rather than scattered, so both players begin with the same chance.
+        Ore(at: (8, 8), radius: 4, amount: 400),
+        Ore(at: (40, 40), radius: 4, amount: 400),
+        Ore(at: (24, 12), radius: 3, amount: 300),
+        Ore(at: (24, 36), radius: 3, amount: 300),
+    ],
+
+    starts: [
+        (
+            slot: 0,
+            at: (18, 20),
+            units: [
+                (id: "grizzly_tank", offset: (0, 0)),
+                (id: "grizzly_tank", offset: (1, 0)),
+                (id: "grizzly_tank", offset: (2, 0)),
+                (id: "grizzly_tank", offset: (0, 1)),
+                (id: "grizzly_tank", offset: (1, 1)),
+                (id: "grizzly_tank", offset: (2, 1)),
+                (id: "gi", offset: (3, 0)),
+                (id: "gi", offset: (4, 0)),
+                (id: "gi", offset: (3, 1)),
+                (id: "gi", offset: (4, 1)),
+                (id: "construction_yard", offset: (-9, -6)),
+                (id: "refinery", offset: (-6, -6)),
+                (id: "harvester", offset: (-4, -5)),
+                (id: "harvester", offset: (-4, -6)),
+                (id: "mcv", offset: (-9, -11)),
+            ],
+        ),
+        (
+            slot: 1,
+            at: (28, 26),
+            units: [
+                (id: "rhino_tank", offset: (0, 0)),
+                (id: "rhino_tank", offset: (-1, 0)),
+                (id: "rhino_tank", offset: (-2, 0)),
+                (id: "rhino_tank", offset: (0, -1)),
+                (id: "rhino_tank", offset: (-1, -1)),
+                (id: "rhino_tank", offset: (-2, -1)),
+                (id: "conscript", offset: (-3, 0)),
+                (id: "conscript", offset: (-4, 0)),
+                (id: "conscript", offset: (-3, -1)),
+                (id: "conscript", offset: (-4, -1)),
+                (id: "soviet_construction_yard", offset: (9, 6)),
+                (id: "soviet_refinery", offset: (6, 6)),
+                (id: "war_miner", offset: (4, 5)),
+                (id: "war_miner", offset: (4, 6)),
+                (id: "soviet_mcv", offset: (9, 11)),
+            ],
+        ),
+    ],
+)

@@ -25,6 +25,7 @@
 //!
 //! See `docs/05-data-and-modding.md`.
 
+pub mod map;
 pub mod rules;
 pub mod traits;
 pub mod value;

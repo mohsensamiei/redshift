@@ -134,8 +134,12 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
 
 ## Phase 3 — Core gameplay
 
-- [ ] Map format: heightmap, tile types, cliffs, buildability — *water, ore and elevation done*
-- [ ] Map editor or an authoring-format converter
+- [x] Map format — RON, in `maps/`. Authored as a list of *edits* rather than a
+      grid: forty-eight squared is 2,304 cells of which thirty carry anything,
+      and nobody can read a diff of that. Two edit lists can make the same grid,
+      so a map file is not canonical — nothing needs it to be, since the grid it
+      produces is what gets hashed
+- [ ] Map editor — the format is hand-writable, which is enough for now
 - [x] `redshift-data`: RON loading, validation, cross-reference checks, rules hash
 - [x] Trait system and the initial trait catalogue
 - [x] Economy: resource fields, harvesters, refineries, credits

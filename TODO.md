@@ -155,7 +155,11 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
       does. Build tabs and unit info panels are Phase 4 art work
 - [ ] Unit info panel — what is selected, its rank, what it is carrying
 - [ ] Skirmish AI v1: build order, expansion, attack waves
-- [ ] Hot reload of rules in dev builds
+- [x] Hot reload — `--watch` restarts the match from the same seed when a rules
+      or map file changes. *Restart*, not patch: rules feed the state hash, so
+      swapping values into a running simulation would desync a networked match
+      on the next comparison and leave a solo one in a state no replay could
+      reproduce. Refused outright when networked
 
 ---
 

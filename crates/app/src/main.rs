@@ -74,6 +74,17 @@ fn main() {
     // the whole chain without a human at the keyboard — command queued, applied
     // at a scheduled tick, path found, units moved, renderer following — which
     // is the part unit tests cannot cover because it spans the engine boundary.
+    // `--watch` restarts the match whenever the rules or maps change on disk.
+    // For turning a number and seeing what it does, which is most of what the
+    // remaining unverified figures need.
+    if flag("--watch") {
+        app.insert_resource(redshift_render::reload::RulesWatch::new(vec![
+            rules_root(),
+            map_root(),
+        ]))
+        .add_systems(Update, restart_on_change);
+    }
+
     if flag("--demo") {
         app.add_systems(Update, (demo_order, demo_build));
     }
@@ -195,6 +206,40 @@ fn skirmish_setup(seed: u64) -> MatchSetup {
         .unwrap_or_else(|e| panic!("could not start on {}: {e}", def.name))
 }
 
+/// Rebuilds the match from disk when a watched file changes.
+///
+/// The seed is kept, so the same map and the same opening play out again with
+/// whatever numbers were just edited. That is the point: the comparison is only
+/// worth anything if everything except the edited value is the same.
+fn restart_on_change(
+    mut changed: MessageReader<redshift_render::reload::RulesChanged>,
+    mut session: ResMut<redshift_render::session::Session>,
+) {
+    if changed.read().next().is_none() {
+        return;
+    }
+    // Any further messages this frame are the same save. Draining them keeps a
+    // burst of writes — which is what an editor saving a file looks like — from
+    // restarting the match once per file.
+    changed.clear();
+
+    // A failed reload leaves the match running on the rules it already has.
+    // Refusing to start is the wrong answer while somebody is editing: a RON
+    // file is briefly invalid every time it is saved mid-keystroke.
+    match std::panic::catch_unwind(|| skirmish_setup(RELOAD_SEED)) {
+        Ok(setup) => {
+            *session =
+                redshift_render::session::Session::new(MatchSession::solo(setup, PlayerId(0)));
+        }
+        Err(_) => eprintln!("the edited files did not load; keeping the current match"),
+    }
+}
+
+/// The seed a reloaded match uses.
+///
+/// Fixed rather than fresh, so two runs differ only by what was edited.
+const RELOAD_SEED: u64 = 0xC0FF_EE00_1234_5678;
+
 /// Where the shipped maps live.
 ///
 /// Beside the rules and found the same way: relative to the crate rather than
@@ -209,6 +254,15 @@ fn map_root() -> std::path::PathBuf {
 /// runs both from a checkout and from `cargo run` in a subdirectory. A missing
 /// or invalid rules tree is fatal and says why — starting a match with default
 /// values would look like a physics bug rather than a missing file.
+/// Where the shipped rules live.
+fn rules_root() -> std::path::PathBuf {
+    let local = std::path::PathBuf::from("rules");
+    if local.is_dir() {
+        return local;
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rules")
+}
+
 fn load_rules() -> Rules {
     let candidates = [
         std::path::PathBuf::from("rules"),

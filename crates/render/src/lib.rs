@@ -25,6 +25,7 @@ pub mod health;
 pub mod input;
 pub mod minimap;
 pub mod overlay;
+pub mod reload;
 pub mod session;
 pub mod sidebar;
 pub mod verdict;
@@ -118,6 +119,7 @@ impl Plugin for RedshiftRenderPlugin {
         .init_resource::<world::TerrainBuiltAt>()
         .insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
         .init_resource::<sidebar::SellMode>()
+        .add_message::<reload::RulesChanged>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -154,6 +156,7 @@ impl Plugin for RedshiftRenderPlugin {
                     sidebar::handle_sidebar_clicks,
                     sidebar::paint_sell_toggle,
                     minimap::refresh_minimap,
+                    reload::watch_rules,
                 ),
                 apply_window_placement,
                 auto_screenshot,

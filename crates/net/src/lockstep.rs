@@ -197,8 +197,24 @@ impl TurnScheduler {
 
     /// Queues a local command for its scheduled tick.
     pub fn issue(&mut self, kind: redshift_sim::command::CommandKind) {
+        let player = self.local_player;
+        self.issue_for(player, kind);
+    }
+
+    /// Issues a command on behalf of a player this peer speaks for.
+    ///
+    /// A computer opponent is a player like any other: it has an id, its
+    /// commands are sequenced and scheduled, and they reach the simulation
+    /// through the same queue a human's do. That is not tidiness — a shortcut
+    /// that applied them directly would make this peer play a subtly different
+    /// game from the one its replay reproduces.
+    ///
+    /// Sequence numbers are shared across every player this peer speaks for.
+    /// They only have to be unique within a player within a tick, and one
+    /// counter that always moves forward is easier to be sure of than several.
+    pub fn issue_for(&mut self, player: PlayerId, kind: redshift_sim::command::CommandKind) {
         self.outbox
-            .push(Command::new(self.local_player, self.next_sequence, kind));
+            .push(Command::new(player, self.next_sequence, kind));
         self.next_sequence = self.next_sequence.wrapping_add(1);
     }
 

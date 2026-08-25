@@ -74,6 +74,26 @@ fn main() {
     // the whole chain without a human at the keyboard — command queued, applied
     // at a scheduled tick, path found, units moved, renderer following — which
     // is the part unit tests cannot cover because it spans the engine boundary.
+    // `--ai <difficulty>` gives player two a computer opponent. Only `dummy`
+    // exists so far, and it is the default: an opponent that builds, defends
+    // and never attacks is the one worth having first, because it forces every
+    // piece of the machinery except choosing a target.
+    if !flag("--host") && !flag("--join") {
+        let difficulty = match value("--ai").as_deref() {
+            None | Some("dummy") => Some(redshift_ai::Difficulty::Dummy),
+            Some("none") => None,
+            Some(other) => {
+                eprintln!("unknown difficulty {other:?}; only \"dummy\" exists so far");
+                Some(redshift_ai::Difficulty::Dummy)
+            }
+        };
+        if let Some(difficulty) = difficulty {
+            app.insert_resource(redshift_render::opponent::Opponents {
+                commanders: vec![redshift_ai::Commander::new(PlayerId(1), difficulty)],
+            });
+        }
+    }
+
     // `--watch` restarts the match whenever the rules or maps change on disk.
     // For turning a number and seeing what it does, which is most of what the
     // remaining unverified figures need.

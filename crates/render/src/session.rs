@@ -122,6 +122,14 @@ impl Session {
         }
     }
 
+    /// Issues a command for a player this peer speaks for — a computer
+    /// opponent.
+    pub fn issue_for(&mut self, player: PlayerId, kind: CommandKind) {
+        if self.halted.is_none() {
+            self.inner.issue_for(player, kind);
+        }
+    }
+
     /// Saves the replay of the match so far.
     pub fn save_replay(&self) -> std::io::Result<PathBuf> {
         let path = diagnostics_dir().join(format!("match-tick{}.replay.ron", self.tick_number()));

@@ -158,7 +158,16 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
       progress, sell, and a minimap that obeys the same fog everything else
       does. Build tabs and unit info panels are Phase 4 art work
 - [ ] Unit info panel — what is selected, its rank, what it is carrying
-- [ ] Skirmish AI v1: build order, expansion, attack waves
+- [x] Skirmish AI — `redshift-ai`, reading the simulation and returning
+      commands. Never a `&mut Sim`: a command is the only way anything reaches
+      the world, and an opponent that reached in would be playing a different
+      game from the one the replay records
+- [x] **Dummy** — builds, defends, never attacks. Deliberate rather than
+      broken: it exists so a player can learn the game or test a build order
+      without being under a clock. It thinks exactly as well as Easy
+- [ ] **Easy, Medium, Hard** — the same head as Dummy with attacking added,
+      scaled by one number. See `crates/ai/src/skill.rs` for what "difficulty"
+      is taken to mean here, and for why none of them cheat
 - [x] Hot reload — `--watch` restarts the match from the same seed when a rules
       or map file changes. *Restart*, not patch: rules feed the state hash, so
       swapping values into a running simulation would desync a networked match

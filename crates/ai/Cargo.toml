@@ -1,0 +1,9 @@
+[package]
+name = "redshift-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+redshift-sim = { workspace = true }
+redshift-data = { workspace = true }

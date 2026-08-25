@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+redshift-ai = { workspace = true }
 redshift-sim = { workspace = true }
 redshift-data = { workspace = true }
 ron = { workspace = true }

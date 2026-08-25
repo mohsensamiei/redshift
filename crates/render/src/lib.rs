@@ -24,6 +24,7 @@ pub mod camera;
 pub mod health;
 pub mod input;
 pub mod minimap;
+pub mod opponent;
 pub mod overlay;
 pub mod reload;
 pub mod session;
@@ -118,6 +119,7 @@ impl Plugin for RedshiftRenderPlugin {
         .init_resource::<overlay::OverlayState>()
         .init_resource::<world::TerrainBuiltAt>()
         .insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
+        .init_resource::<opponent::Opponents>()
         .init_resource::<sidebar::SellMode>()
         .init_resource::<sidebar::AimingPower>()
         .add_message::<reload::RulesChanged>()
@@ -160,6 +162,7 @@ impl Plugin for RedshiftRenderPlugin {
                     sidebar::paint_sell_toggle,
                     minimap::refresh_minimap,
                     reload::watch_rules,
+                    opponent::run_opponents,
                 ),
                 apply_window_placement,
                 auto_screenshot,

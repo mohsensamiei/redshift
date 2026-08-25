@@ -200,6 +200,12 @@ impl MatchSession {
         self.scheduler.issue(kind);
     }
 
+    /// Issues a command for a player this peer speaks for — a computer
+    /// opponent, in practice.
+    pub fn issue_for(&mut self, player: PlayerId, kind: CommandKind) {
+        self.scheduler.issue_for(player, kind);
+    }
+
     /// Pumps the network and advances the simulation to keep pace with real
     /// time.
     pub fn update(&mut self, delta_seconds: f32) -> SessionUpdate {

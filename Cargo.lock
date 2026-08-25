@@ -3646,10 +3646,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "redshift-ai"
+version = "0.0.1"
+dependencies = [
+ "redshift-data",
+ "redshift-sim",
+]
+
+[[package]]
 name = "redshift-app"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "redshift-ai",
  "redshift-data",
  "redshift-net",
  "redshift-render",
@@ -3680,6 +3689,7 @@ name = "redshift-render"
 version = "0.0.1"
 dependencies = [
  "bevy",
+ "redshift-ai",
  "redshift-net",
  "redshift-sim",
 ]

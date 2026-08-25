@@ -71,10 +71,20 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] `--bench` scene asserting every budget ceiling, exiting non-zero on breach
 
 ### Phase 0 exit
-- [ ] Cubes path around obstacles to clicked destinations
-- [ ] A headless replay of the same command log matches state hashes at every tick
-- [ ] `cargo tree -p redshift-sim | grep -i bevy` prints nothing
-- [ ] Performance overlay within budget on the M1 Pro reference machine
+
+All four met. Left unticked for a long time after they were true, which is its
+own small lesson: an exit criterion nobody re-checks is not a gate.
+
+- [x] Cubes path around obstacles to clicked destinations — `tests/orders.rs`
+      and `tests/placement.rs`, and every scenario that puts a building in the
+      way of a move order
+- [x] A headless replay of the same command log matches state hashes at every
+      tick — `net::replay_hashes`, exercised by `redshift-net`'s replay tests
+      and by `redshift-sim`'s determinism suite
+- [x] `cargo tree -p redshift-sim | grep -i bevy` prints nothing — and a CI lint
+      keeps it that way
+- [x] Performance overlay within budget on the M1 Pro reference machine —
+      `--bench` passes with roughly nineteen times the headroom it needs
 
 ---
 
@@ -103,8 +113,10 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 - [x] Replay reproduces the match bit-exactly
 - [x] An injected non-determinism is caught, halts both peers, and writes dumps
 - [ ] **Two physical machines on one Wi-Fi** — the part loopback cannot prove:
-      broadcast crossing a real router, the macOS firewall prompt, real latency
-- [ ] Cross-platform golden hashes confirmed by a CI run on x86
+      broadcast crossing a real router, the macOS firewall prompt, real latency.
+      *Needs a second machine; not something the test suite can stand in for.*
+- [ ] Cross-platform golden hashes confirmed by a CI run on x86 — *the workflow
+      exists; it needs to have actually run once and gone green.*
 
 ---
 
@@ -142,104 +154,73 @@ hashes on ARM and x86. Phase 2 is deferred — see docs/07-roadmap.md.
 
 ### Engine gaps the roster audit found
 
-Capabilities the original needs and the engine cannot express. These are engine
-work, not content, so they belong in Phase 3 rather than Phase 5. Full detail
-and reasoning in docs/08-roster.md.
+Capabilities the original needs. Every one of these is now a **passing test** in
+`crates/sim/tests/roster_conformance.rs` — this list is a summary of that suite,
+not a second record of it, and the suite is the one to believe.
 
-**Small — a trait and a rule each**
+The section below was allowed to rot for a while: it listed a dozen things as
+open that had been closed for several commits, including capture, transports,
+the IFV and Tanya. A checklist that lies is worse than no checklist, because it
+is read as though it were true. It has been rebuilt against the test names.
 
-- [ ] Capture — `Capturable` exists and nothing reads it
-- [ ] Repair — a structure that heals what comes to it
-- [x] Consumed on use — and whether it happens is data, not a rule
+**Closed — one trait and a rule each**
+
+- [x] Capture, and being consumed on use — whether it happens is data, not a rule
+- [x] A neutral player — owns things, commands nothing, hostile to nobody
+- [x] Instant-kill weapons — sniper, attack dog
+- [x] Economy modifiers on a structure — the ore purifier
+- [x] Build limits — one commando at a time, one superweapon of a kind
+- [x] A structure that repairs what is sent into it — Service Depot, Naval
+      Shipyard, Outpost. One trait with three lists of what it will service
+- [x] Unsellable structures — the only one of a tech building's three properties
+      that needed anything at all
+
+**Closed — mechanics with interactions**
+
+- [x] Projectiles — travel time, homing or ballistic, per weapon
+- [x] Air targeting — units have a layer, weapons declare what they engage
+- [x] Multiple weapons per unit — targeting considers both, firing picks one
+- [x] Actions with their own valid targets — Tanya's pistol and her charges. Not
+      a third weapon slot: a layer mask cannot tell a building from a person
+- [x] A weapon that restores health — the Medic, and the IFV's repair mode
+- [x] Transports — loading, unloading, and passengers that stop existing
+- [x] IFV turret modes — a weapon that is a property of a *unit*, not its kind.
+      Declared on the passengers, so the vehicle never learns anyone's name
+- [x] Garrison — the building fires with **its own** weapon, not its occupants'.
+      The exact opposite of an IFV, and the thing most easily got backwards
+- [x] Deploy — unit↔structure and stance, one mechanism rather than two
+- [x] Spy infiltration — an effect table keyed on what was entered, declared on
+      the **building**. Four different mechanisms, not one with a parameter
+- [x] A parasite that gets inside a unit, and the depot that shakes it off.
+      Neither is worth building alone
+- [x] Prism chaining and Tesla charging — the same rule, different supporters
+- [x] Submersion — the second concealment, with its own sense
+- [x] Persistent terrain effects — contamination that outlives what laid it
+- [x] What a death leaves — rubble and an ejected crew are one mechanism
+- [x] Structure death effects — a blast, and ground that stays dangerous
+- [x] Ore regrowth — belongs to the mine, not to ore
+- [x] Wandering civilians — bounded to a home, deliberately not an AI
+- [x] Victory and stalemate — a match can now end
+- [x] Elevation — a height layer per cell; the cliff is the *step*
+- [x] Bridges — the only footprint that opens ground, and the only entity
+      destroyed without being removed
+- [x] Gap Generator — the only subtractive operation in visibility
+
+**Still open — no unit in the roster needs them yet**
+
+These have no failing test standing for them, which is the honest position: the
+audit answers "can the engine express what we have described", not "have we
+built everything". When a unit arrives that needs one, the gap comes back.
+
 - [ ] Walls — one-cell structures that connect to their neighbours
 - [ ] Map reveal — a one-off effect on the visibility layers
-- [ ] Economy modifiers on a structure
-- [x] A neutral player — owns things, commands nothing, hostile to nobody
-- [ ] Instant-kill weapons — sniper, attack dog
 - [ ] Placement rules per structure — a naval yard must touch water
-
-**Medium — real mechanics with interactions**
-
-- [x] **Projectiles** — travel time, homing or ballistic, per weapon
-- [x] **Air targeting** — units have a layer, weapons declare what they engage
-- [x] A weapon that restores health — the Medic, and the IFV's repair mode.
-      Targeting inverts; it is not a damage number with a minus sign.
-- [x] Ore regrowth — belongs to the mine, not to ore, which keeps the contrast
-      between a field worth holding and one worth stripping.
-- [x] What a death leaves — rubble and an ejected crew are one mechanism.
-- [x] Structure death effects — a blast, and ground that stays dangerous.
-- [x] Tesla charging — the same rule as Prism chaining with a different list.
-- [x] Wandering civilians — bounded to a home, deliberately not an AI.
-- [x] Tech structures — two of the three properties needed nothing at all.
-- [x] Victory and stalemate — a match can now end.
-- [x] Actions with their own valid targets — Tanya's pistol and her charges.
-- [x] IFV turret modes — a weapon that is a property of a *unit* rather than of
-      its kind. Declared on the passengers, so a new unit brings its own mode
-      and the vehicle never learns anyone's name.
-- [x] Prism chaining — the first stat that depends on the neighbours. Rebuilt
-      each tick like the power grid.
-- [x] Submersion — the second concealment, with its own sense. Being hit
-      surfaces a submarine, not only firing; and "only sonar can engage one"
-      falls out of the concealment rather than being a targeting rule.
-- [x] Persistent terrain effects — ground the Desolator poisons, which outlives
-      whatever laid it. No "immune to radiation" flag: the armour table already
-      answers that, so one row makes infantry die on ground a tank drives over.
-- [x] Bridges — the only footprint that *opens* ground rather than claiming it,
-      and the only entity destroyed without being removed. Repaired through a
-      hut beside them, which makes it capture with a different effect rather
-      than a new mechanic.
-- [x] Gap Generator — the only subtractive operation in visibility. Vision runs
-      in three passes; the order is the design.
-- [x] Spy infiltration — an effect table keyed on what was entered, declared on
-      the **building** rather than on the spy. All five rows: promotion by
-      category, a timed blackout, theft of a share of the funds, and stolen
-      technology. They are four different mechanisms, not one with a parameter.
-- [x] Garrison — infantry occupying a civilian building and fighting from
-      inside it. The building fires with **its own** weapon, not its occupants'
-      — the exact opposite of an IFV, and the thing most easily got backwards.
-      Only a neutral building can be occupied and an emptied one reverts, which
-      is both faithful and why nothing has to remember who owned it first.
-- [x] A structure that repairs what is sent into it — Service Depot, Naval
-      Shipyard, Outpost. One trait with three lists of what it will service,
-      billed on a running total so the price is exact whatever the step size.
-- [x] A parasite that gets inside a unit — the Terror Drone, and the depot that
-      shakes it off. Neither is worth building alone: a drone with no counter
-      is a death sentence, and a repair shed with nothing to undo is furniture.
-- [x] Deploy — unit↔structure, and stance toggling. One mechanism, not two:
-      the deployed form is an ordinary entity whose own `Deploys` points back,
-      so undeploying is deploying in the other direction. `G` in the client.
-      Brought the Service Depot in with it, since the MCV needs it in the tech
-      tree.
-- [ ] Transports — loading, unloading, passengers that fire or change the weapon
-- [x] Multiple weapons per unit — targeting considers both, firing picks one
-- [ ] **A unit chooses between actions by what it is aimed at** — Tanya shoots
-      units and demolishes buildings; a tank fires and crushes. Capability is a
-      list, not a slot
 - [ ] Placed charges — armed now, detonating later
 - [ ] Temporary status effects — invulnerable, irradiated, disabled
-- [ ] Tech structures — neutral, capturable, unsellable, extend the build radius
-- [x] Persistent production modifiers — one mechanism, three effects
-- [x] Instant-kill weapons
-- [ ] A unit's weapon depending on its cargo — the IFV's 24 turret modes
-- [ ] Build limits — only one commando at a time, two with a cloning vat
-- [ ] Wandering civilians — autonomous, purposeless movement
-
-### Subsystems needing a decision before a schedule
-
-- [x] **Elevation** — a height layer per cell. The cliff is the *step* between
-      levels, not the plateau, so high ground is standable; one level is a ramp
-      and two is a wall. Standing higher lengthens sight and weapon range
-      together, so a unit never shoots into fog or spots what it cannot hit.
-      Probably not deferrable: it changes the map format everything is built on
 - [ ] Aircraft — basing, rearming, a movement model that is not the pathfinder
 - [ ] Naval — shoreline transports, water as a surface rather than an obstacle
 - [ ] Superweapons and powers — charge timers, targeting modes, novel effects
 - [ ] Mind control — changing a unit's owner mid-match
-- [ ] A weapon that restores health — the Medic, Yuri's repair drones, and the
-      one IFV turret mode the mechanism cannot express. It wants targeting to
-      invert for such a weapon (friendly and damaged rather than hostile),
-      which is a change to what a target *is* rather than a damage number with
-      a minus sign.
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
 

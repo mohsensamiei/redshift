@@ -166,6 +166,61 @@
             ],
         ),
         (
+            // Reveals ground once, wherever the player asks. Cheap, recurring,
+            // and the answer to a Gap Generator that does not involve walking
+            // anything into it.
+            id: "spy_satellite",
+            name_key: "building.spy_satellite",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 500, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 300),
+                PowerDraw(amount: 100, works_unpowered: false),
+                Superweapon(
+                    charge: 1200,
+                    effect: Reveal(radius: 1000),
+                ),
+                BuildLimit(max: 1),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 1500,
+                    build_time: 80,
+                    prerequisites: ["service_depot"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
+            // America's advantage in the original is a free paradrop. This is
+            // the paradrop; giving it to America specifically wants a country
+            // modifier that grants a structure, which does not exist yet.
+            id: "airfield",
+            name_key: "building.airfield",
+            side: "allied",
+            category: "structure",
+            traits: [
+                Health(max: 500, armour: "concrete"),
+                Footprint(width: 3, height: 2),
+                Vision(range: 350),
+                PowerDraw(amount: 50, works_unpowered: false),
+                Superweapon(
+                    charge: 2400,
+                    effect: Paradrop(units: ["gi", "gi", "gi", "gi", "gi"]),
+                ),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 1000,
+                    build_time: 60,
+                    prerequisites: ["refinery"],
+                    produced_by: "construction_yard",
+                ),
+            ],
+        ),
+        (
             // France's. Fixed, and outranges anything that walks — which makes
             // a French base something an attacker has to answer rather than
             // simply reach.

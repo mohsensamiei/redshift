@@ -75,6 +75,7 @@ pub fn handle_selection(
     mut drag: ResMut<DragState>,
     mut rig: ResMut<CameraRig>,
     mut sell: ResMut<crate::sidebar::SellMode>,
+    mut aiming: ResMut<crate::sidebar::AimingPower>,
 ) {
     let (buttons, keys) = (&input.buttons, &input.keys);
     let Ok(window) = input.windows.single() else {
@@ -115,6 +116,20 @@ pub fn handle_selection(
         // and the selection would change under the player every time they
         // queued anything.
         if crate::sidebar::pointer_over_sidebar(window.width(), cursor.x) {
+            drag.is_box = false;
+            return;
+        }
+
+        // A superweapon takes a *place*, which nothing else in the interface
+        // does — so it is aimed from the panel and fired with the next click.
+        if let Some(building) = aiming.building
+            && let Some(ground) = screen_to_ground(camera, camera_transform, cursor)
+        {
+            aiming.building = None;
+            let at = Cell::new(ground.x.floor() as i32, ground.y.floor() as i32);
+            if session.sim().map().contains(at) {
+                session.issue(CommandKind::FirePower { building, at });
+            }
             drag.is_box = false;
             return;
         }

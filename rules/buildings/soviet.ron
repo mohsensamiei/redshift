@@ -264,6 +264,69 @@
             ],
         ),
         (
+            // The blast, and then a crater nobody can stand in for a while.
+            // The second half is most of what separates it from a very large
+            // shell — and it is `Contaminates` on the power rather than a
+            // special case, so the crater behaves like every other patch of
+            // poisoned ground.
+            id: "nuclear_silo",
+            name_key: "building.nuclear_silo",
+            side: "soviet",
+            category: "structure",
+            traits: [
+                Health(max: 1000, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 300),
+                PowerDraw(amount: 200, works_unpowered: false),
+                Superweapon(
+                    charge: 4800,
+                    effect: Blast(
+                        radius: 400,
+                        damage: 1000,
+                        warhead: "explosive",
+                        fallout: 600,
+                    ),
+                ),
+                BuildLimit(max: 1),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 5000,
+                    build_time: 200,
+                    prerequisites: ["soviet_battle_lab"],
+                    produced_by: "soviet_construction_yard",
+                ),
+            ],
+        ),
+        (
+            // Invulnerable for a while — and it kills the infantry it covers,
+            // which is the part everyone forgets. Not a protective bubble that
+            // happens to exclude them.
+            id: "iron_curtain",
+            name_key: "building.iron_curtain",
+            side: "soviet",
+            category: "structure",
+            traits: [
+                Health(max: 1000, armour: "concrete"),
+                Footprint(width: 2, height: 2),
+                Vision(range: 300),
+                PowerDraw(amount: 200, works_unpowered: false),
+                Superweapon(
+                    charge: 3600,
+                    effect: IronCurtain(radius: 300, duration: 1000),
+                ),
+                BuildLimit(max: 1),
+                Capturable,
+                Selectable(priority: 5),
+                Buildable(
+                    cost: 2500,
+                    build_time: 150,
+                    prerequisites: ["soviet_battle_lab"],
+                    produced_by: "soviet_construction_yard",
+                ),
+            ],
+        ),
+        (
             id: "flak_cannon_tower",
             name_key: "building.flak_cannon",
             side: "soviet",

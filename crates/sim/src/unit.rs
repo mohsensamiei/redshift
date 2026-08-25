@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use redshift_data::rules::EntityKind;
 
+use crate::Tick;
 use crate::arena::EntityId;
 use crate::command::PlayerId;
 use crate::fx::{Angle, Fx};
@@ -278,6 +279,15 @@ pub struct Unit {
     pub carrier: Option<EntityId>,
     /// Who is riding in this, in the order they boarded.
     pub cargo: Vec<EntityId>,
+    /// Ticks of charge a superweapon has accumulated.
+    ///
+    /// On the building rather than on the player, which is the faithful choice
+    /// and also the interesting one: it dies with the silo. Losing one three
+    /// seconds before it fires costs the whole wait, and that is most of what
+    /// makes a silo worth attacking.
+    pub charge: u32,
+    /// The tick this stops being invulnerable. Zero means it is not.
+    pub shielded_until: Tick,
     /// Where this belongs.
     ///
     /// Set once, where it was first put down. Only wandering reads it, and only
@@ -337,6 +347,8 @@ impl Unit {
             carrier: None,
             cargo: Vec::new(),
             infestation: None,
+            charge: 0,
+            shielded_until: 0,
             home: pos.cell(),
             support: 0,
             since_damaged: u32::MAX,
@@ -420,6 +432,8 @@ impl StateHash for Unit {
             h.write_u32(id.index());
             h.write_u32(id.generation());
         }
+        h.write_u32(self.charge);
+        h.write_u32(self.shielded_until);
         h.write(&self.home);
         h.write_u8(self.support);
         match &self.infestation {

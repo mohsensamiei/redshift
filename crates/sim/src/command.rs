@@ -93,6 +93,11 @@ pub enum CommandKind {
     SetRally { building: EntityId, at: Cell },
     /// Demolish a structure for part of its cost back.
     Sell { building: EntityId },
+    /// Fire a charged superweapon at a place.
+    ///
+    /// Names the building rather than the player: a player with two silos has
+    /// two charges, and which one they spend is theirs to decide.
+    FirePower { building: EntityId, at: Cell },
     /// Turn the listed units into their deployed form, or back out of it.
     ///
     /// One command for both directions, because from the player's side it is
@@ -198,6 +203,12 @@ impl StateHash for Command {
                 h.write_u8(12);
                 h.write_u32(building.index());
                 h.write_u32(building.generation());
+            }
+            CommandKind::FirePower { building, at } => {
+                h.write_u8(14);
+                h.write_u32(building.index());
+                h.write_u32(building.generation());
+                h.write(at);
             }
             CommandKind::Deploy { units } => {
                 h.write_u8(13);

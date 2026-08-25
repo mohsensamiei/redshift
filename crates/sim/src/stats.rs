@@ -110,6 +110,8 @@ pub struct UnitStats {
     pub self_powered_at: u8,
     /// Whether this vehicle takes its weapon from whoever is riding inside.
     pub weapon_from_cargo: bool,
+    /// Ticks a superweapon here takes to charge. Zero for everything else.
+    pub charge_time: u32,
     /// Whether this can be demolished for money.
     pub sellable: bool,
     /// How far from home this strays when idle. Zero for anything that stands
@@ -221,6 +223,7 @@ impl Default for UnitStats {
             max_supporters: 0,
             self_powered_at: 0,
             weapon_from_cargo: false,
+            charge_time: 0,
             sellable: true,
             wander_radius: Fx::ZERO,
             wander_interval: 0,
@@ -485,6 +488,7 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.wander_radius = Fx::from_raw(radius.to_fx_raw());
                 stats.wander_interval = interval.0;
             }
+            Trait::Superweapon { charge, .. } => stats.charge_time = charge.0,
             Trait::Unsellable => stats.sellable = false,
             Trait::Bridge => stats.is_bridge = true,
             Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,

@@ -43,6 +43,40 @@ pub enum Layer {
     Air,
 }
 
+/// What a support power does where it lands.
+///
+/// Four of the original's, and they are four genuinely different mechanisms
+/// rather than one with a parameter — which is the same finding the spy
+/// infiltration table produced, and the reason this is an enum rather than a
+/// radius and a damage number.
+///
+/// Absent, and deliberately: the Chronosphere and Weather Control. The first
+/// needs movement without a path and the second a persistent roaming effect;
+/// neither exists, and a Chronosphere that did something else would not be one.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum PowerEffect {
+    /// Heavy damage in a radius, and ground left dangerous afterwards. The
+    /// nuclear missile: the crater outlasting the blast is most of what makes
+    /// it different from a very large shell.
+    Blast {
+        radius: Hundredths,
+        damage: u32,
+        warhead: WarheadId,
+        /// How long the ground stays contaminated. Zero for a plain blast.
+        #[serde(default)]
+        fallout: Ticks,
+    },
+    /// Reveals ground for the caster, once. The spy plane.
+    Reveal { radius: Hundredths },
+    /// Puts units on the ground from off-map. Paratroopers.
+    Paradrop { units: Vec<String> },
+    /// Makes what it covers invulnerable for a while — and kills the infantry
+    /// caught in it, which is the part everyone forgets. It also shakes off a
+    /// parasite, so it is a way to save an infested tank as well as to protect
+    /// a healthy one.
+    IronCurtain { radius: Hundredths, duration: Ticks },
+}
+
 /// When a contaminating thing poisons the ground.
 ///
 /// A Desolator does it by standing there; a nuclear reactor does it by being
@@ -454,6 +488,23 @@ pub enum Trait {
         radius: u8,
     },
 
+    /// A weapon that charges over time and is fired at a place.
+    ///
+    /// Not a weapon in the [`Trait::Armed`] sense at all: it has no range, no
+    /// target, and no reload — it has a *timer*, and the player chooses where
+    /// it lands. That is why it is its own trait rather than a very long-ranged
+    /// gun with a very long reload.
+    ///
+    /// The charge lives on the building. It dies with it, which is faithful and
+    /// is also the reason destroying a silo matters: a player who loses one
+    /// three seconds before it fires has lost the whole wait.
+    Superweapon {
+        /// Ticks from empty to ready.
+        charge: Ticks,
+        /// What happens where it lands.
+        effect: PowerEffect,
+    },
+
     /// Cannot be demolished for money.
     ///
     /// Tech structures — an oil derrick, a hospital, an airport. Capturing one
@@ -744,6 +795,7 @@ impl Trait {
             Trait::Crews { .. } => "Crews",
             Trait::WeaponFromCargo => "WeaponFromCargo",
             Trait::HidesGround { .. } => "HidesGround",
+            Trait::Superweapon { .. } => "Superweapon",
             Trait::Unsellable => "Unsellable",
             Trait::Wanders { .. } => "Wanders",
             Trait::Leaves { .. } => "Leaves",
@@ -788,6 +840,13 @@ impl Trait {
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
             Trait::Leaves { units, .. } => units.iter().map(|u| ("wreckage", u.clone())).collect(),
             Trait::Supported { by, .. } => by.iter().map(|u| ("supporter", u.clone())).collect(),
+            Trait::Superweapon { effect, .. } => match effect {
+                PowerEffect::Blast { warhead, .. } => vec![("warhead", warhead.clone())],
+                PowerEffect::Paradrop { units } => {
+                    units.iter().map(|u| ("dropped", u.clone())).collect()
+                }
+                _ => Vec::new(),
+            },
             Trait::Infests { warhead, .. } | Trait::Contaminates { warhead, .. } => {
                 vec![("warhead", warhead.clone())]
             }
@@ -868,6 +927,7 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Crews",
     "WeaponFromCargo",
     "HidesGround",
+    "Superweapon",
     "Unsellable",
     "Wanders",
     "Leaves",

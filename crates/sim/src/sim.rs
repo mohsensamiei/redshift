@@ -288,6 +288,13 @@ pub fn footprint_origin(centre: Cell, footprint: (u8, u8)) -> Cell {
     )
 }
 
+/// How far from a drop point paratroopers will look for room.
+///
+/// Wide enough that a full squad lands, tight enough that it lands *together* —
+/// a drop that scattered across ten cells would be a squad the player has to
+/// gather before it is any use.
+const PARADROP_SPREAD: i32 = 4;
+
 /// How far around a building to look for somewhere to stand while entering it.
 ///
 /// Wider than the largest footprint's half-width, so a unit can always find the
@@ -589,6 +596,7 @@ impl Sim {
         self.run_production();
         self.run_harvesters();
         self.grow_ore();
+        self.charge_superweapons();
         self.wander();
         self.update_engagements();
         self.service_path_requests();
@@ -992,6 +1000,190 @@ impl Sim {
     /// How the match ended, if it has.
     pub fn outcome(&self) -> Option<Outcome> {
         self.outcome
+    }
+
+    /// Advances every superweapon's charge by a tick.
+    ///
+    /// On the building, so it dies with it. A player who loses a silo three
+    /// seconds before it fires has lost the whole wait, which is most of what
+    /// makes attacking one worth the trouble.
+    ///
+    /// A silo with no power does not charge — it does not *lose* charge either,
+    /// so cutting an enemy's power delays their missile rather than cancelling
+    /// it, which is the more interesting of the two.
+    fn charge_superweapons(&mut self) {
+        let charging: Vec<EntityId> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !self.is_unpowered(u))
+            .filter(|(_, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                stats.charge_time > 0 && u.charge < stats.charge_time
+            })
+            .map(|(id, _)| id)
+            .collect();
+        for id in charging {
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.charge = unit.charge.saturating_add(1);
+            }
+        }
+    }
+
+    /// Whether a superweapon is ready. For the interface.
+    pub fn power_ready(&self, building: EntityId) -> bool {
+        self.units.get(building).is_some_and(|u| {
+            let stats = self.stats.get(u.owner, u.kind);
+            stats.charge_time > 0 && u.charge >= stats.charge_time
+        })
+    }
+
+    /// How far along a superweapon is, as a percentage. `None` if it is not one.
+    pub fn power_progress(&self, building: EntityId) -> Option<u32> {
+        let unit = self.units.get(building)?;
+        let stats = self.stats.get(unit.owner, unit.kind);
+        if stats.charge_time == 0 {
+            return None;
+        }
+        Some((unit.charge * 100 / stats.charge_time).min(100))
+    }
+
+    /// Fires a charged superweapon at a place.
+    ///
+    /// Spends the charge whatever the effect turns out to do. A missile aimed
+    /// at empty ground is a missile spent, which is the player's mistake to
+    /// make rather than something for the engine to protect them from.
+    fn fire_power(&mut self, building: EntityId, at: Cell) {
+        if !self.power_ready(building) {
+            return;
+        }
+        let Some(unit) = self.units.get(building) else {
+            return;
+        };
+        let (owner, kind) = (unit.owner, unit.kind);
+        let Some(effect) = self.power_effect(kind) else {
+            return;
+        };
+        if let Some(unit) = self.units.get_mut(building) {
+            unit.charge = 0;
+        }
+        self.apply_power(owner, building, at, &effect);
+    }
+
+    /// What a kind of superweapon does. Read from the rules, like every other
+    /// list-valued trait — `UnitStats` is `Copy` and a power effect is not.
+    fn power_effect(&self, kind: EntityKind) -> Option<redshift_data::traits::PowerEffect> {
+        self.rules.entity(kind).traits.iter().find_map(|t| match t {
+            redshift_data::traits::Trait::Superweapon { effect, .. } => Some(effect.clone()),
+            _ => None,
+        })
+    }
+
+    fn apply_power(
+        &mut self,
+        owner: PlayerId,
+        source: EntityId,
+        at: Cell,
+        effect: &redshift_data::traits::PowerEffect,
+    ) {
+        use redshift_data::traits::PowerEffect;
+        match effect {
+            PowerEffect::Blast {
+                radius,
+                damage,
+                warhead,
+                fallout,
+            } => {
+                let radius = Fx::from_raw(radius.to_fx_raw());
+                let warhead = self.combat.warhead_named(warhead);
+                // Through the ordinary damage path: armour still decides, and
+                // the kill is credited. A missile that ignored the armour table
+                // would be a second damage model to keep in step with the first.
+                let hits = vec![PendingHit {
+                    heals: false,
+                    attacker: source,
+                    instant_kill: false,
+                    target: EntityId::NONE,
+                    damage: *damage,
+                    warhead,
+                    splash_radius: radius,
+                    at: at.centre(),
+                }];
+                self.resolve_damage(&hits);
+                if fallout.0 > 0 {
+                    self.lay_contamination(
+                        source,
+                        at,
+                        crate::combat::Contamination {
+                            radius,
+                            damage: (*damage / 20).max(1),
+                            warhead,
+                            lingers: fallout.0,
+                            when: redshift_data::traits::Contaminate::OnDeath,
+                        },
+                    );
+                }
+            }
+            PowerEffect::Reveal { radius } => {
+                self.visibility
+                    .reveal(owner, at, Fx::from_raw(radius.to_fx_raw()));
+            }
+            PowerEffect::Paradrop { units } => {
+                let kinds: Vec<EntityKind> =
+                    units.iter().filter_map(|u| self.rules.kind_of(u)).collect();
+                // Cells already used by this drop. Without it every soldier
+                // lands on the same square: units do not block cells — only
+                // footprints do — so `free_cell_near` keeps returning the spot
+                // the last one is standing in, and a squad arrives as a stack.
+                let mut taken: Vec<Cell> = Vec::new();
+                for kind in kinds {
+                    let movement = self.stats.get(owner, kind).movement;
+                    let cell = self
+                        .nearest_free_cell(at, movement, &taken)
+                        .or_else(|| self.free_cell_near(at, movement, PARADROP_SPREAD));
+                    if let Some(cell) = cell {
+                        taken.push(cell);
+                        self.spawn_unit(owner, kind, cell.centre());
+                    }
+                }
+            }
+            PowerEffect::IronCurtain { radius, duration } => {
+                let radius = Fx::from_raw(radius.to_fx_raw());
+                let until = self.tick + duration.0;
+                let covered: Vec<(EntityId, bool)> = self
+                    .units
+                    .iter()
+                    .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+                    .filter(|(_, u)| Self::are_allied(u.owner, owner))
+                    .filter(|(_, u)| {
+                        Fx::dist_sq(
+                            Fx::from_int(u.cell().x - at.x),
+                            Fx::from_int(u.cell().y - at.y),
+                        ) <= radius.sq()
+                    })
+                    .map(|(id, u)| {
+                        // The part everyone forgets: it kills the infantry it
+                        // covers rather than protecting them. Told apart by
+                        // whether the thing can be crushed, which is what
+                        // "infantry" means everywhere else in the engine.
+                        (id, self.stats.get(u.owner, u.kind).crush_class != 0)
+                    })
+                    .collect();
+                for (id, is_infantry) in covered {
+                    if is_infantry {
+                        if let Some(unit) = self.units.get_mut(id) {
+                            unit.health = 0;
+                        }
+                        continue;
+                    }
+                    // And it shakes off a parasite, so it saves an infested
+                    // tank as well as protecting a healthy one.
+                    self.cure_infestation(id);
+                    if let Some(unit) = self.units.get_mut(id) {
+                        unit.shielded_until = until;
+                    }
+                }
+            }
+        }
     }
 
     /// Sends idle wanderers somewhere else.
@@ -2669,6 +2861,17 @@ impl Sim {
                 continue;
             }
 
+            // Invulnerable, and the damage simply does not happen. Not reduced
+            // to zero further down: an Iron Curtain has to stop an instant-kill
+            // weapon too, and that path never consults the damage table.
+            if self
+                .units
+                .get(hit.target)
+                .is_some_and(|t| t.shielded_until > self.tick)
+            {
+                continue;
+            }
+
             if let Some(target) = self.units.get(hit.target) {
                 let armour = self.combat.armour(target.kind);
                 let base =
@@ -2733,6 +2936,11 @@ impl Sim {
                 .units
                 .iter()
                 .filter(|(id, other)| *id != hit.target && other.is_alive())
+                // Invulnerability has to hold against splash too. Checking it
+                // only on the named target would let a nuclear missile kill an
+                // Iron Curtained tank as long as it was aimed at the ground
+                // beside it — which is exactly how somebody would find out.
+                .filter(|(_, other)| other.shielded_until <= self.tick)
                 .filter_map(|(id, other)| {
                     let dx = other.pos.x - hit.at.x;
                     let dy = other.pos.y - hit.at.y;
@@ -2952,6 +3160,11 @@ impl Sim {
                 }
                 CommandKind::Sell { building } => {
                     self.sell(command.player, *building);
+                }
+                CommandKind::FirePower { building, at } => {
+                    if self.owned_by(*building, command.player) {
+                        self.fire_power(*building, *at);
+                    }
                 }
                 CommandKind::Deploy { units } => {
                     for &id in units {

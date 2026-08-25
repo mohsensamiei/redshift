@@ -149,7 +149,11 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
 - [x] Veterancy
 - [x] Fog of war, shroud, cloak and detection
 - [x] Unit behaviour: attack-move, guard, stop, formations, control groups
-- [ ] Superweapon / support power framework
+- [x] Superweapon and support-power framework — a charge on the *building*, an
+      effect in the data, and a place chosen by the player. Four of them ship:
+      nuclear missile, Iron Curtain, spy satellite, paradrop
+- [ ] Chronosphere and Weather Control — the two that need movement without a
+      path and a persistent roaming effect. Absent rather than approximated
 - [x] UI: sidebar with a build list read from the *rules*, a queue with
       progress, sell, and a minimap that obeys the same fog everything else
       does. Build tabs and unit info panels are Phase 4 art work

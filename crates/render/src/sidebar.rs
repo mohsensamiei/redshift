@@ -43,6 +43,23 @@ pub struct QueueRow {
     pub index: u8,
 }
 
+/// A charged superweapon, ready to be aimed.
+#[derive(Component, Clone, Copy)]
+pub struct PowerRow {
+    pub building: EntityId,
+}
+
+/// Which superweapon is waiting for a target, if any.
+///
+/// A mode, like selling, and for the same reason: firing one is irreversible
+/// and worth two deliberate acts rather than one. It also has to be a mode
+/// because a superweapon is aimed at *ground*, and there is nothing else in the
+/// interface that takes a place as an argument.
+#[derive(Resource, Default)]
+pub struct AimingPower {
+    pub building: Option<EntityId>,
+}
+
 /// The sell toggle.
 #[derive(Component)]
 pub struct SellToggle;
@@ -53,6 +70,9 @@ pub struct BuildList;
 
 #[derive(Component)]
 pub struct QueueList;
+
+#[derive(Component)]
+pub struct PowerList;
 
 #[derive(Component)]
 pub struct CreditsLabel;
@@ -117,6 +137,16 @@ pub fn spawn_sidebar(commands: &mut Commands) {
 
             // What is being built, above what could be built: a player checks
             // progress far more often than they start something new.
+            // Above everything: a charged superweapon is the most important
+            // thing on the panel by a distance.
+            panel.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
+                    ..default()
+                },
+                PowerList,
+            ));
             panel.spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
@@ -250,6 +280,78 @@ pub fn refresh_sidebar(
     }
 }
 
+/// Rebuilds the superweapon list.
+///
+/// Separate from `refresh_sidebar` because it changes on a different rhythm —
+/// a charge bar moves every tick and the build list changes when a building
+/// finishes. Rebuilding the whole panel at the faster rate would eat clicks.
+pub fn refresh_powers(
+    mut commands: Commands,
+    session: Res<Session>,
+    list: Query<(Entity, Option<&Children>), With<PowerList>>,
+    rows: Query<&PowerRow>,
+) {
+    let player = session.local_player();
+    let mut powers: Vec<(EntityId, String)> = Vec::new();
+    for (id, unit) in session.sim().view().units() {
+        if unit.owner != player || !unit.is_alive() {
+            continue;
+        }
+        let Some(progress) = session.sim().power_progress(id) else {
+            continue;
+        };
+        let name = &session.sim().rules().entity(unit.kind).id;
+        let label = if progress >= 100 {
+            format!("{name}  READY")
+        } else {
+            format!("{name}  {progress}%")
+        };
+        powers.push((id, label));
+    }
+
+    let Ok((list, children)) = list.single() else {
+        return;
+    };
+    let current: Vec<EntityId> = children
+        .map(|c| {
+            c.iter()
+                .filter_map(|e| rows.get(e).ok())
+                .map(|r| r.building)
+                .collect()
+        })
+        .unwrap_or_default();
+    let same: Vec<EntityId> = powers.iter().map(|(id, _)| *id).collect();
+    // The set is compared but the labels are always redrawn, because a charge
+    // percentage changes constantly and the set almost never does.
+    if current != same {
+        commands.entity(list).despawn_related::<Children>();
+        for (building, label) in &powers {
+            let row = spawn_row(&mut commands, label, 0.26, 0.20, 0.08);
+            commands.entity(row).insert(PowerRow {
+                building: *building,
+            });
+            commands.entity(list).add_child(row);
+        }
+        return;
+    }
+    if let Some(children) = children {
+        for (child, (_, label)) in children.iter().zip(&powers) {
+            commands.entity(child).despawn_related::<Children>();
+            let text = commands
+                .spawn((
+                    Text::new(label.clone()),
+                    TextFont {
+                        font_size: FontSize::Px(12.0),
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.92, 0.86, 0.62)),
+                ))
+                .id();
+            commands.entity(child).add_child(text);
+        }
+    }
+}
+
 fn spawn_row(commands: &mut Commands, label: &str, r: f32, g: f32, b: f32) -> Entity {
     commands
         .spawn((
@@ -280,6 +382,8 @@ pub fn handle_sidebar_clicks(
     build_rows: Query<(&Interaction, &BuildRow), Changed<Interaction>>,
     queue_rows: Query<(&Interaction, &QueueRow), Changed<Interaction>>,
     sell_button: Query<&Interaction, (Changed<Interaction>, With<SellToggle>)>,
+    power_rows: Query<(&Interaction, &PowerRow), Changed<Interaction>>,
+    mut aiming: ResMut<AimingPower>,
 ) {
     for (interaction, row) in &build_rows {
         if *interaction == Interaction::Pressed {
@@ -298,6 +402,11 @@ pub fn handle_sidebar_clicks(
                 building: row.building,
                 index: row.index,
             });
+        }
+    }
+    for (interaction, row) in &power_rows {
+        if *interaction == Interaction::Pressed && session.sim().power_ready(row.building) {
+            aiming.building = Some(row.building);
         }
     }
     for interaction in &sell_button {

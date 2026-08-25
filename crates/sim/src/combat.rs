@@ -557,6 +557,9 @@ pub struct CombatTable {
     /// disagree. Thirty-two categories is far more than the original's roster
     /// uses, and a rules file that exceeded it would be told so at load.
     category_bit: Vec<u32>,
+    /// The interned warhead names, so something that names one outside a weapon
+    /// can find its index without a second copy of the interning.
+    warhead_names: Vec<String>,
     /// The weapon each kind hands to a transport it rides in. Resolved here
     /// with every other weapon, so a turret mode is the same sort of thing as a
     /// turret.
@@ -707,6 +710,7 @@ impl CombatTable {
             contamination,
             crew_weapon,
             category_bit,
+            warhead_names: warheads.iter().map(|w| w.to_string()).collect(),
             damage: DamageTable::build(rules),
         }
     }
@@ -728,6 +732,20 @@ impl CombatTable {
     /// The weapon this fires while occupied, if it can be occupied at all.
     pub fn garrison_weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
         self.garrison_weapon.get(kind.0 as usize)?.as_ref()
+    }
+
+    /// The index a warhead name was interned to.
+    ///
+    /// Needed by things that name a warhead outside a weapon — a support power,
+    /// a death explosion. Falls back to index zero for an unknown name, which
+    /// the rules validator has already refused.
+    pub fn warhead_named(&self, name: &str) -> WarheadId {
+        WarheadId(
+            self.warhead_names
+                .iter()
+                .position(|w| w == name)
+                .unwrap_or(0) as u16,
+        )
     }
 
     /// The category bit of a kind, for a weapon that restricts what it may be

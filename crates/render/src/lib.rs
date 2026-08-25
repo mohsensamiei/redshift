@@ -23,8 +23,10 @@ pub mod build;
 pub mod camera;
 pub mod health;
 pub mod input;
+pub mod minimap;
 pub mod overlay;
 pub mod session;
+pub mod sidebar;
 pub mod verdict;
 pub mod world;
 
@@ -115,6 +117,7 @@ impl Plugin for RedshiftRenderPlugin {
         .init_resource::<overlay::OverlayState>()
         .init_resource::<world::TerrainBuiltAt>()
         .insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
+        .init_resource::<sidebar::SellMode>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -137,7 +140,6 @@ impl Plugin for RedshiftRenderPlugin {
                 (input::sync_selection_rings, input::move_selection_rings).chain(),
                 (health::sync_health_bars, health::update_health_bars).chain(),
                 (
-                    build::handle_build_hotkeys,
                     build::update_placement_preview,
                     build::handle_placement_click,
                 )
@@ -148,6 +150,10 @@ impl Plugin for RedshiftRenderPlugin {
                     overlay::count_triangles,
                     overlay::update_overlay,
                     verdict::update_banner,
+                    sidebar::refresh_sidebar,
+                    sidebar::handle_sidebar_clicks,
+                    sidebar::paint_sell_toggle,
+                    minimap::refresh_minimap,
                 ),
                 apply_window_placement,
                 auto_screenshot,
@@ -188,6 +194,7 @@ fn setup(
     session: Res<Session>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let map = session.sim().map();
     let mut rig = camera::CameraRig::new(map.width() as f32, map.height() as f32);
@@ -237,6 +244,10 @@ fn setup(
     camera::spawn_camera(&mut commands, &rig);
     overlay::spawn_overlay(&mut commands);
     verdict::spawn_banner(&mut commands);
+    sidebar::spawn_sidebar(&mut commands);
+    let minimap = minimap::build_minimap(&mut images, map.width() as u32, map.height() as u32);
+    minimap::spawn_minimap(&mut commands, &minimap);
+    commands.insert_resource(minimap);
 
     commands.insert_resource(rig);
 }

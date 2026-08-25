@@ -1,8 +1,10 @@
 //! Queueing and siting buildings.
 //!
-//! Deliberately spare. A real sidebar with build tabs and icons is Phase 4
-//! work; this is enough to exercise the placement rules with a mouse, which is
-//! the part that cannot be tested headlessly.
+//! Just the siting, now that the sidebar chooses what to build. This module
+//! used to carry four function keys bound to four hard-coded structure names,
+//! which meant the build list lived in the renderer rather than in the rules —
+//! and one of those keys was `F5`, which also saved a replay, so queueing a
+//! power plant wrote a file to disk every time.
 //!
 //! The one thing done properly rather than provisionally is the preview: a
 //! player must be able to see whether a site is legal *before* committing, and
@@ -18,22 +20,6 @@ use redshift_sim::map::Cell;
 use crate::camera::{GameCamera, screen_to_ground};
 use crate::session::Session;
 use crate::world::fx_to_f32;
-
-/// Structures the number keys queue, in order.
-///
-/// Named rather than indexed, so the binding survives entities being added to
-/// the rules in a different order.
-/// Structures the function keys queue.
-///
-/// Not the number keys: those are control groups, as they were in the original
-/// and as anyone who has played one of these will assume. These bindings are a
-/// stopgap until there is a real sidebar to click.
-const HOTKEYS: [(KeyCode, &str); 4] = [
-    (KeyCode::F5, "power_plant"),
-    (KeyCode::F6, "barracks"),
-    (KeyCode::F7, "refinery"),
-    (KeyCode::F8, "war_factory"),
-];
 
 /// Marks the translucent footprint that follows the cursor.
 #[derive(Component)]
@@ -62,29 +48,6 @@ pub fn build_placement_assets(
         valid: materials.add(tint(0.35, 0.9, 0.4)),
         invalid: materials.add(tint(0.9, 0.3, 0.25)),
     }
-}
-
-/// Number keys queue a structure at the player's construction yard.
-pub fn handle_build_hotkeys(keys: Res<ButtonInput<KeyCode>>, mut session: ResMut<Session>) {
-    let pressed = HOTKEYS.iter().find(|(key, _)| keys.just_pressed(*key));
-    let Some((_, id)) = pressed else { return };
-
-    let local = session.local_player();
-    let Some(kind) = session.sim().rules().kind_of(id) else {
-        warn!("no entity named {id:?} in the rules");
-        return;
-    };
-
-    // Asked of the simulation rather than guessed at. The renderer deciding
-    // which building makes what would be a second copy of a rule that lives in
-    // the data — and the first version of this looked for a building that
-    // already had a queue, which no building has until something is queued, so
-    // the hotkeys silently did nothing.
-    let Some(building) = session.sim().producer_for(local, kind) else {
-        return;
-    };
-
-    session.issue(CommandKind::Produce { building, kind });
 }
 
 /// Shows where a pending structure would go, and whether it may.

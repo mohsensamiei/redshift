@@ -64,7 +64,7 @@ pub struct RenderAssets {
 
 /// Team colours, in the original's register: saturated, high contrast, readable
 /// against both ground and water at a glance.
-const TEAM_COLOURS: [(u8, u8, u8); 4] = [
+pub const TEAM_COLOURS: [(u8, u8, u8); 4] = [
     (220, 60, 50),  // red
     (60, 110, 220), // blue
     (70, 180, 90),  // green

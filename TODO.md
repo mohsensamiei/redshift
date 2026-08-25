@@ -146,7 +146,10 @@ own small lesson: an exit criterion nobody re-checks is not a gate.
 - [x] Fog of war, shroud, cloak and detection
 - [x] Unit behaviour: attack-move, guard, stop, formations, control groups
 - [ ] Superweapon / support power framework
-- [ ] UI: sidebar, build tabs, minimap, unit info — *health bars done*
+- [x] UI: sidebar with a build list read from the *rules*, a queue with
+      progress, sell, and a minimap that obeys the same fog everything else
+      does. Build tabs and unit info panels are Phase 4 art work
+- [ ] Unit info panel — what is selected, its rank, what it is carrying
 - [ ] Skirmish AI v1: build order, expansion, attack waves
 - [ ] Hot reload of rules in dev builds
 
@@ -258,8 +261,8 @@ variants against what the renderer issues.
       side it is one act
 - [x] `G` guards, `S` stops — the original's letters, freed by taking WASD off
       the camera. The original never panned with WASD either
-- [ ] **Sell** and **cancel production** — the last two. They belong on the
-      sidebar rather than on a key, and the sidebar is the next thing built
+- [x] **Sell** and **cancel production** — on the sidebar, where they always
+      belonged. All fourteen commands are now issuable by a player
 
 ### Declared and never read — the defect this codebase keeps producing
 

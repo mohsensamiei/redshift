@@ -70,10 +70,11 @@ pub struct SelectionInput<'w, 's> {
 /// Handles left-click selection and left-drag box selection.
 pub fn handle_selection(
     input: SelectionInput,
-    session: Res<Session>,
+    mut session: ResMut<Session>,
     mut selection: ResMut<Selection>,
     mut drag: ResMut<DragState>,
     mut rig: ResMut<CameraRig>,
+    mut sell: ResMut<crate::sidebar::SellMode>,
 ) {
     let (buttons, keys) = (&input.buttons, &input.keys);
     let Ok(window) = input.windows.single() else {
@@ -108,6 +109,36 @@ pub fn handle_selection(
             return;
         };
         rig.edge_pan_enabled = true;
+
+        // The panel eats its own clicks. Without this, clicking a build row
+        // would also select whatever unit happened to be behind the panel —
+        // and the selection would change under the player every time they
+        // queued anything.
+        if crate::sidebar::pointer_over_sidebar(window.width(), cursor.x) {
+            drag.is_box = false;
+            return;
+        }
+
+        // Selling is armed on the panel and spent on one click, so a player
+        // cannot demolish their base by leaving the mode on and clicking about.
+        if sell.armed
+            && let Some(ground) = screen_to_ground(camera, camera_transform, cursor)
+        {
+            let cell = Cell::new(ground.x.floor() as i32, ground.y.floor() as i32);
+            let local = session.local_player();
+            let target = session.sim().view().units().find(|(_, u)| {
+                u.owner == local
+                    && u.is_alive()
+                    && u.cell() == cell
+                    && !session.sim().stats().get(u.owner, u.kind).mobile
+            });
+            if let Some((building, _)) = target {
+                session.issue(CommandKind::Sell { building });
+            }
+            crate::sidebar::take_sell_click(&mut sell);
+            drag.is_box = false;
+            return;
+        }
 
         let additive = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
         let mut picked: Vec<EntityId> = if additive {

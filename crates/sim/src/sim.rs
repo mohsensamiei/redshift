@@ -149,6 +149,26 @@ pub struct MatchSetup {
     pub spawns: Vec<Spawn>,
 }
 
+/// How a match ended, once it has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Outcome {
+    /// One player is the last one standing.
+    Victory(PlayerId),
+    /// More than one player is left and none of them can win.
+    ///
+    /// Worth detecting rather than leaving to the players to notice: two sides
+    /// with nothing left to build and no way to reach each other will sit there
+    /// until somebody gets bored, and "somebody got bored" is not a result.
+    Stalemate,
+}
+
+/// How long the world must stay quiet before a stalemate is called.
+///
+/// Five minutes at twenty ticks a second. Deliberately long: the cost of
+/// calling one early is a match ended out from under two players who were
+/// about to fight, and the cost of calling one late is that they wait a little.
+const STALEMATE_QUIET_TICKS: u32 = 20 * 60 * 5;
+
 /// One cell of ground made dangerous.
 ///
 /// The damage and warhead are carried per cell rather than looked up from
@@ -350,6 +370,17 @@ pub struct Sim {
     projectiles: Vec<Projectile>,
     power: PowerGrid,
     boons: Boons,
+    /// How the match ended, if it has. `None` while it is still being played.
+    outcome: Option<Outcome>,
+    /// The last tick on which anything happened that could change who wins.
+    ///
+    /// Damage dealt or a unit produced. A stand-in for "can these two players
+    /// still reach each other", which is the question a stalemate really asks
+    /// and which is expensive to answer honestly — a reachability search per
+    /// player per tick, over a map with bridges that can be cut and buildings
+    /// that come and go. A long silence means the same thing in practice and
+    /// costs a comparison.
+    last_action_tick: Tick,
     /// Ground that is dangerous to stand on.
     ///
     /// Sparse and sorted by cell, not a layer on the map. Contamination covers
@@ -455,6 +486,8 @@ impl Sim {
             projectiles: Vec::new(),
             power: PowerGrid::new(factions.len()),
             boons: Boons::new(factions.len()),
+            outcome: None,
+            last_action_tick: 0,
             hazards: Vec::new(),
             standing: vec![Vec::new(); factions.len()],
             blackout_until: vec![0; factions.len()],
@@ -556,13 +589,14 @@ impl Sim {
         self.run_production();
         self.run_harvesters();
         self.grow_ore();
+        self.wander();
         self.update_engagements();
         self.service_path_requests();
         self.move_units();
         self.separate_units();
         self.intercept_projectiles();
         let landed = self.advance_projectiles();
-        self.recompute_chains();
+        self.recompute_support();
         let hits = self.acquire_and_fire();
         // Parasites bite through the ordinary damage path, so armour still
         // means something and the kill is credited to the drone like any other.
@@ -591,6 +625,8 @@ impl Sim {
         // only plant had just been destroyed still reported itself powered.
         self.recompute_power();
         self.recompute_boons();
+        // Last, so it judges the world as it stands at the end of the tick.
+        self.resolve_outcome();
 
         self.tick += 1;
     }
@@ -641,6 +677,25 @@ impl Sim {
                 unit.health = 0;
             }
         }
+    }
+
+    /// Which kinds may support this one.
+    ///
+    /// Read from the rules for the same reason leavings are: [`UnitStats`] is
+    /// `Copy`, and a `Vec` on it would cost that for something consulted once
+    /// per supported structure per tick.
+    fn supporters_of(&self, kind: EntityKind) -> Vec<EntityKind> {
+        self.rules
+            .entity(kind)
+            .traits
+            .iter()
+            .find_map(|t| match t {
+                redshift_data::traits::Trait::Supported { by, .. } => {
+                    Some(by.iter().filter_map(|u| self.rules.kind_of(u)).collect())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     /// What a kind of thing leaves where it falls.
@@ -857,60 +912,196 @@ impl Sim {
         }
     }
 
-    /// Counts, for every tower that chains, how many of its own kind stand
-    /// close enough to feed it.
+    /// Decides whether the match is over.
+    ///
+    /// Two ways for it to be. One player left standing is the obvious one. The
+    /// other is that nobody *can* win — two sides with nothing left to build
+    /// and no way to reach each other will sit there until somebody gets bored,
+    /// and "somebody got bored" is not a result.
+    ///
+    /// A player is out when they own nothing at all. That is the unambiguous
+    /// rule; the original also offers a "short game" option where losing every
+    /// structure is enough, which belongs with the other match settings rather
+    /// than here.
+    fn resolve_outcome(&mut self) {
+        if self.outcome.is_some() {
+            return;
+        }
+
+        let standing: Vec<PlayerId> = self
+            .players
+            .iter()
+            .map(|p| p.id)
+            .filter(|id| {
+                !id.is_neutral()
+                    && self
+                        .units
+                        .iter()
+                        .any(|(_, u)| u.owner == *id && u.is_alive())
+            })
+            .collect();
+
+        match standing.len() {
+            0 => {}
+            1 => self.outcome = Some(Outcome::Victory(standing[0])),
+            _ => {
+                // Nobody can grow, and nothing has happened for a long time.
+                // Both halves are needed: two players who can still build are
+                // not stalemated however quiet it is, and two who cannot might
+                // still be mid-battle.
+                let anyone_can_build = standing.iter().any(|id| self.can_still_produce(*id));
+                if !anyone_can_build
+                    && self.tick.saturating_sub(self.last_action_tick) > STALEMATE_QUIET_TICKS
+                {
+                    self.outcome = Some(Outcome::Stalemate);
+                }
+            }
+        }
+    }
+
+    /// Whether a player still has any way to make something new.
+    ///
+    /// Owning a producer, or owning something that becomes one — an MCV counts,
+    /// which matters because a player reduced to a single MCV is behind but not
+    /// beaten.
+    fn can_still_produce(&self, player: PlayerId) -> bool {
+        self.units.iter().any(|(_, u)| {
+            if u.owner != player || !u.is_alive() {
+                return false;
+            }
+            if self.produces_anything(u.kind) {
+                return true;
+            }
+            self.stats
+                .get(u.owner, u.kind)
+                .deploys_into
+                .is_some_and(|into| self.produces_anything(into))
+        })
+    }
+
+    /// Whether a kind of thing builds anything at all.
+    fn produces_anything(&self, kind: EntityKind) -> bool {
+        self.rules.entity(kind).traits.iter().any(|t| {
+            matches!(
+                t,
+                redshift_data::traits::Trait::Produces { categories } if !categories.is_empty()
+            )
+        })
+    }
+
+    /// How the match ended, if it has.
+    pub fn outcome(&self) -> Option<Outcome> {
+        self.outcome
+    }
+
+    /// Sends idle wanderers somewhere else.
+    ///
+    /// Deliberately not an AI, and it should not grow into one. A townsperson
+    /// with nothing to do picks a spot near home and walks to it; that is the
+    /// entire behaviour, and it exists so a town reads as alive rather than as
+    /// a set of props.
+    ///
+    /// Rolled against rather than counted down, so a crowd does not step off
+    /// together on the same tick like a chorus line. The roll is the ordinary
+    /// simulation RNG, visited in arena order, which is deterministic — a
+    /// second generator or a per-unit timer would both cost more than this is
+    /// worth.
+    fn wander(&mut self) {
+        let strollers: Vec<(EntityId, PlayerId, Cell, UnitStats)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard() && u.order.is_idle())
+            .filter_map(|(id, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                (stats.wander_radius > Fx::ZERO && stats.wander_interval > 0)
+                    .then_some((id, u.owner, u.home, stats))
+            })
+            .collect();
+
+        for (id, owner, home, stats) in strollers {
+            if !self.rng.chance(1, stats.wander_interval as i32) {
+                continue;
+            }
+            let reach = stats.wander_radius.floor_int().max(1);
+            let target = Cell::new(
+                home.x + self.rng.next_range(-reach, reach + 1),
+                home.y + self.rng.next_range(-reach, reach + 1),
+            );
+            // Somewhere it could actually stand. A civilian repeatedly ordered
+            // into a lake would stand still and look broken, which is worse
+            // than not wandering at all.
+            if !self.map.is_passable(target, stats.movement) {
+                continue;
+            }
+            self.order_move(owner, id, target);
+        }
+    }
+
+    /// Counts, for everything that friends can strengthen, how many are close
+    /// enough to do it.
+    ///
+    /// Prism Towers combining beams and Tesla Troopers charging a coil are the
+    /// same rule; what differs is only which kinds count as supporters.
     ///
     /// Rebuilt from scratch each tick rather than maintained, exactly like the
     /// power grid and for the same reason: it is a fact about the world as it
     /// currently stands. Anything incremental would need correcting on every
     /// build, death, capture and sale, and the one that got missed would be a
     /// tower quietly firing at the wrong strength for the rest of the match.
-    fn recompute_chains(&mut self) {
-        // Most matches contain nothing that chains, and this is the sort of
-        // pass that would otherwise cost a little on every tick forever.
-        let towers: Vec<(EntityId, PlayerId, EntityKind, Cell, Fx, u8)> = self
+    fn recompute_support(&mut self) {
+        // Most matches contain nothing that anything supports, and this is the
+        // sort of pass that would otherwise cost a little on every tick forever.
+        let supported: Vec<(EntityId, PlayerId, Vec<EntityKind>, Cell, Fx, u8)> = self
             .units
             .iter()
             .filter(|(_, u)| u.is_alive() && !u.is_aboard())
             .filter_map(|(id, u)| {
                 let stats = self.stats.get(u.owner, u.kind);
-                (stats.chain_radius > Fx::ZERO).then(|| {
+                (stats.support_radius > Fx::ZERO).then(|| {
+                    // An empty list means "my own kind", which is what a Prism
+                    // Tower wants and a Tesla Coil does not. Resolved once here
+                    // rather than per candidate below.
+                    let mut by = self.supporters_of(u.kind);
+                    if by.is_empty() {
+                        by.push(u.kind);
+                    }
                     (
                         id,
                         u.owner,
-                        u.kind,
+                        by,
                         u.cell(),
-                        stats.chain_radius,
-                        stats.chain_max_supporters,
+                        stats.support_radius,
+                        stats.max_supporters,
                     )
                 })
             })
             .collect();
-        if towers.is_empty() {
+        if supported.is_empty() {
             return;
         }
 
-        // A dark tower feeds nothing, which is one more reason to cut an
-        // enemy's power. Gathered separately because `is_unpowered` needs the
-        // unit and the loop below only has the summary.
-        let feeding: Vec<(PlayerId, EntityKind, Cell)> = towers
+        // Everything alive is a candidate, not only other towers: a Tesla
+        // Trooper is infantry and supports nothing itself. A dark tower feeds
+        // nothing, which is one more reason to cut an enemy's power.
+        let feeding: Vec<(EntityId, PlayerId, EntityKind, Cell)> = self
+            .units
             .iter()
-            .filter(|(id, ..)| self.units.get(*id).is_some_and(|u| !self.is_unpowered(u)))
-            .map(|(_, owner, kind, at, ..)| (*owner, *kind, *at))
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard() && !self.is_unpowered(u))
+            .map(|(id, u)| (id, u.owner, u.kind, u.cell()))
             .collect();
 
-        let counted: Vec<(EntityId, u8)> = towers
+        let counted: Vec<(EntityId, u8)> = supported
             .iter()
-            .map(|(id, owner, kind, at, radius, max)| {
+            .map(|(id, owner, by, at, radius, max)| {
                 let n = feeding
                     .iter()
-                    .filter(|(other_owner, other_kind, other_at)| {
-                        // Its own kind, its own side, and not itself. Two
+                    .filter(|(other_id, other_owner, other_kind, other_at)| {
+                        // A listed kind, its own side, and not itself. Two
                         // players' towers standing together must not help each
-                        // other, and a tower is not its own supporter.
+                        // other, and nothing is its own supporter.
                         other_owner == owner
-                            && other_kind == kind
-                            && other_at != at
+                            && by.contains(other_kind)
+                            && other_id != id
                             && Fx::dist_sq(
                                 Fx::from_int(other_at.x - at.x),
                                 Fx::from_int(other_at.y - at.y),
@@ -956,10 +1147,10 @@ impl Sim {
         // Applied here because this is already the one place a weapon is
         // resolved from a unit rather than from its kind — which is exactly
         // what a stat depending on the neighbours needs.
-        if unit.support == 0 || stats.chain_bonus_percent == 0 {
+        if unit.support == 0 || stats.support_bonus_percent == 0 {
             return Some(weapon);
         }
-        let scaled = 100 + unit.support as u64 * stats.chain_bonus_percent as u64;
+        let scaled = 100 + unit.support as u64 * stats.support_bonus_percent as u64;
         Some(WeaponStats {
             damage: (weapon.damage as u64 * scaled / 100) as u32,
             ..weapon
@@ -1506,6 +1697,13 @@ impl Sim {
     /// what makes a power plant worth attacking rather than merely worth owning.
     pub fn is_unpowered(&self, unit: &Unit) -> bool {
         let stats = self.stats.get(unit.owner, unit.kind);
+        // Enough support cuts a structure loose from the grid entirely. Three
+        // Tesla Troopers at a coil, and it keeps firing through a blackout —
+        // which is the whole reason charging one is worth doing rather than
+        // building a second coil somewhere else.
+        if stats.self_powered_at > 0 && unit.support >= stats.self_powered_at {
+            return false;
+        }
         stats.power_draw > 0 && !stats.works_unpowered && !self.power.is_satisfied(unit.owner)
     }
 
@@ -1557,6 +1755,7 @@ impl Sim {
             }
 
             if let Some(kind) = step.completed {
+                self.last_action_tick = self.tick;
                 self.deliver_produced(id, owner, kind);
             }
         }
@@ -2119,8 +2318,29 @@ impl Sim {
             // The search radius carries the hill's advantage too. If only the
             // firing check did, a unit on high ground would never look far
             // enough to find what its extended reach could hit.
+            // The union of what any of the unit's actions may be used against,
+            // for the search only. Without it a Tanya whose charges outrange
+            // her pistol would search with the charges' restriction and never
+            // notice a soldier at all — the same trap the layer mask had, one
+            // level down. An unrestricted action makes the union unrestricted.
+            let reach_categories = if garrison.is_some() {
+                weapon.target_categories
+            } else {
+                let each = [
+                    armament.map(|w| w.target_categories),
+                    self.combat
+                        .secondary(kind_of_attacker)
+                        .map(|w| w.target_categories),
+                ];
+                if each.iter().flatten().any(|m| *m == 0) {
+                    0
+                } else {
+                    each.iter().flatten().fold(0, |acc, m| acc | m)
+                }
+            };
             let weapon = WeaponStats {
                 targets: reach,
+                target_categories: reach_categories,
                 ..weapon.with_range_percent(ground_bonus)
             };
             // A defence with no power does not shoot. This is most of what
@@ -2153,6 +2373,7 @@ impl Sim {
                         let dy = v.pos.y - unit.pos.y;
                         Fx::dist_sq(dx, dy) <= weapon.range_sq
                             && weapon.targets.engages(layer_of(v))
+                            && combat::engages_category(&weapon, self.combat.category_bit(v.kind))
                             && self.can_see(unit.owner, v)
                     })
                     .map(|_| target),
@@ -2165,28 +2386,20 @@ impl Sim {
             let wounded =
                 |other: &Unit| other.health < self.stats.get(other.owner, other.kind).max_health;
 
+            let category_of = |other: &Unit| self.combat.category_bit(other.kind);
+            let lens = combat::Lens {
+                alliance: &Self::are_allied,
+                can_see: &visible,
+                layer_of: &layer_of,
+                category_of: &category_of,
+                wounded: &wounded,
+            };
             let keep = unit.combat.target.filter(|t| {
-                combat::target_is_valid(
-                    unit,
-                    *t,
-                    &weapon,
-                    &self.units,
-                    &Self::are_allied,
-                    &layer_of,
-                    &wounded,
-                ) && self.units.get(*t).is_some_and(&visible)
+                combat::target_is_valid(unit, *t, &weapon, &self.units, &lens)
+                    && self.units.get(*t).is_some_and(&visible)
             });
             let target = ordered.or(keep).or_else(|| {
-                combat::choose_target_where(
-                    attacker,
-                    unit,
-                    &weapon,
-                    &self.units,
-                    &Self::are_allied,
-                    &visible,
-                    &layer_of,
-                    &wounded,
-                )
+                combat::choose_target_where(attacker, unit, &weapon, &self.units, &lens)
             });
 
             // Aim before firing. A turret traverses on its own; without one the
@@ -2219,12 +2432,23 @@ impl Sim {
                 // turret and fire with the gun it has when empty.
                 target
                     .and_then(|t| self.units.get(t))
-                    .map(|t| self.stats.get(t.owner, t.kind).layer)
-                    .and_then(|layer| {
-                        armament.filter(|w| w.targets.engages(layer)).or_else(|| {
+                    .map(|t| {
+                        (
+                            self.stats.get(t.owner, t.kind).layer,
+                            self.combat.category_bit(t.kind),
+                        )
+                    })
+                    .and_then(|(layer, category)| {
+                        // Which *action* applies, not merely which weapon
+                        // reaches. Tanya aimed at a building resolves to the
+                        // charges; aimed at a soldier, to the pistol.
+                        let usable = |w: &WeaponStats| {
+                            w.targets.engages(layer) && combat::engages_category(w, category)
+                        };
+                        armament.filter(usable).or_else(|| {
                             self.combat
                                 .secondary(kind_of_attacker)
-                                .filter(|w| w.targets.engages(layer))
+                                .filter(|w| usable(w))
                                 .copied()
                         })
                     })
@@ -2471,6 +2695,11 @@ impl Sim {
                 // about to be modified and may then be gone.
                 let bounty = self.stats.get(target.owner, target.kind).bounty;
 
+                if damage > 0 {
+                    // Keeps the stalemate clock honest: as long as somebody is
+                    // hurting somebody, the match is still being played.
+                    self.last_action_tick = self.tick;
+                }
                 if let Some(target) = self.units.get_mut(hit.target) {
                     target.take_damage(damage);
                 }
@@ -3152,7 +3381,7 @@ impl Sim {
             return;
         };
         let stats = self.stats.get(unit.owner, unit.kind);
-        if stats.mobile || stats.cost == 0 {
+        if stats.mobile || stats.cost == 0 || !stats.sellable {
             return;
         }
 
@@ -4292,6 +4521,15 @@ impl Sim {
         for until in &self.blackout_until {
             h.write_u32(*until);
         }
+        match self.outcome {
+            None => h.write_u8(0),
+            Some(Outcome::Stalemate) => h.write_u8(1),
+            Some(Outcome::Victory(p)) => {
+                h.write_u8(2);
+                h.write_u8(p.0);
+            }
+        }
+        h.write_u32(self.last_action_tick);
         h.write_u32(self.hazards.len() as u32);
         for hazard in &self.hazards {
             h.write(&hazard.cell);

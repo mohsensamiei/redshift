@@ -40,6 +40,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: false,
         },
         WeaponDef {
@@ -55,6 +56,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: false,
         },
         WeaponDef {
@@ -71,6 +73,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: false,
         },
     ];

@@ -278,6 +278,13 @@ pub struct Unit {
     pub carrier: Option<EntityId>,
     /// Who is riding in this, in the order they boarded.
     pub cargo: Vec<EntityId>,
+    /// Where this belongs.
+    ///
+    /// Set once, where it was first put down. Only wandering reads it, and only
+    /// to keep a townsperson in their town: an unbounded random walk carries
+    /// one across the map over a long match, slowly enough that nobody would
+    /// call it a bug and far enough that the town empties.
+    pub home: Cell,
     /// How many others of its own kind are close enough to feed this one.
     ///
     /// Recomputed from scratch every tick, like the power grid, for the same
@@ -330,6 +337,7 @@ impl Unit {
             carrier: None,
             cargo: Vec::new(),
             infestation: None,
+            home: pos.cell(),
             support: 0,
             since_damaged: u32::MAX,
             since_fired: u32::MAX,
@@ -412,6 +420,7 @@ impl StateHash for Unit {
             h.write_u32(id.index());
             h.write_u32(id.generation());
         }
+        h.write(&self.home);
         h.write_u8(self.support);
         match &self.infestation {
             Some(id) => {

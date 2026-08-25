@@ -359,17 +359,26 @@ pub enum Trait {
         kills_for_elite: u32,
     },
 
-    /// Combines its beam with others of its own kind standing nearby.
+    /// Made stronger by friends standing nearby.
     ///
-    /// Prism Towers. The engine capability this needs is the interesting part:
-    /// every other stat in the game is resolved per kind once at match start,
-    /// and this one depends on what is standing next to it — so it has to be
-    /// recomputed, like the power grid, rather than resolved.
+    /// Two things in the original that turned out to be the same rule. Prism
+    /// Towers combine beams with other Prism Towers; Tesla Coils are charged by
+    /// Tesla Troopers standing at them. The difference is only *what* counts as
+    /// a supporter — and, for the coil, that enough of them cut it loose from
+    /// the power grid altogether.
+    ///
+    /// The engine capability is the interesting part either way: every other
+    /// stat is resolved per kind once at match start, and this one depends on
+    /// what is standing next to it, so it is recomputed like the power grid.
     ///
     /// A supporter must be alive, its owner's, and powered. A dark tower feeds
     /// nothing, which is one more reason to cut an enemy's power.
-    Chains {
-        /// How far a supporting tower can stand, in hundredths of a cell.
+    Supported {
+        /// Which kinds count as supporters. Empty means its own kind, which is
+        /// what a Prism Tower wants.
+        #[serde(default)]
+        by: Vec<String>,
+        /// How far a supporter can stand, in hundredths of a cell.
         radius: Hundredths,
         /// Extra damage per supporter, as a percentage of the base.
         bonus_percent: u32,
@@ -378,6 +387,13 @@ pub enum Trait {
         /// Without a ceiling, a player who can afford twenty towers in one
         /// corner gets a weapon no amount of anything else answers.
         max_supporters: u8,
+        /// Supporters needed before this works with no power at all.
+        ///
+        /// Zero means never, which is every case but the Tesla Coil. Three
+        /// troopers make a coil independent of the grid, and that is the whole
+        /// reason charging one is worth doing rather than building a second.
+        #[serde(default)]
+        self_powered_at: u8,
     },
 
     /// Arms whatever is carrying it, if that transport is built to be armed by
@@ -436,6 +452,39 @@ pub enum Trait {
         /// A hut serves the bridge it was built for, and proximity is how the
         /// original expresses that.
         radius: u8,
+    },
+
+    /// Cannot be demolished for money.
+    ///
+    /// Tech structures — an oil derrick, a hospital, an airport. Capturing one
+    /// and immediately selling it would be free money for the price of an
+    /// engineer, which is not a trade the original offers.
+    ///
+    /// Note what is *not* here. "Needs no power" wanted no trait at all: a
+    /// structure with no [`Trait::PowerDraw`] already needs none. And
+    /// "extends the build radius" wanted none either — the radius is anchored
+    /// by what a player *owns*, so a captured derrick was already a forward
+    /// base. Two of the three properties of a tech structure turned out to be
+    /// things the engine had never assumed otherwise.
+    Unsellable,
+
+    /// Moves about aimlessly when it has nothing else to do.
+    ///
+    /// What makes a town read as alive rather than as a set of props.
+    /// Deliberately *not* an AI, and it should not be built as one: a loop of
+    /// wandering with no goal, and nothing more.
+    ///
+    /// Bounded to a home, which is where it started. Unbounded, a random walk
+    /// carries a townsperson across the map over a long match — slowly enough
+    /// that nobody would call it a bug, and far enough that the town empties.
+    Wanders {
+        /// How far from home it will stray, in hundredths of a cell.
+        radius: Hundredths,
+        /// Roughly how many ticks between one stroll and the next.
+        ///
+        /// Rolled against rather than counted, so a crowd does not step off
+        /// together on the same tick like a chorus line.
+        interval: Ticks,
     },
 
     /// What a death leaves behind.
@@ -691,10 +740,12 @@ impl Trait {
             Trait::Repairs { .. } => "Repairs",
             Trait::Infests { .. } => "Infests",
             Trait::Garrisonable { .. } => "Garrisonable",
-            Trait::Chains { .. } => "Chains",
+            Trait::Supported { .. } => "Supported",
             Trait::Crews { .. } => "Crews",
             Trait::WeaponFromCargo => "WeaponFromCargo",
             Trait::HidesGround { .. } => "HidesGround",
+            Trait::Unsellable => "Unsellable",
+            Trait::Wanders { .. } => "Wanders",
             Trait::Leaves { .. } => "Leaves",
             Trait::Grows { .. } => "Grows",
             Trait::Bridge => "Bridge",
@@ -736,6 +787,7 @@ impl Trait {
                 .collect(),
             Trait::Deploys { into } => vec![("deployed form", into.clone())],
             Trait::Leaves { units, .. } => units.iter().map(|u| ("wreckage", u.clone())).collect(),
+            Trait::Supported { by, .. } => by.iter().map(|u| ("supporter", u.clone())).collect(),
             Trait::Infests { warhead, .. } | Trait::Contaminates { warhead, .. } => {
                 vec![("warhead", warhead.clone())]
             }
@@ -812,10 +864,12 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Repairs",
     "Infests",
     "Garrisonable",
-    "Chains",
+    "Supported",
     "Crews",
     "WeaponFromCargo",
     "HidesGround",
+    "Unsellable",
+    "Wanders",
     "Leaves",
     "Grows",
     "Bridge",

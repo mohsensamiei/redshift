@@ -291,6 +291,7 @@ fn a_destroyed_unit_damages_its_neighbours() {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: false,
         }],
         armour(),

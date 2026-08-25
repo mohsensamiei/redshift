@@ -58,6 +58,7 @@ fn rifle() -> WeaponDef {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        target_categories: vec![],
         heals: false,
     }
 }
@@ -871,19 +872,90 @@ fn irradiated_ground_damages_what_stands_on_it() {
 }
 
 #[test]
-#[ignore = "gap: no idle behaviour — a unit with nothing to do does nothing at all"]
 fn an_idle_civilian_wanders() {
     // What makes a town read as alive rather than as a set of props. It is
-    // deliberately not an AI: a loop of aimless movement, and nothing more.
-    panic!("an idle unit stands perfectly still forever");
+    // deliberately not an AI and should not grow into one: a loop of aimless
+    // movement bounded to a home, and nothing more.
+    //
+    // The bound is the part that is easy to leave out. An unbounded random walk
+    // carries a townsperson across the map over a long match — slowly enough
+    // that nobody calls it a bug, and far enough that the town empties.
+    // Exercised in tests/wandering.rs.
+    let townsperson = unit(
+        "townsperson",
+        "civilian",
+        Locomotor::Foot,
+        vec![Trait::Wanders {
+            radius: Hundredths(400),
+            interval: Ticks(20),
+        }],
+    );
+    let rules = rules_with(vec![townsperson], vec![]);
+    let mut sim = one_unit(rules, Map::new(48, 48), "townsperson", Cell::new(24, 24));
+    let id = sim.units().ids()[0];
+    let start = sim.unit(id).unwrap().cell();
+
+    for _ in 0..400 {
+        sim.tick(&[]);
+    }
+
+    assert_ne!(
+        sim.unit(id).unwrap().cell(),
+        start,
+        "the town is a set of props"
+    );
 }
 
 #[test]
-#[ignore = "gap: a match cannot detect that nobody can win"]
 fn a_stalemate_is_detected() {
     // Two players with no production and no way to reach each other should not
-    // leave the match running until someone quits.
-    panic!("there are no victory or stalemate conditions at all");
+    // leave the match running until someone quits. "Somebody got bored" is not
+    // a result.
+    //
+    // The reachability half is approximated by a long silence, deliberately.
+    // Answering it honestly means a search per player per tick over a map with
+    // bridges that can be cut and buildings that come and go; five quiet
+    // minutes mean the same thing in practice and cost a comparison. Both
+    // halves are needed — a player who can still build is one order away from
+    // an army however quiet it is. Exercised in tests/outcome.rs.
+    let mut bunker = unit("bunker", "structure", Locomotor::Foot, vec![]);
+    bunker.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![bunker], vec![]);
+    let kind = rules.kind_of("bunker").unwrap();
+    let mut sim = Sim::new(MatchSetup {
+        seed: 0x_57A,
+        map: Map::new(64, 64),
+        players: vec![
+            PlayerSetup {
+                id: PlayerId(0),
+                faction: None,
+            },
+            PlayerSetup {
+                id: PlayerId(1),
+                faction: None,
+            },
+        ],
+        spawns: vec![
+            Spawn {
+                owner: PlayerId(0),
+                kind,
+                pos: Cell::new(5, 5).centre(),
+            },
+            Spawn {
+                owner: PlayerId(1),
+                kind,
+                pos: Cell::new(58, 58).centre(),
+            },
+        ],
+        rules,
+    });
+
+    for _ in 0..(20 * 60 * 5 + 100) {
+        sim.tick(&[]);
+    }
+
+    assert_eq!(sim.outcome(), Some(redshift_sim::sim::Outcome::Stalemate));
 }
 
 #[test]
@@ -905,10 +977,14 @@ fn prism_towers_chain_to_strengthen_each_other() {
         "prism_tower",
         "structure",
         Locomotor::Foot,
-        vec![Trait::Chains {
+        vec![Trait::Supported {
+            // Empty: a Prism Tower is supported by other Prism Towers. A Tesla
+            // Coil names its troopers instead, and nothing else differs.
+            by: vec![],
             radius: Hundredths(500),
             bonus_percent: 50,
             max_supporters: 2,
+            self_powered_at: 0,
         }],
     );
     tower.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
@@ -918,9 +994,9 @@ fn prism_towers_chain_to_strengthen_each_other() {
     let kind = sim.rules().kind_of("prism_tower").unwrap();
     let stats = sim.stats().get(PlayerId(0), kind);
 
-    assert!(stats.chain_radius > redshift_sim::Fx::ZERO);
+    assert!(stats.support_radius > redshift_sim::Fx::ZERO);
     assert!(
-        stats.chain_max_supporters > 0,
+        stats.max_supporters > 0,
         "without a ceiling a player who can afford twenty towers in one corner \
          gets a weapon nothing else answers"
     );
@@ -1316,13 +1392,46 @@ fn a_nuclear_reactor_explodes_when_destroyed() {
 }
 
 #[test]
-#[ignore = "gap: a unit cannot modify a structure"]
 fn tesla_troopers_charge_a_tesla_coil() {
-    // Troopers standing at a coil extend its range and power, and three of them
-    // make it work with no power at all. That is a unit changing a structure's
-    // stats and its relationship to the power grid — nothing in the engine can
-    // express it.
-    panic!("stats are resolved per kind at match start and never change");
+    // Troopers standing at a coil make it stronger, and three of them make it
+    // work with no power at all.
+    //
+    // The same rule as Prism chaining, which is why they share a trait: what
+    // differs is only which kinds count as supporters, and — for the coil —
+    // that enough of them cut it loose from the grid. Writing it twice would
+    // have been two implementations of one idea, one edit apart from
+    // disagreeing. Exercised in tests/prism_chain.rs.
+    let mut coil = unit(
+        "coil",
+        "structure",
+        Locomotor::Foot,
+        vec![
+            Trait::PowerDraw {
+                amount: 300,
+                works_unpowered: false,
+            },
+            Trait::Supported {
+                by: vec!["trooper".into()],
+                radius: Hundredths(300),
+                bonus_percent: 50,
+                max_supporters: 3,
+                self_powered_at: 3,
+            },
+        ],
+    );
+    coil.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+    let trooper = unit("trooper", "infantry", Locomotor::Foot, vec![]);
+
+    let rules = rules_with(vec![coil, trooper], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "coil", Cell::new(10, 10));
+    let kind = sim.rules().kind_of("coil").unwrap();
+    let stats = sim.stats().get(PlayerId(0), kind);
+
+    assert_eq!(stats.self_powered_at, 3);
+    assert!(
+        sim.is_unpowered(sim.unit(sim.units().ids()[0]).unwrap()),
+        "an uncharged coil with no plant should be dark"
+    );
 }
 
 #[test]
@@ -1525,12 +1634,67 @@ fn a_depot_repairs_vehicles_and_shakes_off_a_parasite() {
 }
 
 #[test]
-#[ignore = "gap: tech structures — neutral, capturable, unsellable, and they extend the build radius"]
 fn a_captured_tech_structure_extends_the_build_radius() {
-    // A captured oil derrick is a forward base. Redshift has a build radius and
-    // only counts structures the player built, so capturing one would give a
-    // player income and no ground to build on.
-    panic!("no capture, no neutral owner, and the build radius ignores captured ground");
+    // Three properties in the research, and two of them turned out to need
+    // nothing at all — which is worth recording, because the gap as written
+    // claimed otherwise and was wrong on both counts.
+    //
+    // "Needs no power": a structure with no `PowerDraw` already needs none.
+    // "Extends the build radius": the radius is anchored by what a player
+    // *owns*, not by what they built, so a captured derrick was already a
+    // forward base. Only "cannot be sold" was missing, and capturing one to
+    // sell it immediately would have been free money for the price of an
+    // engineer.
+    let mut derrick = unit(
+        "derrick",
+        "structure",
+        Locomotor::Foot,
+        vec![
+            Trait::Footprint {
+                width: 2,
+                height: 2,
+            },
+            Trait::Capturable,
+            Trait::Unsellable,
+        ],
+    );
+    derrick
+        .traits
+        .retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![derrick], vec![]);
+    let kind = rules.kind_of("derrick").unwrap();
+    let mut sim = Sim::new(MatchSetup {
+        seed: 0x_DE44,
+        map: Map::new(48, 48),
+        players: vec![PlayerSetup {
+            id: PlayerId(0),
+            faction: None,
+        }],
+        // Nobody's, until somebody walks in.
+        spawns: vec![Spawn {
+            owner: PlayerId::NEUTRAL,
+            kind,
+            pos: Cell::new(24, 24).centre(),
+        }],
+        rules,
+    });
+    let id = sim.units().ids()[0];
+
+    let footprint = sim.stats().get(PlayerId::NEUTRAL, kind).footprint;
+    assert!(
+        !sim.can_build_at(PlayerId(0), Cell::new(28, 24), footprint),
+        "a derrick nobody owns must not anchor anything"
+    );
+
+    sim.change_owner(id, PlayerId(0));
+    sim.tick(&[]);
+
+    assert!(
+        sim.can_build_at(PlayerId(0), Cell::new(28, 24), footprint),
+        "a captured derrick should be a forward base"
+    );
+    assert!(!sim.stats().get(PlayerId(0), kind).sellable);
 }
 
 #[test]
@@ -1678,6 +1842,7 @@ fn a_medic_heals_the_infantry_around_it() {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: true,
         }],
         armour(),
@@ -1759,6 +1924,7 @@ fn a_slow_projectile_takes_time_to_arrive() {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        target_categories: vec![],
         heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
@@ -1923,6 +2089,7 @@ fn a_ballistic_shot_misses_a_target_that_moves() {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        target_categories: vec![],
         heals: false,
     };
     // Sight to match the gun. A weapon that outranges its own vision cannot
@@ -2060,6 +2227,7 @@ fn air_rules() -> Rules {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        target_categories: vec![],
         heals: false,
     };
 
@@ -2150,7 +2318,6 @@ fn a_ground_weapon_still_hits_ground_targets() {
 }
 
 #[test]
-#[ignore = "gap: a unit has one weapon and one kind of action, not a set of them"]
 fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
     // Tanya shoots infantry and vehicles with a gun, and destroys *buildings*
     // with charges — a different action with different valid targets, chosen by
@@ -2162,8 +2329,96 @@ fn a_unit_chooses_between_several_actions_by_what_it_is_aimed_at() {
     // with its own targeting rule, and something deciding which applies. That
     // is closer to ADR 0006 than to a data field: capability is a list, not a
     // slot.
-    panic!(
-        "Armed is a single unique trait, and there is no notion of an action with its own valid targets"
+    // Closed, and smaller than it looked. What was missing was not a list of
+    // slots but the ability for a weapon to say *what it applies to*: a layer
+    // mask cannot tell a building from an infantryman, because both are on the
+    // ground. Once a weapon names its categories, the choice falls out of the
+    // primary/secondary selection that already existed.
+    //
+    // Two slots turn out to be enough for everything in the original's roster —
+    // a gun and a charge, a cannon and a missile, a turret mode and the gun it
+    // replaces. If a third is ever needed the slots become a list; the *action*
+    // idea is what this needed and it is here.
+    //
+    // Note what is deliberately absent: no rule preferring "the more specific
+    // action". Two weapons that both apply is a mistake in the rules, and it
+    // should be stated rather than resolved by precedence. Exercised end to end
+    // in tests/actions.rs.
+    let commando = unit(
+        "commando",
+        "infantry",
+        Locomotor::Foot,
+        vec![
+            Trait::Armed {
+                weapon: "rifle".into(),
+                turret: true,
+                turret_rate: 3600,
+            },
+            Trait::Secondary {
+                weapon: "charges".into(),
+                turret: true,
+                turret_rate: 3600,
+            },
+        ],
+    );
+    let mut bunker = unit("bunker", "structure", Locomotor::Foot, vec![]);
+    bunker.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = Rules::from_parts(
+        vec![commando, bunker],
+        vec![
+            WeaponDef {
+                id: "rifle".into(),
+                damage: 20,
+                warhead: "shot".into(),
+                reload: Ticks(10),
+                range: Hundredths(400),
+                splash_radius: Hundredths::ZERO,
+                projectile_speed: Hundredths::ZERO,
+                homing: false,
+                targets: vec![],
+                target_categories: vec!["infantry".into()],
+                instant_kill: false,
+                ammo: 0,
+                intercepts: false,
+                heals: false,
+            },
+            WeaponDef {
+                id: "charges".into(),
+                damage: 200,
+                warhead: "shot".into(),
+                reload: Ticks(40),
+                range: Hundredths(200),
+                splash_radius: Hundredths::ZERO,
+                projectile_speed: Hundredths::ZERO,
+                homing: false,
+                targets: vec![],
+                target_categories: vec!["structure".into()],
+                instant_kill: false,
+                ammo: 0,
+                intercepts: false,
+                heals: false,
+            },
+        ],
+        armour(),
+        Vec::new(),
+    )
+    .expect("rules should validate");
+    let sim = one_unit(rules, Map::new(24, 24), "commando", Cell::new(5, 5));
+    let commando_kind = sim.rules().kind_of("commando").unwrap();
+    let bunker_kind = sim.rules().kind_of("bunker").unwrap();
+
+    let gun = sim.combat().weapon(commando_kind).expect("no pistol");
+    let charge = sim.combat().secondary(commando_kind).expect("no charges");
+    let building = sim.combat().category_bit(bunker_kind);
+
+    assert!(
+        !redshift_sim::combat::engages_category(gun, building),
+        "the pistol should not apply to a building"
+    );
+    assert!(
+        redshift_sim::combat::engages_category(charge, building),
+        "the charges should"
     );
 }
 

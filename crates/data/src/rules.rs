@@ -81,6 +81,15 @@ pub struct WeaponDef {
     /// Whether this weapon can shoot down projectiles in flight.
     #[serde(default)]
     pub intercepts: bool,
+    /// Categories this may be used against. Empty means anything.
+    ///
+    /// The difference between a weapon and an *action*. Tanya shoots people
+    /// with a pistol and destroys buildings with charges: two things with
+    /// different valid targets, chosen by what she is pointed at rather than by
+    /// a stance the player sets. A layer mask cannot say this — a building and
+    /// an infantryman are both on the ground.
+    #[serde(default)]
+    pub target_categories: Vec<String>,
     /// Whether this restores health instead of taking it away.
     ///
     /// A Medic, Yuri's repair drones, and the turret mode an engineer gives an

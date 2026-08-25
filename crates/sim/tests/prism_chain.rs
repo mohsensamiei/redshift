@@ -34,10 +34,13 @@ fn tower(id: &str, draws_power: bool) -> EntityDef {
             turret: true,
             turret_rate: 3600,
         },
-        Trait::Chains {
+        Trait::Supported {
+            // Empty: a Prism Tower is supported by other Prism Towers.
+            by: vec![],
             radius: Hundredths(500),
             bonus_percent: 50,
             max_supporters: 2,
+            self_powered_at: 0,
         },
         Trait::Buildable {
             cost: 1_500,
@@ -58,6 +61,76 @@ fn tower(id: &str, draws_power: bool) -> EntityDef {
         side: None,
         category: "structure".into(),
         traits,
+    }
+}
+
+/// The other half of the same rule. A coil is charged by *troopers* rather
+/// than by other coils, and enough of them cut it loose from the power grid
+/// altogether — which is the whole reason charging one is worth doing rather
+/// than building a second coil somewhere else.
+fn coil() -> EntityDef {
+    EntityDef {
+        id: "coil".into(),
+        name_key: "structure.coil".into(),
+        side: None,
+        category: "structure".into(),
+        traits: vec![
+            Trait::Health {
+                max: 1_000,
+                armour: "none".into(),
+            },
+            Trait::Vision {
+                range: Hundredths(900),
+            },
+            Trait::Armed {
+                weapon: "beam".into(),
+                turret: true,
+                turret_rate: 3600,
+            },
+            Trait::PowerDraw {
+                amount: 300,
+                works_unpowered: false,
+            },
+            Trait::Supported {
+                by: vec!["trooper".into()],
+                radius: Hundredths(300),
+                bonus_percent: 50,
+                max_supporters: 3,
+                self_powered_at: 3,
+            },
+            Trait::Buildable {
+                cost: 1_500,
+                build_time: Ticks(40),
+                prerequisites: vec![],
+                produced_by: "plant".into(),
+            },
+        ],
+    }
+}
+
+fn trooper() -> EntityDef {
+    EntityDef {
+        id: "trooper".into(),
+        name_key: "unit.trooper".into(),
+        side: None,
+        category: "infantry".into(),
+        traits: vec![
+            Trait::Health {
+                max: 200,
+                armour: "none".into(),
+            },
+            Trait::Mobile {
+                speed: Hundredths(300),
+                turn_rate: 3600,
+                locomotor: Locomotor::Foot,
+                surfaces: None,
+                size: None,
+                layer: None,
+            },
+            Trait::Vision {
+                range: Hundredths(400),
+            },
+        ],
     }
 }
 
@@ -117,6 +190,8 @@ fn rules() -> Rules {
         vec![
             tower("tower", false),
             tower("hungry_tower", true),
+            coil(),
+            trooper(),
             plant(),
             victim(),
         ],
@@ -133,6 +208,7 @@ fn rules() -> Rules {
             instant_kill: false,
             ammo: 0,
             intercepts: false,
+            target_categories: vec![],
             heals: false,
         }],
         armour(),
@@ -346,4 +422,108 @@ fn chaining_is_deterministic() {
         sim.state_hash()
     };
     assert_eq!(run(), run());
+}
+
+// -- The same rule, charged by something else -------------------------------
+
+#[test]
+fn troopers_charge_a_coil() {
+    // A coil is supported by *troopers*, not by other coils. Nothing else about
+    // the rule differs, which is why there is one rule rather than two.
+    let sim = scenario(vec![
+        (0, "coil", 10, 10),
+        (0, "trooper", 11, 10),
+        (0, "plant", 30, 30),
+        (0, "plant", 32, 30),
+        (0, "plant", 34, 30),
+        (0, "plant", 36, 30),
+    ]);
+    assert_eq!(sim.unit(sim.units().ids()[0]).unwrap().support, 1);
+}
+
+#[test]
+fn another_coil_does_not_charge_a_coil() {
+    // The Prism rule and the Tesla rule are the same mechanism with different
+    // lists, and the lists have to actually mean something.
+    let sim = scenario(vec![
+        (0, "coil", 10, 10),
+        (0, "coil", 12, 10),
+        (0, "plant", 30, 30),
+        (0, "plant", 32, 30),
+        (0, "plant", 34, 30),
+        (0, "plant", 36, 30),
+        (0, "plant", 38, 30),
+        (0, "plant", 40, 30),
+    ]);
+    let ids = sim.units().ids();
+    assert_eq!(sim.unit(ids[0]).unwrap().support, 0);
+}
+
+#[test]
+fn three_troopers_make_a_coil_work_without_power() {
+    // The point of charging one. With no power plant at all the coil is dark,
+    // and three troopers standing at it bring it back.
+    let dark = scenario(vec![(0, "coil", 10, 10)]);
+    assert!(
+        dark.is_unpowered(dark.unit(dark.units().ids()[0]).unwrap()),
+        "a coil with no plant should be dark to begin with"
+    );
+
+    let charged = scenario(vec![
+        (0, "coil", 10, 10),
+        (0, "trooper", 11, 10),
+        (0, "trooper", 9, 10),
+        (0, "trooper", 10, 11),
+    ]);
+    let coil_id = charged.units().ids()[0];
+    assert_eq!(charged.unit(coil_id).unwrap().support, 3);
+    assert!(
+        !charged.is_unpowered(charged.unit(coil_id).unwrap()),
+        "three troopers should have cut it loose from the grid"
+    );
+}
+
+#[test]
+fn two_troopers_are_not_enough() {
+    let sim = scenario(vec![
+        (0, "coil", 10, 10),
+        (0, "trooper", 11, 10),
+        (0, "trooper", 9, 10),
+    ]);
+    let coil_id = sim.units().ids()[0];
+    assert_eq!(sim.unit(coil_id).unwrap().support, 2);
+    assert!(
+        sim.is_unpowered(sim.unit(coil_id).unwrap()),
+        "two troopers should not be enough"
+    );
+}
+
+#[test]
+fn troopers_who_walk_away_take_the_power_with_them() {
+    let mut sim = scenario(vec![
+        (0, "coil", 10, 10),
+        (0, "trooper", 11, 10),
+        (0, "trooper", 9, 10),
+        (0, "trooper", 10, 11),
+    ]);
+    let ids = sim.units().ids();
+    let coil_id = ids[0];
+    assert!(!sim.is_unpowered(sim.unit(coil_id).unwrap()));
+
+    sim.tick(&[Command::new(
+        PlayerId(0),
+        0,
+        CommandKind::Move {
+            units: vec![ids[1]],
+            target: Cell::new(40, 40),
+        },
+    )]);
+    for _ in 0..300 {
+        sim.tick(&[]);
+    }
+
+    assert!(
+        sim.is_unpowered(sim.unit(coil_id).unwrap()),
+        "the coil kept the charge after its trooper left"
+    );
 }

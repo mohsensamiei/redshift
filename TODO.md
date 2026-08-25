@@ -162,6 +162,17 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] A weapon that restores health — the Medic, and the IFV's repair mode.
+      Targeting inverts; it is not a damage number with a minus sign.
+- [x] Ore regrowth — belongs to the mine, not to ore, which keeps the contrast
+      between a field worth holding and one worth stripping.
+- [x] What a death leaves — rubble and an ejected crew are one mechanism.
+- [x] Structure death effects — a blast, and ground that stays dangerous.
+- [x] Tesla charging — the same rule as Prism chaining with a different list.
+- [x] Wandering civilians — bounded to a home, deliberately not an AI.
+- [x] Tech structures — two of the three properties needed nothing at all.
+- [x] Victory and stalemate — a match can now end.
+- [x] Actions with their own valid targets — Tanya's pistol and her charges.
 - [x] IFV turret modes — a weapon that is a property of a *unit* rather than of
       its kind. Declared on the passengers, so a new unit brings its own mode
       and the vehicle never learns anyone's name.
@@ -234,8 +245,14 @@ and reasoning in docs/08-roster.md.
 
 ### The gap list is executable
 
-`crates/sim/tests/roster_conformance.rs` holds it. Forty-six capabilities
-confirmed, twelve gaps, each an ignored test with its reason attached.
+`crates/sim/tests/roster_conformance.rs` holds it. **Fifty-nine capabilities
+confirmed, no gaps.**
+
+That does not mean the game is finished. It means the engine can express what
+the original does with the units we have described, and what remains is
+content, art, and numbers. Aircraft, naval, superweapons, mind control,
+teleportation and disguise have no failing test standing for them because no
+unit in the roster needs them yet — when one does, the gap comes back.
 
 The count went from twelve to thirty-nine while researching the original
 properly. Twenty-seven gaps were invisible until the mechanics were looked up
@@ -344,6 +361,18 @@ docs/adr/0005-faithful-remaster-scope.md for why.
       its source is faithful; the numbers are not yet anything.
 - [ ] **Gap Generator radius.** `rules/buildings/allied.ron` says ten cells, by
       feel. The mechanic is faithful; the reach is not verified.
+- [ ] **Stalemate quiet period.** `sim::STALEMATE_QUIET_TICKS` is five minutes,
+      chosen so that calling one early is unlikely. It also stands in for "can
+      these two players still reach each other", which is the question a
+      stalemate really asks — an honest answer means a reachability search per
+      player per tick over a map with bridges that can be cut. Worth revisiting
+      if a real match ever gets called off wrongly.
+- [ ] **Short game.** The original offers a match option where losing every
+      structure is enough to be out. Not implemented: it wants a field on
+      `MatchSetup`, which every test constructs literally.
+- [ ] **Ore growth and wander rates.** `Grows` and `Wanders` figures are unset —
+      nothing ships with either yet, since there is no ore mine or civilian in
+      the rules.
 - [ ] **Elevation range bonus.** `map::HEIGHT_RANGE_BONUS_PERCENT` is 15% per
       level, by feel. That high ground helps is faithful; how much is not
       verified. `map::MAX_WALKABLE_STEP` of one level is the more confident of

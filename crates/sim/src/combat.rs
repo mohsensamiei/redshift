@@ -56,6 +56,9 @@ pub struct WeaponStats {
     pub ammo: u32,
     /// Whether this can shoot down projectiles in flight.
     pub intercepts: bool,
+    /// Which categories this may be used against, as a bitmask over the
+    /// interned category list. Zero means anything.
+    pub target_categories: u32,
     /// Whether this restores health instead of taking it away.
     pub heals: bool,
     /// Whether the shot follows its target.
@@ -267,6 +270,7 @@ pub fn weapon_of(
     rules: &Rules,
     kind: EntityKind,
     warhead_index: &dyn Fn(&str) -> WarheadId,
+    categories_mask: &dyn Fn(&[String]) -> u32,
 ) -> Option<WeaponStats> {
     let def = rules.entity(kind);
     let (weapon_id, turret, turret_rate) = def.traits.iter().find_map(|t| match t {
@@ -277,7 +281,13 @@ pub fn weapon_of(
         } => Some((weapon, *turret, *turret_rate)),
         _ => None,
     })?;
-    build_weapon(rules.weapon(weapon_id)?, turret, turret_rate, warhead_index)
+    build_weapon(
+        rules.weapon(weapon_id)?,
+        turret,
+        turret_rate,
+        warhead_index,
+        categories_mask,
+    )
 }
 
 /// Turns a weapon definition into resolved stats.
@@ -290,6 +300,7 @@ fn build_weapon(
     turret: bool,
     turret_rate: u32,
     warhead_index: &dyn Fn(&str) -> WarheadId,
+    categories_mask: &dyn Fn(&[String]) -> u32,
 ) -> Option<WeaponStats> {
     let range = Fx::from_raw(weapon.range.to_fx_raw());
     Some(WeaponStats {
@@ -306,6 +317,7 @@ fn build_weapon(
         instant_kill: weapon.instant_kill,
         ammo: weapon.ammo,
         intercepts: weapon.intercepts,
+        target_categories: categories_mask(&weapon.target_categories),
         heals: weapon.heals,
         targets: if weapon.targets.is_empty() {
             // Ground only. The default almost every weapon wants, and the one
@@ -324,6 +336,7 @@ pub fn secondary_of(
     rules: &Rules,
     kind: EntityKind,
     warhead_index: &dyn Fn(&str) -> WarheadId,
+    categories_mask: &dyn Fn(&[String]) -> u32,
 ) -> Option<WeaponStats> {
     let def = rules.entity(kind);
     let (weapon_id, turret, turret_rate) = def.traits.iter().find_map(|t| match t {
@@ -334,7 +347,43 @@ pub fn secondary_of(
         } => Some((weapon, *turret, *turret_rate)),
         _ => None,
     })?;
-    build_weapon(rules.weapon(weapon_id)?, turret, turret_rate, warhead_index)
+    build_weapon(
+        rules.weapon(weapon_id)?,
+        turret,
+        turret_rate,
+        warhead_index,
+        categories_mask,
+    )
+}
+
+/// Whether a weapon may be used against a thing of this category.
+///
+/// An empty restriction means anything, which is what almost every weapon
+/// wants and what every rules file written before this existed still says.
+#[inline]
+pub fn engages_category(weapon: &WeaponStats, category: u32) -> bool {
+    weapon.target_categories == 0 || weapon.target_categories & category != 0
+}
+
+/// What targeting has to ask about a candidate that the arena alone cannot
+/// answer.
+///
+/// Four questions that arrived one at a time — whose side is it on, can we see
+/// it, what layer is it in, does it need help — and that are really one thing:
+/// how the world looks from the attacker's position. Passing them as four
+/// arguments was how it was written first, and it grew past the point where
+/// anyone reading a call could tell which closure was which.
+pub struct Lens<'a> {
+    pub alliance: &'a dyn Fn(PlayerId, PlayerId) -> bool,
+    pub can_see: &'a dyn Fn(&Unit) -> bool,
+    pub layer_of: &'a dyn Fn(&Unit) -> Layer,
+    /// Which category bit a candidate carries, for a weapon that is an *action*
+    /// with its own valid targets rather than a gun that shoots whatever is in
+    /// front of it.
+    pub category_of: &'a dyn Fn(&Unit) -> u32,
+    /// Only a healing weapon asks. It is the difference between a medic that
+    /// moves on and one that keeps its beam on the first friend it patched up.
+    pub wounded: &'a dyn Fn(&Unit) -> bool,
 }
 
 /// Picks a target for one unit.
@@ -355,10 +404,13 @@ pub fn choose_target(
         attacker_unit,
         weapon,
         units,
-        alliance,
-        &|_| true,
-        &|_| Layer::Ground,
-        &|_| true,
+        &Lens {
+            alliance,
+            can_see: &|_| true,
+            layer_of: &|_| Layer::Ground,
+            category_of: &|_| 0,
+            wounded: &|_| true,
+        },
     )
 }
 
@@ -374,11 +426,10 @@ pub fn choose_target_where(
     attacker_unit: &Unit,
     weapon: &WeaponStats,
     units: &crate::arena::Arena<Unit>,
-    alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
-    can_see: &dyn Fn(&Unit) -> bool,
-    layer_of: &dyn Fn(&Unit) -> Layer,
-    wounded: &dyn Fn(&Unit) -> bool,
+    lens: &Lens,
 ) -> Option<EntityId> {
+    let (alliance, can_see, layer_of, wounded) =
+        (lens.alliance, lens.can_see, lens.layer_of, lens.wounded);
     let mut best: Option<(EntityId, FxWide)> = None;
 
     for (id, other) in units.iter() {
@@ -406,6 +457,12 @@ pub fn choose_target_where(
         if !weapon.targets.engages(layer_of(other)) {
             continue;
         }
+        // An action with its own valid targets. A layer mask cannot say this —
+        // a building and an infantryman are both on the ground — and it is the
+        // difference between a gun and a demolition charge.
+        if !engages_category(weapon, (lens.category_of)(other)) {
+            continue;
+        }
         let dx = other.pos.x - attacker_unit.pos.x;
         let dy = other.pos.y - attacker_unit.pos.y;
         let distance_sq = Fx::dist_sq(dx, dy);
@@ -425,10 +482,9 @@ pub fn target_is_valid(
     target: EntityId,
     weapon: &WeaponStats,
     units: &crate::arena::Arena<Unit>,
-    alliance: &dyn Fn(PlayerId, PlayerId) -> bool,
-    layer_of: &dyn Fn(&Unit) -> Layer,
-    wounded: &dyn Fn(&Unit) -> bool,
+    lens: &Lens,
 ) -> bool {
+    let (alliance, layer_of, wounded) = (lens.alliance, lens.layer_of, lens.wounded);
     let Some(other) = units.get(target) else {
         return false;
     };
@@ -442,6 +498,9 @@ pub fn target_is_valid(
         return false;
     }
     if !weapon.targets.engages(layer_of(other)) {
+        return false;
+    }
+    if !engages_category(weapon, (lens.category_of)(other)) {
         return false;
     }
     let dx = other.pos.x - attacker_unit.pos.x;
@@ -491,6 +550,13 @@ pub struct CombatTable {
     /// — the exact opposite of how a transport that changes weapon by cargo
     /// would work, and the thing most easily got backwards.
     garrison_weapon: Vec<Option<WeaponStats>>,
+    /// Which category each kind belongs to, as a single bit.
+    ///
+    /// Interned here with the warheads and for the same reason: comparing
+    /// integers on the hot path, and one index rather than two that could
+    /// disagree. Thirty-two categories is far more than the original's roster
+    /// uses, and a rules file that exceeded it would be told so at load.
+    category_bit: Vec<u32>,
     /// The weapon each kind hands to a transport it rides in. Resolved here
     /// with every other weapon, so a turret mode is the same sort of thing as a
     /// turret.
@@ -537,6 +603,23 @@ impl CombatTable {
         let warhead_index =
             |name: &str| WarheadId(warheads.iter().position(|w| w == name).unwrap_or(0) as u16);
 
+        // Categories are free-form strings in the rules and are interned here.
+        // Sorted so the bit a category gets does not depend on which entity
+        // happened to mention it first — a file-order dependency would make two
+        // peers with the same rules disagree about what a weapon can shoot.
+        let mut category_names: Vec<&str> =
+            rules.entities().map(|(_, d)| d.category.as_str()).collect();
+        category_names.sort_unstable();
+        category_names.dedup();
+        let category_index = |name: &str| -> u32 {
+            category_names
+                .iter()
+                .position(|c| *c == name)
+                .map_or(0, |i| 1u32 << (i % 32))
+        };
+        let categories_mask =
+            |names: &[String]| -> u32 { names.iter().fold(0, |acc, n| acc | category_index(n)) };
+
         let mut weapons = Vec::with_capacity(rules.entity_count());
         let mut armour = Vec::with_capacity(rules.entity_count());
         let mut secondary = Vec::with_capacity(rules.entity_count());
@@ -547,10 +630,11 @@ impl CombatTable {
         let mut contamination: Vec<Option<Contamination>> =
             Vec::with_capacity(rules.entity_count());
         let mut crew_weapon: Vec<Option<WeaponStats>> = Vec::with_capacity(rules.entity_count());
+        let mut category_bit: Vec<u32> = Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
-            weapons.push(weapon_of(rules, kind, &warhead_index));
+            weapons.push(weapon_of(rules, kind, &warhead_index, &categories_mask));
             armour.push(armour_of(rules, kind, &armour_index));
-            secondary.push(secondary_of(rules, kind, &warhead_index));
+            secondary.push(secondary_of(rules, kind, &warhead_index, &categories_mask));
             death_warhead.push(
                 def.traits
                     .iter()
@@ -573,10 +657,17 @@ impl CombatTable {
                 Trait::Garrisonable { weapon, .. } => {
                     // No turret: a building does not traverse, it just shoots
                     // out of whichever window faces the target.
-                    build_weapon(rules.weapon(weapon)?, false, 0, &warhead_index)
+                    build_weapon(
+                        rules.weapon(weapon)?,
+                        false,
+                        0,
+                        &warhead_index,
+                        &categories_mask,
+                    )
                 }
                 _ => None,
             }));
+            category_bit.push(category_index(&def.category));
             crew_weapon.push(def.traits.iter().find_map(|t| match t {
                 // A crewed weapon always has a turret: it is a turret mode.
                 Trait::Crews { weapon } => build_weapon(
@@ -584,6 +675,7 @@ impl CombatTable {
                     true,
                     DEFAULT_TURRET_RATE,
                     &warhead_index,
+                    &categories_mask,
                 ),
                 _ => None,
             }));
@@ -614,6 +706,7 @@ impl CombatTable {
             garrison_weapon,
             contamination,
             crew_weapon,
+            category_bit,
             damage: DamageTable::build(rules),
         }
     }
@@ -635,6 +728,13 @@ impl CombatTable {
     /// The weapon this fires while occupied, if it can be occupied at all.
     pub fn garrison_weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
         self.garrison_weapon.get(kind.0 as usize)?.as_ref()
+    }
+
+    /// The category bit of a kind, for a weapon that restricts what it may be
+    /// used against.
+    #[inline]
+    pub fn category_bit(&self, kind: EntityKind) -> u32 {
+        self.category_bit.get(kind.0 as usize).copied().unwrap_or(0)
     }
 
     /// The weapon a passenger of this kind hands to a transport built to take
@@ -770,6 +870,7 @@ mod tests {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                target_categories: vec![],
                 heals: false,
             },
             WeaponDef {
@@ -785,6 +886,7 @@ mod tests {
                 instant_kill: false,
                 ammo: 0,
                 intercepts: false,
+                target_categories: vec![],
                 heals: false,
             },
         ];
@@ -1092,9 +1194,13 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile,
-            &|_| Layer::Ground,
-            &|_| true,
+            &Lens {
+                alliance: &all_hostile,
+                can_see: &|_| true,
+                layer_of: &|_| Layer::Ground,
+                category_of: &|_| 0,
+                wounded: &|_| true,
+            },
         ));
 
         // Out of range.
@@ -1104,9 +1210,13 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile,
-            &|_| Layer::Ground,
-            &|_| true,
+            &Lens {
+                alliance: &all_hostile,
+                can_see: &|_| true,
+                layer_of: &|_| Layer::Ground,
+                category_of: &|_| 0,
+                wounded: &|_| true,
+            },
         ));
 
         // Dead.
@@ -1117,9 +1227,13 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile,
-            &|_| Layer::Ground,
-            &|_| true,
+            &Lens {
+                alliance: &all_hostile,
+                can_see: &|_| true,
+                layer_of: &|_| Layer::Ground,
+                category_of: &|_| 0,
+                wounded: &|_| true,
+            },
         ));
 
         // Gone entirely — a stale handle must not resolve to whatever now
@@ -1130,9 +1244,13 @@ mod tests {
             target,
             &weapon,
             &units,
-            &all_hostile,
-            &|_| Layer::Ground,
-            &|_| true,
+            &Lens {
+                alliance: &all_hostile,
+                can_see: &|_| true,
+                layer_of: &|_| Layer::Ground,
+                category_of: &|_| 0,
+                wounded: &|_| true,
+            },
         ));
     }
 

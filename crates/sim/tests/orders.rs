@@ -30,6 +30,7 @@ fn rules() -> Rules {
         instant_kill: false,
         ammo: 0,
         intercepts: false,
+        target_categories: vec![],
         heals: false,
     }];
     let soldier = EntityDef {

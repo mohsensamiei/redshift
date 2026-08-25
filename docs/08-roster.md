@@ -48,7 +48,7 @@ Researched.
 | Ramps | The only way between elevations | ✅ a one-level step is walkable, two is a cliff face |
 | Shore | Where amphibious transports load and unload | ❌ |
 | Bridges | Crossable, **destructible** — Crazy Ivan is the usual way — and **repaired by an engineer entering a separate repair hut beside them** | ✅ |
-| Ore | Gathered by faction-specific miners. **Can be destroyed** by force-firing on it with a weapon allowed to | ⚠️ ore ✅, destroying it ❌ |
+| Ore | Gathered by faction-specific miners, and **regrows from an ore mine** | ✅ growth; ⚠️ destroying it by force-fire still ❌ |
 | Gems | Worth more per load than ore | ❌ second resource kind |
 | Trees, rocks | Block movement | ⚠️ blocking only |
 
@@ -216,7 +216,7 @@ the interesting part.
 | Fortress Wall | 100 | 0 | Barracks | **Four sections placed at once** | ❌ walls |
 | Sentry Gun | 500 | **0** | Barracks | Anti-infantry. **Needs no power** | ✅ |
 | Flak Cannon | 1000 | −50 | Barracks | Anti-air; **shoots down missiles**; **switches off in low power** | ❌ interception, ❌ disable |
-| Tesla Coil | 1500 | −75 | Radar | **Troopers charge it** for more range and power; **three charged troopers make it work without power at all** | ❌ |
+| Tesla Coil | 1500 | −75 | Radar | **Troopers charge it** for more range and power; **three charged troopers make it work without power at all** | ✅ the same rule as Prism chaining, with a different list of supporters |
 | Psychic Sensor | 1000 | −50 | Battle Lab | **Shows the orders enemy units have been given**; reveals spies | ❌ |
 | Iron Curtain | 2500 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
 | Nuclear Missile Silo | 5000 | −200 | Battle Lab | Superweapon. **One per player** | ❌ |
@@ -375,7 +375,7 @@ says whether Redshift can express the behaviour at all.
 | Grizzly | A | 700 | — | Main tank. Faster and cheaper than a Rhino; **crushes infantry** | ❌ crushing |
 | Rhino | S | 900 | — | Main tank. More armour and range, slower | ✅ |
 | Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ❌ transport |
-| IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ⚠️ turret modes ✅; the repair mode waits on a weapon that can restore health |
+| IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ✅ including the repair mode, which is a turret mode whose weapon heals |
 | Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ✅ |
 | V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ❌ interception |
 | Tesla Tank | Russia | 1200 | Radar | **Fires over obstacles** | ❌ indirect fire |
@@ -551,7 +551,12 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 49 capabilities confirmed, 10 gaps.**
+**As of the last run: 59 capabilities confirmed, 0 gaps.**
+
+Every capability the roster asks for is now exercised by a passing test. That
+is not the same as the game being finished — it means the *engine* can express
+what the original does, and what remains is content, art, and the numbers in
+the rules files. The audit's job from here is to stay honest as those arrive.
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched
@@ -604,14 +609,15 @@ Items are struck through as they close, so the history stays readable:
 
 - ~~Garrison~~ — infantry firing from a building, thrown out when it is shot up
 - ~~Transports~~ — loading, unloading, passengers that fire
-- **A passenger that changes its carrier's weapon** — the IFV, still open
+- ~~A passenger that changes its carrier's weapon~~ — the IFV. The list lives
+  on the passengers, so a new unit brings its own turret mode
 - ~~Projectiles~~ — shots used to land instantly
 - ~~Air targeting~~ — nothing used to distinguish an air target from a ground one
 - ~~Multiple weapons per unit~~ — anti-ground and anti-air on one chassis
 - **Placed charges** — armed now, detonating later
 - ~~Persistent terrain effects~~ — contamination that outlives what laid it
 - **Temporary status effects** — invulnerable, irradiated, disabled
-- **Wandering civilians** — autonomous, purposeless movement
+- ~~Wandering civilians~~ — bounded to a home, and deliberately not an AI
 
 ### Large — each is a subsystem
 
@@ -624,6 +630,19 @@ Items are struck through as they close, so the history stays readable:
 - **Mind control** — changing a unit's owner mid-match
 - **Teleportation** — movement without a path
 - **Disguise** — appearing as something else to one side only
+
+### Still open, and outside the audit
+
+The struck-through items above are closed and tested. What is left is not a
+list of gaps in the *engine* so much as work nobody has started: aircraft,
+naval, superweapons, mind control, teleportation, disguise, placed charges,
+timed status effects, and per-structure placement rules. None of them has a
+failing test standing for it, because none of them has a unit in the roster
+yet that needs it.
+
+That distinction is worth keeping. The audit answers "can the engine express
+what the original does with what we have built"; it does not answer "have we
+built everything".
 
 ## 11. What follows
 

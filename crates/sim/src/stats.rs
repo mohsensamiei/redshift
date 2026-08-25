@@ -101,15 +101,23 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
-    /// How far a supporting tower of the same kind may stand. Zero for
-    /// anything that does not chain.
-    pub chain_radius: Fx,
+    /// How far a supporter may stand. Zero for anything nothing supports.
+    pub support_radius: Fx,
     /// Extra damage per supporter, as a percentage.
-    pub chain_bonus_percent: u32,
+    pub support_bonus_percent: u32,
     /// The most supporters that count.
-    pub chain_max_supporters: u8,
+    pub max_supporters: u8,
+    /// Supporters needed before this works with no power. Zero means never.
+    pub self_powered_at: u8,
     /// Whether this vehicle takes its weapon from whoever is riding inside.
     pub weapon_from_cargo: bool,
+    /// Whether this can be demolished for money.
+    pub sellable: bool,
+    /// How far from home this strays when idle. Zero for anything that stands
+    /// still.
+    pub wander_radius: Fx,
+    /// Roughly how many ticks between one stroll and the next.
+    pub wander_interval: u32,
     /// Whether anything is left where this falls.
     ///
     /// Only the flag, not the list. `UnitStats` is `Copy` — every hot path
@@ -210,10 +218,14 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
-            chain_radius: Fx::ZERO,
-            chain_bonus_percent: 0,
-            chain_max_supporters: 0,
+            support_radius: Fx::ZERO,
+            support_bonus_percent: 0,
+            max_supporters: 0,
+            self_powered_at: 0,
             weapon_from_cargo: false,
+            sellable: true,
+            wander_radius: Fx::ZERO,
+            wander_interval: 0,
             leaves_something: false,
             grow_radius: Fx::ZERO,
             grow_interval: 0,
@@ -450,14 +462,17 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             // Validated at load, so a missing entity is a rules error rather
             // than a unit that silently refuses to deploy.
             Trait::HidesGround { radius } => stats.hides_ground = Fx::from_raw(radius.to_fx_raw()),
-            Trait::Chains {
+            Trait::Supported {
                 radius,
                 bonus_percent,
                 max_supporters,
+                self_powered_at,
+                ..
             } => {
-                stats.chain_radius = Fx::from_raw(radius.to_fx_raw());
-                stats.chain_bonus_percent = *bonus_percent;
-                stats.chain_max_supporters = *max_supporters;
+                stats.support_radius = Fx::from_raw(radius.to_fx_raw());
+                stats.support_bonus_percent = *bonus_percent;
+                stats.max_supporters = *max_supporters;
+                stats.self_powered_at = *self_powered_at;
             }
             Trait::WeaponFromCargo => stats.weapon_from_cargo = true,
             Trait::Grows {
@@ -470,6 +485,11 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.grow_cell_limit = *cell_limit;
             }
             Trait::Leaves { units, .. } => stats.leaves_something = !units.is_empty(),
+            Trait::Wanders { radius, interval } => {
+                stats.wander_radius = Fx::from_raw(radius.to_fx_raw());
+                stats.wander_interval = interval.0;
+            }
+            Trait::Unsellable => stats.sellable = false,
             Trait::Bridge => stats.is_bridge = true,
             Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),

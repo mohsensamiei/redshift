@@ -25,6 +25,7 @@ pub mod health;
 pub mod input;
 pub mod overlay;
 pub mod session;
+pub mod verdict;
 pub mod world;
 
 pub use session::Session;
@@ -146,6 +147,7 @@ impl Plugin for RedshiftRenderPlugin {
                     overlay::toggle_overlay,
                     overlay::count_triangles,
                     overlay::update_overlay,
+                    verdict::update_banner,
                 ),
                 apply_window_placement,
                 auto_screenshot,
@@ -199,6 +201,7 @@ fn setup(
 
     let terrain_mesh = meshes.add(world::build_terrain_mesh(
         map,
+        session.sim().hazards(),
         session.sim().visibility(),
         session.local_player(),
     ));
@@ -233,6 +236,7 @@ fn setup(
     world::spawn_lighting(&mut commands);
     camera::spawn_camera(&mut commands, &rig);
     overlay::spawn_overlay(&mut commands);
+    verdict::spawn_banner(&mut commands);
 
     commands.insert_resource(rig);
 }

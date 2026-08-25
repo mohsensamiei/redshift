@@ -297,7 +297,10 @@ pub fn handle_orders(
             })
             .collect();
         for building in producers {
-            session.issue(CommandKind::SetRally { building, at: target });
+            session.issue(CommandKind::SetRally {
+                building,
+                at: target,
+            });
         }
 
         let movers: Vec<EntityId> = selection
@@ -334,11 +337,7 @@ pub fn handle_orders(
 ///
 /// Returns `None` when nothing sensible applies, so the caller falls through to
 /// move and attack-move.
-fn friendly_click(
-    session: &Session,
-    selected: &[EntityId],
-    target: Cell,
-) -> Option<CommandKind> {
+fn friendly_click(session: &Session, selected: &[EntityId], target: Cell) -> Option<CommandKind> {
     let local = session.local_player();
     let sim = session.sim();
 

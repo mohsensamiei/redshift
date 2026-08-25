@@ -19,6 +19,13 @@ const UNIT_WIDTH: f32 = 0.6;
 /// Vertical offset for the ground, so unit bases do not z-fight with it.
 const GROUND_Y: f32 = 0.0;
 
+/// World height of one level of elevation.
+///
+/// Enough that a plateau reads as raised at this camera angle, small enough
+/// that a three-level cliff does not hide what is behind it. The simulation's
+/// levels are unitless; this is the only place they become a distance.
+const LEVEL_HEIGHT: f32 = 0.45;
+
 /// Links a drawn entity back to the simulation entity it represents.
 #[derive(Component)]
 pub struct UnitView(pub EntityId);
@@ -184,9 +191,15 @@ fn flat_material(colour: Color) -> StandardMaterial {
 /// reads as a black crack along every wall.
 pub fn build_terrain_mesh(
     map: &Map,
+    hazards: &[redshift_sim::sim::Hazard],
     visibility: &redshift_sim::Visibility,
     viewer: redshift_sim::PlayerId,
 ) -> Mesh {
+    // Sorted by cell in the simulation, so a binary search costs nothing and
+    // the alternative — a set built per rebuild — would allocate for a handful
+    // of cells.
+    let hazardous =
+        |cell: redshift_sim::Cell| hazards.binary_search_by_key(&cell, |h| h.cell).is_ok();
     use bevy::asset::RenderAssetUsages;
     use bevy::render::mesh::{Indices, PrimitiveTopology};
 
@@ -230,16 +243,51 @@ pub fn build_terrain_mesh(
                 Terrain::Rock => vertex_colour(0.34, 0.32, 0.30),
             };
 
-            // Impassable rock stands proud of the ground so obstacles read as
-            // obstacles rather than as a change of colour.
+            // A bridge reads as its own surface over whatever is underneath —
+            // planking rather than water. Keyed off the simulation's own
+            // `is_bridged`, so a wrecked span puts the river back on screen at
+            // the same moment it puts it back underfoot.
+            let colour = if map.is_bridged(cell) {
+                vertex_colour(0.46, 0.36, 0.24)
+            } else {
+                colour
+            };
+
+            // Poisoned ground. Tinted rather than given geometry, for the same
+            // reason ore is: it is something that has happened *to* the map, it
+            // comes and goes, and a second mesh for it would be the most
+            // expensive thing in the scene.
+            //
+            // It has to be visible at all, though. Contamination that killed
+            // infantry and looked exactly like grass would be the cruellest
+            // possible thing to ship.
+            let colour = if hazardous(cell) {
+                vertex_colour(
+                    colour[0] * 0.55 + 0.42,
+                    colour[1] * 0.55 + 0.34,
+                    colour[2] * 0.55 + 0.06,
+                )
+            } else {
+                colour
+            };
+
+            // Ground level, plus a bump for impassable rock so obstacles read
+            // as obstacles rather than as a change of colour.
+            //
+            // Elevation was in the simulation for a while before it was drawn
+            // at all: high ground gave a longer reach and blocked movement, and
+            // the map looked perfectly flat. A player could not see the thing
+            // they were fighting over.
             //
             // Flattened where the player has never looked. Blackening the
             // colour alone still left the ridges catching the light, which drew
             // a map of every cliff on ground nobody had scouted.
-            let height = match (terrain, sight) {
-                (_, redshift_sim::Sight::Unseen) => 0.0,
-                (Terrain::Rock, _) => 0.5,
-                _ => 0.0,
+            let height = match sight {
+                redshift_sim::Sight::Unseen => 0.0,
+                _ => {
+                    let level = map.elevation(cell) as f32 * LEVEL_HEIGHT;
+                    level + if terrain == Terrain::Rock { 0.5 } else { 0.0 }
+                }
             };
 
             let (fx, fy) = (x as f32, y as f32);
@@ -376,6 +424,7 @@ pub fn rebuild_terrain(
     };
     let fresh = build_terrain_mesh(
         session.sim().map(),
+        session.sim().hazards(),
         session.sim().visibility(),
         session.local_player(),
     );
@@ -468,8 +517,13 @@ pub fn interpolate_units(
         transform.translation.x = px + (cx - px) * t;
         transform.translation.z = py + (cy - py) * t;
         // Sit each kind on the ground by its own half-height, not a shared
-        // constant — otherwise infantry sink and structures float.
+        // constant — otherwise infantry sink and structures float. On the
+        // ground it is actually standing on, too: without the elevation term a
+        // unit that walked up a ramp would sink into the hillside, and the one
+        // feature the player is fighting over would look like a bug.
+        let standing_on = session.sim().map().elevation(unit.cell()) as f32 * LEVEL_HEIGHT;
         transform.translation.y = GROUND_Y
+            + standing_on
             + assets
                 .unit_half_heights
                 .get(unit.kind.0 as usize)

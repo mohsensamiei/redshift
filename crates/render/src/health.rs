@@ -64,6 +64,17 @@ pub enum BarPart {
 pub struct HealthBarAssets {
     pub mesh: Handle<Mesh>,
     pub backing: Handle<StandardMaterial>,
+    /// The backing, recoloured to say something is inside.
+    ///
+    /// The backing carried no information at all — a dark quad behind the fill.
+    /// Two states that were invisible on screen now use it: a parasite eating a
+    /// vehicle from inside, and infantry firing out of a building. Both matter
+    /// and neither is inferable from anything else the player can see.
+    ///
+    /// Deliberately the *backing* rather than the fill: the fill already means
+    /// health, and one bar saying two things by colour would say neither.
+    pub backing_infested: Handle<StandardMaterial>,
+    pub backing_garrisoned: Handle<StandardMaterial>,
     /// Indexed by [`fill_bucket`].
     pub fills: [Handle<StandardMaterial>; 3],
 }
@@ -87,6 +98,10 @@ pub fn build_health_assets(
     HealthBarAssets {
         mesh,
         backing: materials.add(unlit(0.05, 0.05, 0.06, 0.75)),
+        // Sickly green for something living in the engine bay.
+        backing_infested: materials.add(unlit(0.28, 0.46, 0.10, 0.85)),
+        // Cool blue for a building with people shooting out of it.
+        backing_garrisoned: materials.add(unlit(0.14, 0.30, 0.52, 0.85)),
         fills: [
             materials.add(unlit(0.30, 0.85, 0.35, 1.0)),
             materials.add(unlit(0.95, 0.80, 0.20, 1.0)),
@@ -221,6 +236,19 @@ pub fn update_health_bars(
             BarPart::Backing => {
                 transform.translation = *base + Vec3::new(0.0, height, 0.0);
                 transform.scale = Vec3::new(BAR_WIDTH, BAR_HEIGHT, 1.0);
+
+                // Infestation first: a garrison is a nuisance to its enemy and
+                // a parasite is killing the thing it is in, so if a unit were
+                // ever somehow both, the urgent one should show.
+                let occupant = session.sim().unit(bar.unit);
+                let wanted = match occupant {
+                    Some(u) if u.infestation.is_some() => &assets.backing_infested,
+                    Some(u) if !u.cargo.is_empty() && !stats.mobile => &assets.backing_garrisoned,
+                    _ => &assets.backing,
+                };
+                if material.0.id() != wanted.id() {
+                    material.0 = wanted.clone();
+                }
             }
             BarPart::Fill => {
                 // The fill shrinks from the right rather than from both edges,

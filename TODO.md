@@ -224,6 +224,25 @@ built everything". When a unit arrives that needs one, the gap comes back.
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
 
+### World state the renderer could not see
+
+The simulation grew several things that never reached the screen. A feature the
+player cannot see is not a feature, and a *dangerous* one they cannot see is
+worse than not having it.
+
+- [x] Elevation — the map was drawn perfectly flat while high ground blocked
+      movement and lengthened reach. Units stand on the ground they are on, so
+      walking up a ramp no longer sinks into the hillside
+- [x] Contaminated ground — tinted, like ore. Radiation that killed infantry
+      and looked exactly like grass would have been the cruellest thing to ship
+- [x] Bridges — planking over water, and a wrecked span puts the river back on
+      screen at the moment it puts it back underfoot
+- [x] Infestation and garrison — on the health bar's *backing*, which carried
+      no information before. Not the fill: that already means health, and one
+      bar saying two things by colour says neither
+- [x] The result of the match — a match that quietly stopped mattering, with
+      both sides still standing, was worse than having no victory condition
+
 ### Commands the player could not issue
 
 Seven of the simulation's fourteen commands had no route through the interface

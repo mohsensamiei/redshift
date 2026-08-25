@@ -224,6 +224,24 @@ built everything". When a unit arrives that needs one, the gap comes back.
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
 
+### Commands the player could not issue
+
+Seven of the simulation's fourteen commands had no route through the interface
+at all: tested, correct, and unreachable. Found by listing `CommandKind`'s
+variants against what the renderer issues.
+
+- [x] Right-click is context-sensitive, as the original's was — an engineer on
+      a building captures or repairs it, infantry on a transport climb in, a
+      damaged vehicle on a Service Depot goes in to be mended, a factory
+      clicked on open ground sets its rally point. The player never picks a
+      verb, which is the whole point.
+- [x] `D` deploys *and* unloads, one key for both, because from the player's
+      side it is one act
+- [x] `G` guards, `S` stops — the original's letters, freed by taking WASD off
+      the camera. The original never panned with WASD either
+- [ ] **Sell** and **cancel production** — the last two. They belong on the
+      sidebar rather than on a key, and the sidebar is the next thing built
+
 ### Declared and never read — the defect this codebase keeps producing
 
 Three found in one audit, all the same shape: a trait resolves into the stat

@@ -273,17 +273,124 @@ pub fn handle_orders(
             units: selection.units.clone(),
             target: victim,
         });
+    } else if let Some(order) = friendly_click(&session, &selection.units, target) {
+        session.issue(order);
     } else if attack_move {
         session.issue(CommandKind::AttackMove {
             units: selection.units.clone(),
             target,
         });
     } else {
-        session.issue(CommandKind::Move {
-            units: selection.units.clone(),
-            target,
+        // A factory cannot walk anywhere, so a move order aimed at one is a
+        // rally point. The original drew no distinction either: the same click
+        // means "go there" to a tank and "send what you build there" to the
+        // building that makes tanks.
+        let producers: Vec<EntityId> = selection
+            .units
+            .iter()
+            .copied()
+            .filter(|id| {
+                session
+                    .sim()
+                    .unit(*id)
+                    .is_some_and(|u| !session.sim().stats().get(u.owner, u.kind).mobile)
+            })
+            .collect();
+        for building in producers {
+            session.issue(CommandKind::SetRally { building, at: target });
+        }
+
+        let movers: Vec<EntityId> = selection
+            .units
+            .iter()
+            .copied()
+            .filter(|id| {
+                session
+                    .sim()
+                    .unit(*id)
+                    .is_some_and(|u| session.sim().stats().get(u.owner, u.kind).mobile)
+            })
+            .collect();
+        if !movers.is_empty() {
+            session.issue(CommandKind::Move {
+                units: movers,
+                target,
+            });
+        }
+    }
+}
+
+/// What right-clicking one of your own things means.
+///
+/// The original never asked a player to pick a verb: you chose a unit, you
+/// clicked a thing, and the sensible act happened. An engineer clicked on a
+/// building captures or repairs it; a damaged tank clicked on a Service Depot
+/// goes in to be mended; infantry clicked on a transport climb aboard; a
+/// factory clicked on open ground sets its rally point.
+///
+/// Seven of the simulation's fourteen commands had no way to be issued at all
+/// before this — capture, transports, rally points among them. They were
+/// tested, correct, and unreachable, which is a strange thing to have shipped.
+///
+/// Returns `None` when nothing sensible applies, so the caller falls through to
+/// move and attack-move.
+fn friendly_click(
+    session: &Session,
+    selected: &[EntityId],
+    target: Cell,
+) -> Option<CommandKind> {
+    let local = session.local_player();
+    let sim = session.sim();
+
+    // A rally point is set by clicking *ground*, so it is checked first and
+    // only when nothing of ours is under the pointer.
+    let clicked = sim
+        .view()
+        .units()
+        .find(|(_, u)| u.is_alive() && u.cell() == target && !u.is_aboard())?;
+    let (clicked_id, clicked_unit) = clicked;
+    let clicked_stats = sim.stats().get(clicked_unit.owner, clicked_unit.kind);
+
+    // Somebody else's, and not visible, or not ours at all: leave it to attack.
+    if clicked_unit.owner != local && !clicked_unit.owner.is_neutral() {
+        return None;
+    }
+
+    // Anything that can be sent inside the thing under the pointer. One list
+    // rather than a chain of special cases, because from the player's side it
+    // is one gesture.
+    let boarders: Vec<EntityId> = selected
+        .iter()
+        .copied()
+        .filter(|id| *id != clicked_id)
+        .filter(|id| {
+            sim.unit(*id)
+                .is_some_and(|u| u.owner == local && u.is_alive() && !u.is_aboard())
+        })
+        .collect();
+    if boarders.is_empty() {
+        return None;
+    }
+
+    // A transport of ours with room: climb in.
+    if clicked_unit.owner == local && clicked_stats.capacity > 0 {
+        return Some(CommandKind::Load {
+            units: boarders,
+            transport: clicked_id,
         });
     }
+
+    // A building — ours, or nobody's. Entering it is capture, repair, garrison,
+    // infiltration, servicing or bridge repair, and which of those it turns out
+    // to be is the simulation's business rather than the interface's.
+    if !clicked_stats.mobile {
+        return Some(CommandKind::EnterBuilding {
+            units: boarders,
+            target: clicked_id,
+        });
+    }
+
+    None
 }
 
 /// Named unit selections, recalled with the number keys.
@@ -359,9 +466,12 @@ pub fn handle_control_groups(
     }
 }
 
-/// `X` stops the selection, `G` deploys it, `Escape` clears it.
+/// Order hotkeys, with the original's letters.
 ///
-/// `G` rather than `D`, which the camera already uses to pan right.
+/// `S` stop, `D` deploy or unload, `G` guard, `Escape` clear. These are the
+/// keys the original used and the ones anyone who has played it will reach for.
+/// They were unavailable until the camera stopped panning with WASD — which it
+/// never did in the original either.
 pub fn handle_hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<Selection>,
@@ -370,18 +480,48 @@ pub fn handle_hotkeys(
     if keys.just_pressed(KeyCode::Escape) {
         selection.clear();
     }
-    if keys.just_pressed(KeyCode::KeyX) && !selection.is_empty() {
+    if selection.is_empty() {
+        // Everything below needs something selected. `X` is kept as an alias
+        // for stop out of muscle memory from before the keys were corrected.
+        if keys.just_pressed(KeyCode::Space) {
+            session.toggle_pause();
+        }
+        return;
+    }
+    if keys.any_just_pressed([KeyCode::KeyS, KeyCode::KeyX]) {
         session.issue(CommandKind::Stop {
             units: selection.units.clone(),
         });
     }
-    // One key for both directions. The simulation decides which way each unit
-    // goes from what it currently is, so a mixed selection of packed and
-    // unpacked things does the sensible thing with all of them.
-    if keys.just_pressed(KeyCode::KeyG) && !selection.is_empty() {
+    if keys.just_pressed(KeyCode::KeyG) {
+        session.issue(CommandKind::Guard {
+            units: selection.units.clone(),
+        });
+    }
+    // One key for three things, exactly as the original had it: an MCV unpacks,
+    // a Construction Yard packs up, and a loaded transport puts its passengers
+    // down. Which of those a given unit does is a fact about the unit, so the
+    // interface sends both commands and lets the simulation ignore what does
+    // not apply. Asking the player to know which verb they wanted would be
+    // inventing a decision the game does not have.
+    if keys.just_pressed(KeyCode::KeyD) {
         session.issue(CommandKind::Deploy {
             units: selection.units.clone(),
         });
+        let loaded: Vec<EntityId> = selection
+            .units
+            .iter()
+            .copied()
+            .filter(|id| session.sim().unit(*id).is_some_and(|u| !u.cargo.is_empty()))
+            .collect();
+        for transport in loaded {
+            let at = session
+                .sim()
+                .unit(transport)
+                .map(|u| u.cell())
+                .unwrap_or(Cell::new(0, 0));
+            session.issue(CommandKind::Unload { transport, at });
+        }
     }
     if keys.just_pressed(KeyCode::Space) {
         session.toggle_pause();

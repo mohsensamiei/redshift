@@ -141,16 +141,21 @@ pub fn update_camera(
 ) {
     let mut pan = Vec2::ZERO;
 
-    if keys.any_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
+    // Arrow keys only. WASD was here too, and it was quietly holding four of
+    // the original's order hotkeys hostage — `D` to deploy, `S` to stop, `A`
+    // and `G` for attack-move and guard. The original never panned with WASD:
+    // it used the arrows, the screen edge and the minimap, which is what is
+    // left here.
+    if keys.pressed(KeyCode::ArrowUp) {
         pan.y -= 1.0;
     }
-    if keys.any_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
+    if keys.pressed(KeyCode::ArrowDown) {
         pan.y += 1.0;
     }
-    if keys.any_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) {
+    if keys.pressed(KeyCode::ArrowLeft) {
         pan.x -= 1.0;
     }
-    if keys.any_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) {
+    if keys.pressed(KeyCode::ArrowRight) {
         pan.x += 1.0;
     }
 

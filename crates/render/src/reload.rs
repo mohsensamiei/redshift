@@ -73,10 +73,10 @@ impl RulesWatch {
         for root in &self.roots {
             if root.is_dir() {
                 walk(root, &mut newest);
-            } else if let Ok(modified) = std::fs::metadata(root).and_then(|m| m.modified()) {
-                if newest.is_none_or(|n| modified > n) {
-                    newest = Some(modified);
-                }
+            } else if let Ok(modified) = std::fs::metadata(root).and_then(|m| m.modified())
+                && newest.is_none_or(|n| modified > n)
+            {
+                newest = Some(modified);
             }
         }
         newest

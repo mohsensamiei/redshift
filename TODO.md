@@ -386,7 +386,11 @@ mentioned. Where docs/08-roster.md still says ⚠️, that is where to look.
 - [ ] Unit, building and terrain models replacing all placeholders
 - [ ] Damage states; construction and destruction animations
 - [ ] Effects: muzzle flashes, explosions, tracers, craters, smoke
-- [ ] Blob shadows; final single-directional-light setup
+- [x] Blob shadows — a dark quad per mobile unit, offset the way the sun would
+      cast it. Buildings get none: their shadow belongs in the model, and a blob
+      under a three-by-three structure reads as a stain
+- [ ] Final light setup — one direction is chosen and lives in the flat
+      material; a second for time of day would be a second uniform
 - [ ] Audio: SFX, unit acknowledgements, announcer, UI
 - [ ] Music
 - [ ] UI art pass

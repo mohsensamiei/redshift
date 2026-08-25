@@ -170,7 +170,8 @@ impl Plugin for RedshiftRenderPlugin {
                     world::interpolate_units,
                 )
                     .chain(),
-                (input::sync_selection_rings, input::move_selection_rings).chain(),
+                input::sync_selection_rings,
+                (world::move_shadows, world::reap_shadows),
                 (health::sync_health_bars, health::update_health_bars).chain(),
                 (
                     build::update_placement_preview,

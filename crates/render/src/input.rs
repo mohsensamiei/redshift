@@ -604,7 +604,7 @@ pub fn sync_selection_rings(
     mut commands: Commands,
     selection: Res<Selection>,
     assets: Res<RenderAssets>,
-    units: Query<(&UnitView, &Transform), Without<SelectionRing>>,
+    units: Query<(Entity, &UnitView, &Transform), Without<SelectionRing>>,
     rings: Query<Entity, With<SelectionRing>>,
 ) {
     if !selection.is_changed() && !rings.is_empty() {
@@ -614,46 +614,34 @@ pub fn sync_selection_rings(
     for entity in &rings {
         commands.entity(entity).despawn();
     }
-    for (view, transform) in &units {
+    for (entity, view, transform) in &units {
         if !selection.units.contains(&view.0) {
             continue;
         }
-        commands.spawn((
-            Mesh3d(assets.ring_mesh.clone()),
-            MeshMaterial3d(assets.selection_material.clone()),
-            // Just above the ground, to stay clear of the terrain surface.
-            Transform::from_xyz(transform.translation.x, 0.02, transform.translation.z),
-            SelectionRing,
-        ));
+        let _ = transform;
+        // A child of the unit, like the blob shadow. This used to be a separate
+        // entity at world y = 0.02, chased across the map by `move_selection_rings`
+        // — which was fine while the map was flat and buried the ring two levels
+        // underground the moment elevation arrived. As a child the offset is
+        // local and the parent's height carries it, and there is nothing left
+        // to chase.
+        let half_height = transform.translation.y;
+        let ring = commands
+            .spawn((
+                Mesh3d(assets.ring_mesh.clone()),
+                MeshMaterial3d(assets.selection_material.clone()),
+                Transform::from_xyz(0.0, -half_height + crate::world::GROUND_CLEARANCE, 0.0),
+                SelectionRing,
+            ))
+            .id();
+        commands.entity(entity).add_child(ring);
     }
 }
 
-/// Keeps rings under their units as they move.
-pub fn move_selection_rings(
-    selection: Res<Selection>,
-    units: Query<(&UnitView, &Transform), Without<SelectionRing>>,
-    mut rings: Query<&mut Transform, With<SelectionRing>>,
-) {
-    let mut positions: Vec<Vec3> = units
-        .iter()
-        .filter(|(view, _)| selection.units.contains(&view.0))
-        .map(|(_, t)| t.translation)
-        .collect();
-    positions.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.z.total_cmp(&b.z)));
-
-    let mut ring_transforms: Vec<Mut<Transform>> = rings.iter_mut().collect();
-    ring_transforms.sort_by(|a, b| {
-        a.translation
-            .x
-            .total_cmp(&b.translation.x)
-            .then(a.translation.z.total_cmp(&b.translation.z))
-    });
-
-    for (ring, position) in ring_transforms.iter_mut().zip(positions) {
-        ring.translation.x = position.x;
-        ring.translation.z = position.z;
-    }
-}
+// Rings used to be chased across the map by a system that paired them to units
+// by sorting both lists by position. It worked, and it was the reason a ring
+// could sit at the wrong height: nothing in it knew what ground its unit was
+// standing on. Parenting removed the need for it entirely.
 
 #[cfg(test)]
 mod tests {

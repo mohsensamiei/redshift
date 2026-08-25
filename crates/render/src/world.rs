@@ -20,6 +20,28 @@ const UNIT_WIDTH: f32 = 0.6;
 /// Vertical offset for the ground, so unit bases do not z-fight with it.
 const GROUND_Y: f32 = 0.0;
 
+/// Where the shadow falls, per unit of height above the ground.
+///
+/// The sun's horizontal direction, scaled by how far a ray from it travels
+/// sideways while descending one unit. A blob directly beneath a unit is
+/// almost entirely hidden by the unit itself at this camera angle — which is
+/// what the first version did, and it looked like the shadows had not been
+/// switched on. Offsetting it is also simply what a shadow does.
+const SHADOW_OFFSET: Vec2 = Vec2::new(
+    -crate::flat::LIGHT_FROM.x / crate::flat::LIGHT_FROM.y,
+    -crate::flat::LIGHT_FROM.z / crate::flat::LIGHT_FROM.y,
+);
+
+/// How much wider than its unit a blob shadow is drawn.
+const SHADOW_SPREAD: f32 = 1.75;
+
+/// How far above the ground a decal sits.
+///
+/// Enough to win the depth test against the terrain surface reliably, small
+/// enough to look like it is lying on it. A decal at exactly ground level
+/// fights the terrain for the same pixels and flickers as the camera moves.
+pub const GROUND_CLEARANCE: f32 = 0.02;
+
 /// World height of one level of elevation.
 ///
 /// Enough that a plateau reads as raised at this camera angle, small enough
@@ -34,6 +56,20 @@ pub struct UnitView(pub EntityId);
 /// Marks the selection ring under a unit.
 #[derive(Component)]
 pub struct SelectionRing;
+
+/// The dark patch a unit casts.
+///
+/// Driven from the unit's drawn transform each frame rather than parented to
+/// it. Parenting is tidier and was the first attempt, and it inherits the
+/// unit's facing — so the shadow swung around the tank as it turned, which is
+/// not something the sun does.
+///
+/// Reading the drawn transform keeps the other thing parenting was for: that
+/// transform already accounts for the ground the unit is standing on, so a
+/// shadow lands correctly on a plateau without knowing anything about
+/// elevation.
+#[derive(Component)]
+pub struct BlobShadow(pub EntityId);
 
 /// Shared meshes and materials.
 ///
@@ -58,9 +94,23 @@ pub struct RenderAssets {
     /// Half-height per kind. A unit is positioned by its centre, so a shorter
     /// box needs a lower centre or it hovers above the ground.
     pub unit_half_heights: Vec<f32>,
+    /// How wide each kind is on the ground, for sizing its shadow.
+    ///
+    /// From the same `placeholder_size` the mesh comes from, so a shadow is
+    /// always the width of the thing above it — a separate guess would drift
+    /// the moment a unit's proportions changed.
+    pub unit_footprints: Vec<f32>,
     pub ring_mesh: Handle<Mesh>,
     pub team_materials: Vec<Handle<FlatMaterial>>,
     pub selection_material: Handle<FlatMaterial>,
+    /// The blob shadow's material and mesh.
+    ///
+    /// The original had no dynamic shadows either — units sat on a simple dark
+    /// blob, and that is exactly what this is. A real shadow map is the single
+    /// most expensive thing this scene could switch on, for a picture of boxes
+    /// lit by one unmoving light.
+    pub shadow_material: Handle<FlatMaterial>,
+    pub shadow_mesh: Handle<Mesh>,
 }
 
 /// Team colours, in the original's register: saturated, high contrast, readable
@@ -120,6 +170,7 @@ pub fn build_assets(
     // Built in kind order, so the vector can be indexed directly by kind.
     let mut unit_meshes = Vec::with_capacity(rules.entity_count());
     let mut unit_half_heights = Vec::with_capacity(rules.entity_count());
+    let mut unit_footprints = Vec::with_capacity(rules.entity_count());
     for (kind, def) in rules.entities() {
         debug_assert_eq!(
             kind.0 as usize,
@@ -137,9 +188,10 @@ pub fn build_assets(
         crate::flat::ensure_vertex_colours(&mut cuboid);
         unit_meshes.push(meshes.add(cuboid));
         unit_half_heights.push(size.y / 2.0);
+        unit_footprints.push(size.x.max(size.z));
     }
-    // A flat quad standing in for the blob shadow and selection decal that
-    // Phase 4 will replace with a proper texture.
+    // A flat quad for the selection decal. Phase 4 replaces it with a proper
+    // texture; the shape is right and only the edge is missing.
     let ring_mesh = meshes.add(coloured(
         Plane3d::default()
             .mesh()
@@ -155,13 +207,22 @@ pub fn build_assets(
     // with a lit and an unlit half would read as a physical object.
     let selection_material = materials.add(FlatMaterial::unlit(Color::srgba(0.3, 1.0, 0.4, 0.55)));
 
+    // Soft enough to read as a shadow rather than a hole. Blended, so the
+    // ground colour and the ore tint show through it — a shadow that replaced
+    // the ground would erase the map underneath every unit.
+    let shadow_material = materials.add(FlatMaterial::unlit(Color::srgba(0.0, 0.0, 0.02, 0.5)));
+    let shadow_mesh = meshes.add(coloured(Plane3d::default().mesh().size(1.0, 1.0)));
+
     RenderAssets {
         unit_meshes,
         unit_half_heights,
+        unit_footprints,
         unit_mesh,
         ring_mesh,
         team_materials,
         selection_material,
+        shadow_material,
+        shadow_mesh,
     }
 }
 
@@ -537,18 +598,48 @@ pub fn sync_units(
             .get(seems_to_belong_to.0 as usize % assets.team_materials.len())
             .expect("at least one team material")
             .clone();
-        commands.spawn((
-            Mesh3d(
-                assets
-                    .unit_meshes
-                    .get(looks_like.0 as usize)
-                    .unwrap_or(&assets.unit_mesh)
-                    .clone(),
-            ),
-            MeshMaterial3d(material),
-            Transform::from_xyz(0.0, half_height, 0.0),
-            UnitView(id),
-        ));
+        // Only things that move. A building's shadow is part of what it looks
+        // like and belongs in its model; a blob under a three-by-three
+        // structure reads as a stain rather than as a shadow.
+        let casts_shadow = session.sim().stats().get(unit.owner, unit.kind).mobile;
+        let footprint = assets
+            .unit_footprints
+            .get(looks_like.0 as usize)
+            .copied()
+            .unwrap_or(UNIT_WIDTH);
+
+        let view = commands
+            .spawn((
+                Mesh3d(
+                    assets
+                        .unit_meshes
+                        .get(looks_like.0 as usize)
+                        .unwrap_or(&assets.unit_mesh)
+                        .clone(),
+                ),
+                MeshMaterial3d(material),
+                Transform::from_xyz(0.0, half_height, 0.0),
+                UnitView(id),
+            ))
+            .id();
+
+        let _ = view;
+        if casts_shadow {
+            commands.spawn((
+                Mesh3d(assets.shadow_mesh.clone()),
+                MeshMaterial3d(assets.shadow_material.clone()),
+                // Wider than the unit on purpose. A blob shadow is an approximation
+                // and a generous one: sized to the box exactly, a unit standing
+                // on a box-shaped shadow hides all of it from this camera angle,
+                // and the whole thing reads as not having been switched on.
+                Transform::from_scale(Vec3::new(
+                    footprint * SHADOW_SPREAD,
+                    1.0,
+                    footprint * SHADOW_SPREAD,
+                )),
+                BlobShadow(id),
+            ));
+        }
     }
 
     // Anything still in the map no longer exists in the simulation.
@@ -687,3 +778,52 @@ pub fn spawn_lighting(commands: &mut Commands) {
 /// The same, with nothing to do.
 #[cfg(not(feature = "scene-lighting"))]
 pub fn spawn_lighting(_commands: &mut Commands) {}
+
+/// Keeps every blob shadow under — and beside — its unit.
+///
+/// Reads the *drawn* transform, so a shadow moves with the interpolation
+/// rather than snapping at twenty hertz with the simulation.
+pub fn move_shadows(
+    units: Query<(&UnitView, &Transform), Without<BlobShadow>>,
+    mut shadows: Query<(&BlobShadow, &mut Transform, &mut Visibility)>,
+) {
+    let mut drawn: HashMap<u32, (Vec3, f32)> = HashMap::default();
+    for (view, transform) in &units {
+        let half_height = transform.translation.y;
+        drawn.insert(view.0.index(), (transform.translation, half_height));
+    }
+
+    for (shadow, mut transform, mut visibility) in &mut shadows {
+        let Some((at, half_height)) = drawn.get(&shadow.0.index()).copied() else {
+            // Its unit is in fog or gone. Hidden rather than despawned: the
+            // unit's own view entity is despawned and respawned as it moves in
+            // and out of sight, and following that with spawns here would churn
+            // an entity per unit per frame at the edge of vision.
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        *visibility = Visibility::Visible;
+        // The ground the unit is standing on is its drawn height less its own
+        // half-height — which is how this stays right on a hill without ever
+        // asking the map about elevation.
+        let ground = at.y - half_height;
+        transform.translation = Vec3::new(
+            at.x + SHADOW_OFFSET.x * half_height * 2.0,
+            ground + GROUND_CLEARANCE,
+            at.z + SHADOW_OFFSET.y * half_height * 2.0,
+        );
+    }
+}
+
+/// Drops shadows whose unit no longer exists at all.
+pub fn reap_shadows(
+    mut commands: Commands,
+    session: Res<Session>,
+    shadows: Query<(Entity, &BlobShadow)>,
+) {
+    for (entity, shadow) in &shadows {
+        if session.sim().unit(shadow.0).is_none() {
+            commands.entity(entity).despawn();
+        }
+    }
+}

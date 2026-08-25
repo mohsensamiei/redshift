@@ -561,6 +561,7 @@ impl Sim {
         self.separate_units();
         self.intercept_projectiles();
         let landed = self.advance_projectiles();
+        self.recompute_chains();
         let hits = self.acquire_and_fire();
         // Parasites bite through the ordinary damage path, so armour still
         // means something and the kill is credited to the drone like any other.
@@ -699,6 +700,115 @@ impl Sim {
                 Err(at) => self.hazards.insert(at, hazard),
             }
         }
+    }
+
+    /// Counts, for every tower that chains, how many of its own kind stand
+    /// close enough to feed it.
+    ///
+    /// Rebuilt from scratch each tick rather than maintained, exactly like the
+    /// power grid and for the same reason: it is a fact about the world as it
+    /// currently stands. Anything incremental would need correcting on every
+    /// build, death, capture and sale, and the one that got missed would be a
+    /// tower quietly firing at the wrong strength for the rest of the match.
+    fn recompute_chains(&mut self) {
+        // Most matches contain nothing that chains, and this is the sort of
+        // pass that would otherwise cost a little on every tick forever.
+        let towers: Vec<(EntityId, PlayerId, EntityKind, Cell, Fx, u8)> = self
+            .units
+            .iter()
+            .filter(|(_, u)| u.is_alive() && !u.is_aboard())
+            .filter_map(|(id, u)| {
+                let stats = self.stats.get(u.owner, u.kind);
+                (stats.chain_radius > Fx::ZERO).then(|| {
+                    (
+                        id,
+                        u.owner,
+                        u.kind,
+                        u.cell(),
+                        stats.chain_radius,
+                        stats.chain_max_supporters,
+                    )
+                })
+            })
+            .collect();
+        if towers.is_empty() {
+            return;
+        }
+
+        // A dark tower feeds nothing, which is one more reason to cut an
+        // enemy's power. Gathered separately because `is_unpowered` needs the
+        // unit and the loop below only has the summary.
+        let feeding: Vec<(PlayerId, EntityKind, Cell)> = towers
+            .iter()
+            .filter(|(id, ..)| self.units.get(*id).is_some_and(|u| !self.is_unpowered(u)))
+            .map(|(_, owner, kind, at, ..)| (*owner, *kind, *at))
+            .collect();
+
+        let counted: Vec<(EntityId, u8)> = towers
+            .iter()
+            .map(|(id, owner, kind, at, radius, max)| {
+                let n = feeding
+                    .iter()
+                    .filter(|(other_owner, other_kind, other_at)| {
+                        // Its own kind, its own side, and not itself. Two
+                        // players' towers standing together must not help each
+                        // other, and a tower is not its own supporter.
+                        other_owner == owner
+                            && other_kind == kind
+                            && other_at != at
+                            && Fx::dist_sq(
+                                Fx::from_int(other_at.x - at.x),
+                                Fx::from_int(other_at.y - at.y),
+                            ) <= radius.sq()
+                    })
+                    .count();
+                (*id, (n as u8).min(*max))
+            })
+            .collect();
+
+        for (id, support) in counted {
+            if let Some(unit) = self.units.get_mut(id) {
+                unit.support = support;
+            }
+        }
+    }
+
+    /// The weapon a unit is actually carrying right now.
+    ///
+    /// Per *unit* rather than per kind, which is the distinction an IFV needed.
+    /// Everything else has one weapon for its whole life and reads the same
+    /// answer every time; a vehicle built to be armed by its cargo has as many
+    /// as there are passengers to put in it.
+    ///
+    /// The first passenger with a turret mode wins. Cargo is kept in boarding
+    /// order, so "first" is a fact about the match rather than about how the
+    /// arena happened to lay memory out — and a player who wants a different
+    /// mode unloads and reloads, which is what the original asks of them too.
+    fn armament(&self, unit: &Unit) -> Option<WeaponStats> {
+        let stats = self.stats.get(unit.owner, unit.kind);
+        if stats.weapon_from_cargo {
+            let crewed = unit.cargo.iter().find_map(|id| {
+                let passenger = self.units.get(*id)?;
+                self.combat.crew_weapon(passenger.kind)
+            });
+            // An empty one falls back to its own `Armed`, which is what it does
+            // with nobody inside rather than a special case for being empty.
+            if let Some(w) = crewed {
+                return Some(*w);
+            }
+        }
+        let weapon = self.combat.weapon(unit.kind).copied()?;
+        // Applied here because this is already the one place a weapon is
+        // resolved from a unit rather than from its kind — which is exactly
+        // what a stat depending on the neighbours needs.
+        if unit.support == 0 || stats.chain_bonus_percent == 0 {
+            return Some(weapon);
+        }
+        let scaled = 100 + unit.support as u64 * stats.chain_bonus_percent as u64;
+        Some(WeaponStats {
+            damage: (weapon.damage as u64 * scaled / 100) as u32,
+            ..weapon
+        })
     }
 
     /// One tick of standing on poisoned ground.
@@ -989,6 +1099,9 @@ impl Sim {
                 self.visibility
                     .reveal_cloaked(unit.owner, unit.cell(), vision);
             }
+            if stats.sonar {
+                self.visibility.listen(unit.owner, unit.cell(), vision);
+            }
         }
 
         if concealments.is_empty() {
@@ -1075,7 +1188,15 @@ impl Sim {
         // A cloaked unit stands in plain sight and still cannot be seen. Its
         // own side always sees it, or a player could not command their own
         // units — a rule the original never needed to state either.
-        if unit.owner == player || !self.is_cloaked(unit) {
+        if unit.owner == player {
+            return true;
+        }
+        // Two concealments, two senses. A dog that can smell a spy standing in
+        // front of it hears nothing at all under the water.
+        if self.is_submerged(unit) {
+            return self.visibility.is_heard(player, unit.cell());
+        }
+        if !self.is_cloaked(unit) {
             return true;
         }
         self.visibility.is_detected(player, unit.cell())
@@ -1090,6 +1211,20 @@ impl Sim {
     pub fn is_cloaked(&self, unit: &Unit) -> bool {
         let stats = self.stats.get(unit.owner, unit.kind);
         stats.cloakable && unit.since_fired >= stats.recloak_delay
+    }
+
+    /// Whether a unit is currently below the surface.
+    ///
+    /// Two triggers, not one. A submarine that had only been given the cloak's
+    /// rule would stay hidden through a depth charge landing on it, which is
+    /// wrong in a way that shows up nowhere except naval play — and being hit
+    /// is the more important of the two, since it is what lets a destroyer keep
+    /// a contact once it has found one.
+    pub fn is_submerged(&self, unit: &Unit) -> bool {
+        let stats = self.stats.get(unit.owner, unit.kind);
+        stats.submersible
+            && unit.since_fired >= stats.resurface_delay
+            && unit.since_damaged >= stats.resurface_delay
     }
 
     /// A unit's earned rank.
@@ -1797,10 +1932,15 @@ impl Sim {
                 .filter(|_| !unit.cargo.is_empty())
                 .copied();
 
+            // Resolved from the *unit* rather than from its kind, which is the
+            // whole of what an IFV needed: a vehicle built to be armed by its
+            // cargo has as many weapons as there are passengers to put in it.
+            let armament = self.armament(unit);
+
             let reach = if let Some(w) = garrison {
                 w.targets
             } else {
-                let primary = self.combat.weapon(unit.kind).map(|w| w.targets.raw());
+                let primary = armament.map(|w| w.targets.raw());
                 let secondary = self.combat.secondary(unit.kind).map(|w| w.targets.raw());
                 match (primary, secondary) {
                     (None, None) => continue,
@@ -1811,12 +1951,10 @@ impl Sim {
             let kind_of_attacker = unit.kind;
             let ground_bonus = self.map.elevation_bonus(unit.cell());
             let Some(weapon) = garrison.or_else(|| {
-                self.combat
-                    .weapon(unit.kind)
+                armament
                     .into_iter()
-                    .chain(self.combat.secondary(unit.kind))
+                    .chain(self.combat.secondary(unit.kind).copied())
                     .max_by_key(|w| w.range_sq)
-                    .copied()
             }) else {
                 continue;
             };
@@ -1909,10 +2047,21 @@ impl Sim {
                 // A garrison has one weapon and no second choice to make.
                 weapon
             } else {
+                // The same choice `CombatTable::weapon_for` makes, but starting
+                // from the resolved armament rather than from the kind's own
+                // primary — otherwise an IFV would aim with its passenger's
+                // turret and fire with the gun it has when empty.
                 target
                     .and_then(|t| self.units.get(t))
                     .map(|t| self.stats.get(t.owner, t.kind).layer)
-                    .and_then(|layer| self.combat.weapon_for(kind_of_attacker, layer).copied())
+                    .and_then(|layer| {
+                        armament.filter(|w| w.targets.engages(layer)).or_else(|| {
+                            self.combat
+                                .secondary(kind_of_attacker)
+                                .filter(|w| w.targets.engages(layer))
+                                .copied()
+                        })
+                    })
                     .unwrap_or(weapon)
             };
             let firing_weapon = firing_weapon.with_range_percent(elevation);

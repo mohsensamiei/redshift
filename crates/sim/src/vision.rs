@@ -58,6 +58,13 @@ pub struct Visibility {
     /// a player can see a patch of ground perfectly well and still not see the
     /// cloaked unit standing on it.
     detected: Vec<Vec<bool>>,
+    /// Water a sonar is listening to, per player.
+    ///
+    /// A third layer rather than a second use of `detected`, because they are
+    /// different senses: a dog that can smell a spy standing in front of it has
+    /// no reason to hear a submarine. One layer answering both would make the
+    /// two concealments the same concealment.
+    sonar: Vec<Vec<bool>>,
     /// When false, everything reads as visible.
     ///
     /// Not a debug convenience: a replay being watched after the fact, or a
@@ -75,6 +82,7 @@ impl Visibility {
             explored: vec![vec![false; cells]; players],
             visible: vec![vec![false; cells]; players],
             detected: vec![vec![false; cells]; players],
+            sonar: vec![vec![false; cells]; players],
             enabled: true,
         }
     }
@@ -102,6 +110,9 @@ impl Visibility {
             row.iter_mut().for_each(|v| *v = false);
         }
         for row in &mut self.detected {
+            row.iter_mut().for_each(|v| *v = false);
+        }
+        for row in &mut self.sonar {
             row.iter_mut().for_each(|v| *v = false);
         }
     }
@@ -207,6 +218,42 @@ impl Visibility {
     }
 
     /// Whether a player has a detector watching this cell.
+    /// Marks water within `radius` as being listened to by `player`.
+    pub fn listen(&mut self, player: PlayerId, centre: Cell, radius: Fx) {
+        let Some(sonar) = self.sonar.get_mut(player.0 as usize) else {
+            return;
+        };
+        let cells = radius.to_int().max(0);
+        let radius_sq = radius.sq();
+        for dy in -cells..=cells {
+            for dx in -cells..=cells {
+                let cell = Cell::new(centre.x + dx, centre.y + dy);
+                if Fx::dist_sq(Fx::from_int(dx), Fx::from_int(dy)) > radius_sq {
+                    continue;
+                }
+                if cell.x < 0
+                    || cell.y < 0
+                    || cell.x >= self.width as i32
+                    || cell.y >= self.height as i32
+                {
+                    continue;
+                }
+                sonar[cell.y as usize * self.width as usize + cell.x as usize] = true;
+            }
+        }
+    }
+
+    /// Whether a sonar is listening to this cell.
+    pub fn is_heard(&self, player: PlayerId, cell: Cell) -> bool {
+        if !self.enabled {
+            return true;
+        }
+        let Some(i) = self.index(cell) else {
+            return false;
+        };
+        self.sonar.get(player.0 as usize).is_some_and(|d| d[i])
+    }
+
     pub fn is_detected(&self, player: PlayerId, cell: Cell) -> bool {
         if !self.enabled {
             return true;

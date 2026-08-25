@@ -194,6 +194,31 @@ pub enum Trait {
         recloak_delay: Ticks,
     },
 
+    /// Travels below the surface, where only sonar finds it.
+    ///
+    /// Deliberately *not* [`Trait::Cloakable`] with a second trigger. Three
+    /// things differ, and each of them shows up only in naval play:
+    ///
+    /// - Being **damaged** brings it up, not just firing. A submarine caught by
+    ///   a depth charge is exposed for a while whether or not it shot back.
+    /// - A different sense finds it. A dog smells a spy and hears nothing at
+    ///   all under the water; [`Trait::Sonar`] is the other half of that.
+    /// - It is what makes a submarine unattackable rather than merely unseen —
+    ///   which falls out rather than being a rule, since targeting can only
+    ///   choose what its owner can see.
+    Submersible {
+        /// Ticks after firing *or* being hit before it goes back under.
+        resurface_delay: Ticks,
+    },
+
+    /// Finds submerged things within its own vision.
+    ///
+    /// The counterpart to [`Trait::Detector`], and separate from it on purpose:
+    /// a unit that can smell a spy standing in front of it has no reason to
+    /// hear a submarine, and one destroyer answering both would make the two
+    /// concealments the same concealment.
+    Sonar,
+
     /// Drives over lighter things, destroying them.
     Crushes { classes: Vec<String> },
 
@@ -310,6 +335,45 @@ pub enum Trait {
         kills_for_veteran: u32,
         kills_for_elite: u32,
     },
+
+    /// Combines its beam with others of its own kind standing nearby.
+    ///
+    /// Prism Towers. The engine capability this needs is the interesting part:
+    /// every other stat in the game is resolved per kind once at match start,
+    /// and this one depends on what is standing next to it — so it has to be
+    /// recomputed, like the power grid, rather than resolved.
+    ///
+    /// A supporter must be alive, its owner's, and powered. A dark tower feeds
+    /// nothing, which is one more reason to cut an enemy's power.
+    Chains {
+        /// How far a supporting tower can stand, in hundredths of a cell.
+        radius: Hundredths,
+        /// Extra damage per supporter, as a percentage of the base.
+        bonus_percent: u32,
+        /// The most supporters that count.
+        ///
+        /// Without a ceiling, a player who can afford twenty towers in one
+        /// corner gets a weapon no amount of anything else answers.
+        max_supporters: u8,
+    },
+
+    /// Arms whatever is carrying it, if that transport is built to be armed by
+    /// its cargo.
+    ///
+    /// The IFV: twenty-four turret modes in the original, four more in the
+    /// expansion. Declared on the *passenger* rather than as a table on the
+    /// vehicle, deliberately. A list on the IFV would mean the vehicle knows
+    /// the name of every infantryman in the game, and adding one unit would
+    /// mean editing a different file to teach the IFV about it. This way a new
+    /// unit brings its own turret mode with it, which is the whole of ADR 0006.
+    Crews { weapon: String },
+
+    /// Takes its weapon from whoever is riding inside.
+    ///
+    /// A plain transport is unaffected by what it carries. This says the
+    /// vehicle is one of the ones that is not — and its own [`Trait::Armed`]
+    /// becomes what it does when empty.
+    WeaponFromCargo,
 
     /// Hides the ground around it from everyone else.
     ///
@@ -530,6 +594,8 @@ impl Trait {
             Trait::Vision { .. } => "Vision",
             Trait::Detector => "Detector",
             Trait::Cloakable { .. } => "Cloakable",
+            Trait::Submersible { .. } => "Submersible",
+            Trait::Sonar => "Sonar",
             Trait::Crushes { .. } => "Crushes",
             Trait::Crushable { .. } => "Crushable",
             Trait::Footprint { .. } => "Footprint",
@@ -553,6 +619,9 @@ impl Trait {
             Trait::Repairs { .. } => "Repairs",
             Trait::Infests { .. } => "Infests",
             Trait::Garrisonable { .. } => "Garrisonable",
+            Trait::Chains { .. } => "Chains",
+            Trait::Crews { .. } => "Crews",
+            Trait::WeaponFromCargo => "WeaponFromCargo",
             Trait::HidesGround { .. } => "HidesGround",
             Trait::Bridge => "Bridge",
             Trait::RepairsBridges { .. } => "RepairsBridges",
@@ -568,7 +637,9 @@ impl Trait {
     pub fn references(&self) -> Vec<(&'static str, String)> {
         match self {
             Trait::Health { armour, .. } => vec![("armour", armour.clone())],
-            Trait::Armed { weapon, .. } | Trait::Secondary { weapon, .. } => {
+            Trait::Armed { weapon, .. }
+            | Trait::Secondary { weapon, .. }
+            | Trait::Crews { weapon } => {
                 vec![("weapon", weapon.clone())]
             }
             Trait::Buildable {
@@ -662,9 +733,13 @@ pub const UNIQUE_TRAITS: &[&str] = &[
     "Veterancy",
     "Selectable",
     "Cloakable",
+    "Submersible",
     "Repairs",
     "Infests",
     "Garrisonable",
+    "Chains",
+    "Crews",
+    "WeaponFromCargo",
     "HidesGround",
     "Bridge",
     "RepairsBridges",

@@ -243,7 +243,7 @@ Five mechanics in that table alone that were not on any earlier list:
 | Ore Purifier | 2500 | −200 | Refinery, Lab | **+25% credits from every load**. One per player |
 | Pillbox | 500 | **0** | Barracks | Anti-infantry, needs no power |
 | Patriot Missile | 1000 | −50 | Barracks | Anti-air; **intercepts missiles** |
-| Prism Tower | 1500 | −75 | Air HQ | **Combines beams with nearby towers**, the more chained the stronger |
+| Prism Tower | 1500 | −75 | Air HQ | **Combines beams with nearby towers**, the more chained the stronger | ✅ |
 | Gap Generator | 1000 | −100 | Battle Lab | **Hides the base from enemy radar** — imposing fog on someone else | ✅ |
 | Spy Satellite Uplink | 1000 | −100 | Battle Lab | Reveals the whole map |
 | Chronosphere | 2500 | −200 | Battle Lab | One per player |
@@ -251,9 +251,11 @@ Five mechanics in that table alone that were not on any earlier list:
 
 Three mechanics here that exist on neither earlier list:
 
-- **A structure that boosts other structures of its own kind.** Prism Towers
-  chain, and the beam gets stronger with each tower in the chain. Nothing in
-  the engine lets one entity's stats depend on its neighbours.
+- **A structure that boosts other structures of its own kind.** ✅ Prism Towers
+  chain, and the beam gets stronger with each tower in the chain. Rebuilt from
+  scratch every tick like the power grid, because it is a fact about the world
+  as it currently stands rather than about the tower. The bonus per supporter
+  and the ceiling are not verified — flagged in TODO.md.
 - **Imposing fog on an opponent.** ✅ The Gap Generator does not reveal ground
   for its owner; it *hides* ground from everyone else. Visibility now runs in
   three passes: everyone looks, concealed ground is taken back, and anything
@@ -373,7 +375,7 @@ says whether Redshift can express the behaviour at all.
 | Grizzly | A | 700 | — | Main tank. Faster and cheaper than a Rhino; **crushes infantry** | ❌ crushing |
 | Rhino | S | 900 | — | Main tank. More armour and range, slower | ✅ |
 | Flak Track | S | 500 | — | Fast anti-air **and** a transport for five | ❌ transport |
-| IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ❌ |
+| IFV | A | 600 | — | **Anti-air by default**; weapon changes with its passenger — 24 modes; an engineer makes it a repair vehicle | ⚠️ turret modes ✅; the repair mode waits on a weapon that can restore health |
 | Terror Drone | S | 500 | — | **Jumps into an enemy vehicle** and dismantles it from inside; behaves like an attack dog against infantry | ✅ |
 | V3 Launcher | S | 800 | Radar | Long range. **Its rocket can be shot down in flight** | ❌ interception |
 | Tesla Tank | Russia | 1200 | Radar | **Fires over obstacles** | ❌ indirect fire |
@@ -549,7 +551,7 @@ cargo test -p redshift-sim --test roster_conformance -- --list | grep ignore
 Closing a gap means deleting an `#[ignore]`. If a test there ever needs a Rust
 change to express a *unit*, ADR 0006 has been violated somewhere.
 
-**As of the last run: 46 capabilities confirmed, 12 gaps.**
+**As of the last run: 49 capabilities confirmed, 10 gaps.**
 
 The gap count went *up* after research, twice, which is the point of doing it.
 Twenty-eight of those forty were invisible until the mechanics were researched

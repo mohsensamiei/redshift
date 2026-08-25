@@ -469,11 +469,22 @@ pub struct CombatTable {
     /// — the exact opposite of how a transport that changes weapon by cargo
     /// would work, and the thing most easily got backwards.
     garrison_weapon: Vec<Option<WeaponStats>>,
+    /// The weapon each kind hands to a transport it rides in. Resolved here
+    /// with every other weapon, so a turret mode is the same sort of thing as a
+    /// turret.
+    crew_weapon: Vec<Option<WeaponStats>>,
     /// What each kind does to the ground it stands on. Interned here with the
     /// other warheads, for the same reason as all of them.
     contamination: Vec<Option<Contamination>>,
     damage: DamageTable,
 }
+
+/// How fast a crewed turret traverses.
+///
+/// A full turn a second. The passenger's own rules say nothing about turrets —
+/// it is infantry — so the mode it grants needs a figure from somewhere, and a
+/// named constant is better than the same magic number in two places.
+const DEFAULT_TURRET_RATE: u32 = 3600;
 
 /// What a contaminating unit does to the ground around it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -511,6 +522,7 @@ impl CombatTable {
             Vec::with_capacity(rules.entity_count());
         let mut contamination: Vec<Option<Contamination>> =
             Vec::with_capacity(rules.entity_count());
+        let mut crew_weapon: Vec<Option<WeaponStats>> = Vec::with_capacity(rules.entity_count());
         for (kind, def) in rules.entities() {
             weapons.push(weapon_of(rules, kind, &warhead_index));
             armour.push(armour_of(rules, kind, &armour_index));
@@ -541,6 +553,16 @@ impl CombatTable {
                 }
                 _ => None,
             }));
+            crew_weapon.push(def.traits.iter().find_map(|t| match t {
+                // A crewed weapon always has a turret: it is a turret mode.
+                Trait::Crews { weapon } => build_weapon(
+                    rules.weapon(weapon)?,
+                    true,
+                    DEFAULT_TURRET_RATE,
+                    &warhead_index,
+                ),
+                _ => None,
+            }));
             contamination.push(def.traits.iter().find_map(|t| match t {
                 Trait::Contaminates {
                     radius,
@@ -565,6 +587,7 @@ impl CombatTable {
             infestation,
             garrison_weapon,
             contamination,
+            crew_weapon,
             damage: DamageTable::build(rules),
         }
     }
@@ -586,6 +609,14 @@ impl CombatTable {
     /// The weapon this fires while occupied, if it can be occupied at all.
     pub fn garrison_weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
         self.garrison_weapon.get(kind.0 as usize)?.as_ref()
+    }
+
+    /// The weapon a passenger of this kind hands to a transport built to take
+    /// one.
+    pub fn crew_weapon(&self, kind: EntityKind) -> Option<&WeaponStats> {
+        self.crew_weapon
+            .get(kind.0 as usize)
+            .and_then(|w| w.as_ref())
     }
 
     /// What this kind does to the ground around it, if it does anything.

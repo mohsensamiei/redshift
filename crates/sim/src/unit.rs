@@ -278,6 +278,13 @@ pub struct Unit {
     pub carrier: Option<EntityId>,
     /// Who is riding in this, in the order they boarded.
     pub cargo: Vec<EntityId>,
+    /// How many others of its own kind are close enough to feed this one.
+    ///
+    /// Recomputed from scratch every tick, like the power grid, for the same
+    /// reason: it is a fact about the world as it currently stands, not about
+    /// this unit, and anything incremental would have to be corrected on every
+    /// build, death, capture and sale.
+    pub support: u8,
     /// The parasite that has burrowed into this unit, if any.
     ///
     /// Separate from [`Unit::cargo`] deliberately, even though both describe
@@ -323,6 +330,7 @@ impl Unit {
             carrier: None,
             cargo: Vec::new(),
             infestation: None,
+            support: 0,
             since_damaged: u32::MAX,
             since_fired: u32::MAX,
             harvest: None,
@@ -404,6 +412,7 @@ impl StateHash for Unit {
             h.write_u32(id.index());
             h.write_u32(id.generation());
         }
+        h.write_u8(self.support);
         match &self.infestation {
             Some(id) => {
                 h.write_u8(1);

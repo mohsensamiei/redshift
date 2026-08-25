@@ -810,13 +810,48 @@ fn a_stalemate_is_detected() {
 }
 
 #[test]
-#[ignore = "gap: a structure's strength cannot depend on its neighbours"]
 fn prism_towers_chain_to_strengthen_each_other() {
     // Researched: adjacent Prism Towers combine beams, and the result is
-    // proportionally stronger with each tower in the chain. Every stat in the
-    // engine is resolved per kind at match start; nothing can depend on what is
-    // standing next to it.
-    panic!("stats are per kind and fixed; there is no notion of a neighbour");
+    // proportionally stronger with each tower in the chain.
+    //
+    // The engine capability is the interesting part. Every other stat is
+    // resolved per kind, once, at match start; this one depends on what is
+    // standing next to it, so it is rebuilt from scratch every tick like the
+    // power grid. Anything incremental would need correcting on every build,
+    // death, capture and sale, and the one that got missed would be a tower
+    // firing at the wrong strength for the rest of the match.
+    //
+    // The bonus per tower and the ceiling are not verified against the
+    // original — flagged in TODO.md with the other unset rates. Exercised end
+    // to end in tests/prism_chain.rs.
+    let mut tower = unit(
+        "prism_tower",
+        "structure",
+        Locomotor::Foot,
+        vec![Trait::Chains {
+            radius: Hundredths(500),
+            bonus_percent: 50,
+            max_supporters: 2,
+        }],
+    );
+    tower.traits.retain(|t| !matches!(t, Trait::Mobile { .. }));
+
+    let rules = rules_with(vec![tower], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "prism_tower", Cell::new(10, 10));
+    let kind = sim.rules().kind_of("prism_tower").unwrap();
+    let stats = sim.stats().get(PlayerId(0), kind);
+
+    assert!(stats.chain_radius > redshift_sim::Fx::ZERO);
+    assert!(
+        stats.chain_max_supporters > 0,
+        "without a ceiling a player who can afford twenty towers in one corner \
+         gets a weapon nothing else answers"
+    );
+    assert_eq!(
+        sim.unit(sim.units().ids()[0]).unwrap().support,
+        0,
+        "a lone tower must not be its own supporter"
+    );
 }
 
 #[test]
@@ -1206,13 +1241,48 @@ fn an_anti_missile_defence_shoots_down_a_rocket() {
 }
 
 #[test]
-#[ignore = "gap: submersion is a third visibility state, distinct from cloak"]
 fn a_submarine_surfaces_when_it_attacks_or_is_damaged() {
-    // Not the same rule as the cloak already implemented: a submarine is
-    // revealed by *being damaged* as well as by firing, and specific units
-    // detect it. Assuming cloak covers it would be wrong in a way that only
-    // shows up in naval play.
-    panic!("cloak breaks on firing only, and there is no submerged state");
+    // Not the same rule as the cloak, and assuming it was would be wrong in a
+    // way that shows up nowhere except naval play. Three things differ:
+    //
+    // - Being *damaged* brings it up, not just firing. That is what lets a
+    //   destroyer keep a contact once it has found one.
+    // - A different sense finds it. A dog that can smell a spy standing in
+    //   front of it hears nothing at all under the water, so `Sonar` is its own
+    //   trait and its own layer.
+    // - It makes a submarine *unattackable* rather than merely unseen — and
+    //   that falls out rather than being stated, because targeting can only
+    //   choose from what its owner can see.
+    //
+    // Exercised end to end in tests/submarine.rs.
+    let sub = unit(
+        "sub",
+        "ship",
+        Locomotor::Ship,
+        vec![Trait::Submersible {
+            resurface_delay: Ticks(40),
+        }],
+    );
+    let destroyer = unit("destroyer", "ship", Locomotor::Ship, vec![Trait::Sonar]);
+    let dog = unit("dog", "infantry", Locomotor::Foot, vec![Trait::Detector]);
+
+    let rules = rules_with(vec![sub, destroyer, dog], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "sub", Cell::new(5, 5));
+    let stats = |id: &str| {
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of(id).unwrap())
+    };
+
+    assert!(stats("sub").submersible);
+    assert!(
+        stats("sub").resurface_delay > 0,
+        "with no delay it would surface and submerge on the same tick"
+    );
+    assert!(stats("destroyer").sonar && !stats("destroyer").detector);
+    assert!(
+        stats("dog").detector && !stats("dog").sonar,
+        "the two senses have to be separable, or they are one sense"
+    );
 }
 
 #[test]
@@ -1411,12 +1481,66 @@ fn some_weapons_kill_outright_regardless_of_health() {
 }
 
 #[test]
-#[ignore = "gap: a unit's weapon cannot depend on its cargo"]
 fn an_ifv_changes_weapon_with_its_passenger() {
-    // Twenty-four turret modes in the original, four more in the expansion, and
-    // an engineer inside turns it into a repair vehicle. The vehicle's weapon
-    // is a function of what it is carrying, resolved at runtime.
-    panic!("no transport, and weapons are fixed per entity kind");
+    // Twenty-four turret modes in the original, four more in the expansion. The
+    // shape that matters is not the count but where the list lives: on the
+    // *passengers*, not as a table on the vehicle. A table on the IFV would
+    // mean the vehicle knows the name of every infantryman in the game, and a
+    // new unit would mean editing a different file to teach the IFV about it.
+    //
+    // It is also the first thing whose weapon is a property of a *unit* rather
+    // than of its kind — everything else reads the same answer for its whole
+    // life. Exercised end to end in tests/ifv.rs.
+    let ifv = unit(
+        "ifv",
+        "vehicle",
+        Locomotor::Wheeled,
+        vec![
+            Trait::Transport {
+                capacity: 1,
+                allowed: vec!["rifleman".into()],
+            },
+            Trait::WeaponFromCargo,
+        ],
+    );
+    let rifleman = unit(
+        "rifleman",
+        "infantry",
+        Locomotor::Foot,
+        vec![Trait::Crews {
+            weapon: "rifle".into(),
+        }],
+    );
+    let rules = rules_with(vec![ifv, rifleman], vec![]);
+    let sim = one_unit(rules, Map::new(24, 24), "ifv", Cell::new(5, 5));
+
+    assert!(
+        sim.stats()
+            .get(PlayerId(0), sim.rules().kind_of("ifv").unwrap())
+            .weapon_from_cargo
+    );
+    assert!(
+        sim.combat()
+            .crew_weapon(sim.rules().kind_of("rifleman").unwrap())
+            .is_some(),
+        "the passenger should bring its own turret mode"
+    );
+}
+
+#[test]
+#[ignore = "gap: a weapon can only take health away, never give it back"]
+fn a_medic_heals_the_infantry_around_it() {
+    // Split out of the IFV gap rather than quietly shipped with it. An engineer
+    // riding in an IFV turns it into a repair vehicle, and that specific mode
+    // is the one thing the turret-mode mechanism cannot yet express — not
+    // because the mode does not resolve, but because there is no such thing as
+    // a weapon that restores health.
+    //
+    // The same missing piece is the Medic, and Yuri's repair drones. It wants
+    // targeting to invert for a healing weapon — friendly and damaged rather
+    // than hostile — which is a change to what a target *is*, not a damage
+    // number with a minus sign.
+    panic!("damage is subtracted, always; nothing restores health by firing at it");
 }
 
 #[test]

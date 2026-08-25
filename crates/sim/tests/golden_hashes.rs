@@ -66,21 +66,21 @@ fn commands(tick: u32, units: &[EntityId]) -> Vec<Command> {
 
 /// Ticks at which the hash is compared. Spread across the match so a late
 /// divergence is caught as well as an early one.
-/// Re-recorded when contamination, bridges and the Gap Generator landed. The
-/// map hashes a bridge layer and the world hashes its patches of dangerous
-/// ground, so every value moved even though this scenario has neither.
-/// Determinism was confirmed first across every suite.
+/// Re-recorded when Prism chaining landed. Every unit now carries a count of
+/// how many of its own kind stand close enough to feed it, so every hash moved
+/// even though nothing in this scenario chains. Determinism was confirmed first
+/// across every suite.
 ///
 /// These values are load-bearing for *cross-platform* agreement, not for
 /// immutability: while the state layout is still being built out, an intended
 /// change moves them. Once Phase 3 settles, a change here should be treated as
 /// a defect until proven otherwise.
 const CHECKPOINTS: &[(u32, u64)] = &[
-    (10, 0xb040eda6abcbd651),
-    (50, 0x81bc0a46fd062c29),
-    (100, 0xaf4fc84f78d32004),
-    (200, 0xc74172e94f5a0f76),
-    (400, 0x7dafdbe24a7e60c9),
+    (10, 0xe4956c30a31297d7),
+    (50, 0x0d58f916144ba219),
+    (100, 0xc255a95a43589e92),
+    (200, 0x15d9c696d301c8f8),
+    (400, 0x288c3579e71f3a81),
 ];
 
 #[test]

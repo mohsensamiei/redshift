@@ -101,6 +101,15 @@ pub struct UnitStats {
     pub footprint: (u8, u8),
     /// Kills needed to reach each rank. `None` if this kind never promotes.
     pub veterancy: Option<(u32, u32)>,
+    /// How far a supporting tower of the same kind may stand. Zero for
+    /// anything that does not chain.
+    pub chain_radius: Fx,
+    /// Extra damage per supporter, as a percentage.
+    pub chain_bonus_percent: u32,
+    /// The most supporters that count.
+    pub chain_max_supporters: u8,
+    /// Whether this vehicle takes its weapon from whoever is riding inside.
+    pub weapon_from_cargo: bool,
     /// How far this hides ground from other players. Zero for everything that
     /// does not.
     pub hides_ground: Fx,
@@ -132,6 +141,12 @@ pub struct UnitStats {
     pub cloakable: bool,
     /// Ticks after firing before the cloak returns.
     pub recloak_delay: u32,
+    /// Whether this travels below the surface.
+    pub submersible: bool,
+    /// Ticks after firing or being hit before it submerges again.
+    pub resurface_delay: u32,
+    /// Whether this hears submerged things within its vision.
+    pub sonar: bool,
     /// Whether this reveals cloaked things within its vision.
     pub detector: bool,
     /// Power this supplies to its owner's grid.
@@ -181,6 +196,10 @@ impl Default for UnitStats {
             gather_rate: 0,
             is_refinery: false,
             veterancy: None,
+            chain_radius: Fx::ZERO,
+            chain_bonus_percent: 0,
+            chain_max_supporters: 0,
+            weapon_from_cargo: false,
             hides_ground: Fx::ZERO,
             is_bridge: false,
             bridge_repair_radius: 0,
@@ -192,6 +211,9 @@ impl Default for UnitStats {
             deploys_into: None,
             cloakable: false,
             recloak_delay: 0,
+            submersible: false,
+            resurface_delay: 0,
+            sonar: false,
             detector: false,
             power_supply: 0,
             power_draw: 0,
@@ -410,6 +432,16 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
             // Validated at load, so a missing entity is a rules error rather
             // than a unit that silently refuses to deploy.
             Trait::HidesGround { radius } => stats.hides_ground = Fx::from_raw(radius.to_fx_raw()),
+            Trait::Chains {
+                radius,
+                bonus_percent,
+                max_supporters,
+            } => {
+                stats.chain_radius = Fx::from_raw(radius.to_fx_raw());
+                stats.chain_bonus_percent = *bonus_percent;
+                stats.chain_max_supporters = *max_supporters;
+            }
+            Trait::WeaponFromCargo => stats.weapon_from_cargo = true,
             Trait::Bridge => stats.is_bridge = true,
             Trait::RepairsBridges { radius } => stats.bridge_repair_radius = *radius,
             Trait::Deploys { into } => stats.deploys_into = rules.kind_of(into),
@@ -454,6 +486,11 @@ fn resolve_one(rules: &Rules, kind: EntityKind, faction: Option<&str>) -> UnitSt
                 stats.cloakable = true;
                 stats.recloak_delay = recloak_delay.0;
             }
+            Trait::Submersible { resurface_delay } => {
+                stats.submersible = true;
+                stats.resurface_delay = resurface_delay.0;
+            }
+            Trait::Sonar => stats.sonar = true,
             Trait::Detector => stats.detector = true,
             Trait::PowerSupply { output } => stats.power_supply = *output,
             Trait::PowerDraw {

@@ -162,6 +162,14 @@ and reasoning in docs/08-roster.md.
 
 - [x] **Projectiles** — travel time, homing or ballistic, per weapon
 - [x] **Air targeting** — units have a layer, weapons declare what they engage
+- [x] IFV turret modes — a weapon that is a property of a *unit* rather than of
+      its kind. Declared on the passengers, so a new unit brings its own mode
+      and the vehicle never learns anyone's name.
+- [x] Prism chaining — the first stat that depends on the neighbours. Rebuilt
+      each tick like the power grid.
+- [x] Submersion — the second concealment, with its own sense. Being hit
+      surfaces a submarine, not only firing; and "only sonar can engage one"
+      falls out of the concealment rather than being a targeting rule.
 - [x] Persistent terrain effects — ground the Desolator poisons, which outlives
       whatever laid it. No "immune to radiation" flag: the armour table already
       answers that, so one row makes infantry die on ground a tank drives over.
@@ -216,6 +224,11 @@ and reasoning in docs/08-roster.md.
 - [ ] Naval — shoreline transports, water as a surface rather than an obstacle
 - [ ] Superweapons and powers — charge timers, targeting modes, novel effects
 - [ ] Mind control — changing a unit's owner mid-match
+- [ ] A weapon that restores health — the Medic, Yuri's repair drones, and the
+      one IFV turret mode the mechanism cannot express. It wants targeting to
+      invert for such a weapon (friendly and damaged rather than hostile),
+      which is a change to what a target *is* rather than a damage number with
+      a minus sign.
 - [ ] Teleportation — movement without a path
 - [ ] Disguise — appearing as something else to one side only
 
@@ -319,6 +332,12 @@ docs/adr/0005-faithful-remaster-scope.md for why.
 - [ ] **Terror Drone bite rate.** The drone is in the trait catalogue but not
       yet in any shipped rules file — there is no Soviet unit roster. Its damage
       per tick is unset rather than wrong.
+- [ ] **Prism chaining figures.** The bonus per supporting tower, the radius,
+      and the ceiling are all by feel. That towers combine and get stronger
+      together is faithful; how much is not verified.
+- [ ] **Resurface delay.** How long a submarine stays up after firing or being
+      hit is unset — nothing ships with `Submersible` yet, since there is no
+      naval roster.
 - [ ] **Contamination figures.** The Desolator's radius, damage per tick and
       how long ground stays hot are all unset — there is no Soviet roster yet,
       so nothing ships with `Contaminates`. That it denies an area and outlives

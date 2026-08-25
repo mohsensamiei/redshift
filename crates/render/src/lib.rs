@@ -155,6 +155,7 @@ impl Plugin for RedshiftRenderPlugin {
                     verdict::update_banner,
                     sidebar::refresh_sidebar,
                     sidebar::refresh_powers,
+                    sidebar::refresh_selection_info,
                     sidebar::handle_sidebar_clicks,
                     sidebar::paint_sell_toggle,
                     minimap::refresh_minimap,

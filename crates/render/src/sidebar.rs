@@ -43,6 +43,10 @@ pub struct QueueRow {
     pub index: u8,
 }
 
+/// The line describing what is selected.
+#[derive(Component)]
+pub struct SelectionInfo;
+
 /// A charged superweapon, ready to be aimed.
 #[derive(Component, Clone, Copy)]
 pub struct PowerRow {
@@ -105,6 +109,15 @@ pub fn spawn_sidebar(commands: &mut Commands) {
             Sidebar,
         ))
         .with_children(|panel| {
+            panel.spawn((
+                Text::new(""),
+                TextFont {
+                    font_size: FontSize::Px(12.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.78, 0.82, 0.86)),
+                SelectionInfo,
+            ));
             panel.spawn((
                 Text::new("0"),
                 TextFont {
@@ -455,3 +468,55 @@ pub fn pointer_over_sidebar(window_width: f32, cursor_x: f32) -> bool {
 /// Every player id the panel might have to colour for. Unused for now; kept so
 /// the signature does not change when team colours arrive.
 pub fn _player_hint(_: PlayerId) {}
+
+/// Describes the selection.
+///
+/// A line rather than a portrait panel — the portrait is Phase 4 art, and what
+/// a player needs before then is the information: what this is, how hurt it is,
+/// what rank it has reached, and what is inside it.
+///
+/// Rank and cargo are the two worth the trouble. A veteran tank hits harder and
+/// resists more and there is nothing else on screen that says so; and a
+/// transport's contents are invisible by design, which is right in the world
+/// and unhelpful in the interface.
+pub fn refresh_selection_info(
+    session: Res<Session>,
+    selection: Res<crate::input::Selection>,
+    mut label: Query<&mut Text, With<SelectionInfo>>,
+) {
+    let Ok(mut text) = label.single_mut() else {
+        return;
+    };
+    let sim = session.sim();
+
+    let line = match selection.units.as_slice() {
+        [] => String::new(),
+        [one] => match sim.unit(*one) {
+            None => String::new(),
+            Some(unit) => {
+                let stats = sim.stats().get(unit.owner, unit.kind);
+                let name = &sim.rules().entity(unit.kind).id;
+                let health = (unit.health * 100)
+                    .checked_div(stats.max_health)
+                    .unwrap_or(100);
+                let mut line = format!("{name}  {health}%");
+                match sim.rank_of(unit) {
+                    redshift_sim::Rank::Rookie => {}
+                    rank => line.push_str(&format!("  {rank:?}")),
+                }
+                if !unit.cargo.is_empty() {
+                    line.push_str(&format!("  [{}]", unit.cargo.len()));
+                }
+                if unit.infestation.is_some() {
+                    line.push_str("  INFESTED");
+                }
+                line
+            }
+        },
+        many => format!("{} selected", many.len()),
+    };
+
+    if text.0 != line {
+        text.0 = line;
+    }
+}

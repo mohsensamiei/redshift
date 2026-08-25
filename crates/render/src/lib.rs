@@ -21,6 +21,7 @@ use bevy::window::{PresentMode, WindowResolution};
 
 pub mod build;
 pub mod camera;
+pub mod flat;
 pub mod health;
 pub mod input;
 pub mod minimap;
@@ -43,6 +44,23 @@ pub use session::Session;
 pub struct WindowPlacement {
     pub position: Option<IVec2>,
     pub size: Option<UVec2>,
+}
+
+/// Where the shipped assets live.
+///
+/// Found relative to this crate rather than to the working directory, so
+/// `cargo run` from anywhere finds them — the same rule the rules and maps
+/// follow.
+fn asset_root() -> String {
+    // Absolute, and canonicalised. A relative path here is resolved against
+    // whatever the working directory happens to be, and Bevy then resolves it
+    // again against the crate being run — which lands inside `crates/app/`,
+    // where there is nothing.
+    let beside_the_crate = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+    if let Ok(path) = beside_the_crate.canonicalize() {
+        return path.to_string_lossy().into_owned();
+    }
+    "assets".to_string()
 }
 
 /// Captures a screenshot after a set number of frames, then exits.
@@ -91,6 +109,15 @@ impl Plugin for RedshiftRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(
             DefaultPlugins
+                // Assets live at the repository root, not beside the binary.
+                // Bevy defaults to `assets/` relative to the *crate* being run,
+                // which puts it inside `crates/app/` — where there is nothing.
+                // A missing shader renders every surface as fallback magenta,
+                // which looks like a material bug and is a long way from a path.
+                .set(AssetPlugin {
+                    file_path: asset_root(),
+                    ..default()
+                })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "Redshift".into(),
@@ -112,6 +139,7 @@ impl Plugin for RedshiftRenderPlugin {
                     ..default()
                 }),
         )
+        .add_plugins(MaterialPlugin::<flat::FlatMaterial>::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .init_resource::<input::Selection>()
         .init_resource::<input::ControlGroups>()
@@ -202,7 +230,7 @@ fn setup(
     mut commands: Commands,
     session: Res<Session>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<flat::FlatMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let map = session.sim().map();
@@ -221,13 +249,10 @@ fn setup(
         session.sim().visibility(),
         session.local_player(),
     ));
-    let terrain_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        perceptual_roughness: 1.0,
-        metallic: 0.0,
-        reflectance: 0.0,
-        ..default()
-    });
+    // White, so the terrain mesh's own per-cell colours come through unchanged.
+    // The terrain is one mesh carrying a colour per cell; units are the other
+    // way round, one grey mesh per kind tinted by the material.
+    let terrain_material = materials.add(flat::FlatMaterial::vertex_coloured());
     commands.spawn((
         Mesh3d(terrain_mesh),
         MeshMaterial3d(terrain_material),

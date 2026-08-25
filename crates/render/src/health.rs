@@ -29,6 +29,7 @@ use bevy::prelude::*;
 use redshift_sim::EntityId;
 
 use crate::camera::{CAMERA_PITCH_DEGREES, CAMERA_YAW_DEGREES};
+use crate::flat::{FlatMaterial, coloured};
 use crate::input::Selection;
 use crate::session::Session;
 use crate::world::{UnitView, fx_to_f32};
@@ -63,7 +64,7 @@ pub enum BarPart {
 #[derive(Resource)]
 pub struct HealthBarAssets {
     pub mesh: Handle<Mesh>,
-    pub backing: Handle<StandardMaterial>,
+    pub backing: Handle<FlatMaterial>,
     /// The backing, recoloured to say something is inside.
     ///
     /// The backing carried no information at all — a dark quad behind the fill.
@@ -73,27 +74,21 @@ pub struct HealthBarAssets {
     ///
     /// Deliberately the *backing* rather than the fill: the fill already means
     /// health, and one bar saying two things by colour would say neither.
-    pub backing_infested: Handle<StandardMaterial>,
-    pub backing_garrisoned: Handle<StandardMaterial>,
+    pub backing_infested: Handle<FlatMaterial>,
+    pub backing_garrisoned: Handle<FlatMaterial>,
     /// Indexed by [`fill_bucket`].
-    pub fills: [Handle<StandardMaterial>; 3],
+    pub fills: [Handle<FlatMaterial>; 3],
 }
 
 pub fn build_health_assets(
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<FlatMaterial>,
 ) -> HealthBarAssets {
     // A unit quad, scaled per bar. One mesh for every bar in the game.
-    let mesh = meshes.add(Rectangle::new(1.0, 1.0));
+    let mesh = meshes.add(coloured(Rectangle::new(1.0, 1.0)));
 
-    let unlit = |r: f32, g: f32, b: f32, a: f32| StandardMaterial {
-        base_color: Color::srgba(r, g, b, a),
-        // Unlit, so a bar reads the same whichever way the unit is facing. A
-        // health bar that dims in shadow is a health bar people misread.
-        unlit: true,
-        alpha_mode: AlphaMode::Blend,
-        ..default()
-    };
+    let unlit =
+        |r: f32, g: f32, b: f32, a: f32| crate::flat::FlatMaterial::unlit(Color::srgba(r, g, b, a));
 
     HealthBarAssets {
         mesh,
@@ -198,7 +193,7 @@ pub fn update_health_bars(
             &HealthBar,
             &mut Transform,
             &mut Visibility,
-            &mut MeshMaterial3d<StandardMaterial>,
+            &mut MeshMaterial3d<FlatMaterial>,
         ),
         Without<UnitView>,
     >,

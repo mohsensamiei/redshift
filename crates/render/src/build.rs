@@ -18,6 +18,7 @@ use redshift_sim::command::CommandKind;
 use redshift_sim::map::Cell;
 
 use crate::camera::{GameCamera, screen_to_ground};
+use crate::flat::{FlatMaterial, coloured};
 use crate::session::Session;
 use crate::world::fx_to_f32;
 
@@ -28,23 +29,19 @@ pub struct PlacementPreview;
 #[derive(Resource)]
 pub struct PlacementAssets {
     pub mesh: Handle<Mesh>,
-    pub valid: Handle<StandardMaterial>,
-    pub invalid: Handle<StandardMaterial>,
+    pub valid: Handle<FlatMaterial>,
+    pub invalid: Handle<FlatMaterial>,
 }
 
 pub fn build_placement_assets(
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<FlatMaterial>,
 ) -> PlacementAssets {
-    let tint = |r: f32, g: f32, b: f32| StandardMaterial {
-        base_color: Color::srgba(r, g, b, 0.45),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        ..default()
-    };
+    let tint =
+        |r: f32, g: f32, b: f32| crate::flat::FlatMaterial::unlit(Color::srgba(r, g, b, 0.45));
     PlacementAssets {
         // A unit cube, scaled to the footprint of whatever is pending.
-        mesh: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+        mesh: meshes.add(coloured(Cuboid::new(1.0, 1.0, 1.0))),
         valid: materials.add(tint(0.35, 0.9, 0.4)),
         invalid: materials.add(tint(0.9, 0.3, 0.25)),
     }
@@ -59,7 +56,7 @@ pub fn update_placement_preview(
     cameras: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
     existing: Query<Entity, With<PlacementPreview>>,
     mut previews: Query<
-        (&mut Transform, &mut MeshMaterial3d<StandardMaterial>),
+        (&mut Transform, &mut MeshMaterial3d<FlatMaterial>),
         With<PlacementPreview>,
     >,
 ) {

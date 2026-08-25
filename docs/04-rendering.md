@@ -32,7 +32,7 @@ Locked decisions:
 |---|---|
 | Camera | Fixed dimetric angle matching the original. No free rotation. |
 | Zoom | Limited range (roughly 0.75×–1.5×), smooth, with a snap-to-default key. |
-| Shading | Flat / cel-style. One directional light. No specular, no PBR. |
+| Shading | Flat / cel-style, in a custom shader. One light *direction*, banded into three steps. No specular, no PBR, no scene lights at all. |
 | Shadows | Simple soft blob decal under each unit. **No real-time shadow maps.** |
 | Post-processing | None. No bloom, no SSAO, no motion blur, no depth of field. |
 | Anti-aliasing | MSAA 2× or 4× only — cheap on tiled GPUs, and enough given flat shading. |
@@ -160,6 +160,28 @@ runs headless.
 To keep the budget and the look:
 
 - No normal maps, no PBR materials, no image-based lighting.
+
+### The material is written, not configured
+
+`StandardMaterial` with roughness at one and metallic at zero looks very close
+to flat, and it was what this used for a long time. It also pays for the entire
+physically based pipeline — the split-sum approximation, the Fresnel term, the
+environment lookups, the walk over the scene's light list — to compute a result
+that is then thrown away.
+
+`assets/shaders/flat.wgsl` does the arithmetic the look actually needs: one dot
+product against a light direction carried as a uniform, banded into three steps
+by a `floor`, remapped so the unlit side is dark rather than black.
+
+Three steps is the choice worth explaining. Two is a hard cel look that suits
+characters and makes a large flat terrain read as two enormous slabs; four is
+close enough to smooth that the decision stops being visible. Three keeps a top,
+a side and a shadow, which is what an isometric scene of boxes needs.
+
+The scene has no lights at all now. The directional light and global ambient are
+kept behind the `scene-lighting` feature rather than deleted: the values in them
+are calibrated for an untonemapped pipeline, and anything added later that does
+read lights would otherwise have to rediscover that.
 - No dynamic lights beyond the single directional one. Explosions flash via emissive colour
   and a decal, not a point light.
 - No particle systems with thousands of particles. Effects are a handful of animated quads.

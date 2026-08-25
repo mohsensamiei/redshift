@@ -42,3 +42,17 @@ bevy = { workspace = true, features = [
     "x11",
     "wayland",
 ] }
+
+[features]
+default = []
+# Restores the PBR path: `StandardMaterial`, a real directional light, and the
+# global ambient. Off by default, because the art direction asks for flat
+# shading and paying for physically based rendering to produce it is paying
+# twice.
+#
+# Kept rather than deleted because the calibration behind those light values was
+# real work, and because a future material that *does* read scene lights — water,
+# glass, anything with a highlight — needs them back. A flag that selects the
+# material is a choice; a flag that keeps a light nothing reads would be dead
+# code with a switch on it.
+scene-lighting = []

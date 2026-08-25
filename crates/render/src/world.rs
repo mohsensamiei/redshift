@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use redshift_sim::EntityId;
 use redshift_sim::map::{Map, Terrain};
 
+use crate::flat::{FlatMaterial, coloured};
 use crate::session::Session;
 
 /// Height of a placeholder unit box, in cells.
@@ -58,8 +59,8 @@ pub struct RenderAssets {
     /// box needs a lower centre or it hovers above the ground.
     pub unit_half_heights: Vec<f32>,
     pub ring_mesh: Handle<Mesh>,
-    pub team_materials: Vec<Handle<StandardMaterial>>,
-    pub selection_material: Handle<StandardMaterial>,
+    pub team_materials: Vec<Handle<FlatMaterial>>,
+    pub selection_material: Handle<FlatMaterial>,
 }
 
 /// Team colours, in the original's register: saturated, high contrast, readable
@@ -112,9 +113,9 @@ pub fn build_assets(
     rules: &redshift_sim::Rules,
     stats: &redshift_sim::StatTable,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<FlatMaterial>,
 ) -> RenderAssets {
-    let unit_mesh = meshes.add(Cuboid::new(UNIT_WIDTH, UNIT_HEIGHT, UNIT_WIDTH));
+    let unit_mesh = meshes.add(coloured(Cuboid::new(UNIT_WIDTH, UNIT_HEIGHT, UNIT_WIDTH)));
 
     // Built in kind order, so the vector can be indexed directly by kind.
     let mut unit_meshes = Vec::with_capacity(rules.entity_count());
@@ -128,28 +129,31 @@ pub fn build_assets(
         // The simulation is the authority on how much room a unit takes up.
         let radius = fx_to_f32(stats.get(redshift_sim::PlayerId(0), kind).radius);
         let size = placeholder_size(def, radius);
-        unit_meshes.push(meshes.add(Cuboid::new(size.x, size.y, size.z)));
+        // Primitive meshes carry no colour attribute and the shader multiplies
+        // by one. Adding white here is less bad than making the attribute
+        // optional in the shader: an optional one means two pipeline variants
+        // for a value that is always the same.
+        let mut cuboid: Mesh = Cuboid::new(size.x, size.y, size.z).into();
+        crate::flat::ensure_vertex_colours(&mut cuboid);
+        unit_meshes.push(meshes.add(cuboid));
         unit_half_heights.push(size.y / 2.0);
     }
     // A flat quad standing in for the blob shadow and selection decal that
     // Phase 4 will replace with a proper texture.
-    let ring_mesh = meshes.add(
+    let ring_mesh = meshes.add(coloured(
         Plane3d::default()
             .mesh()
             .size(UNIT_WIDTH * 1.6, UNIT_WIDTH * 1.6),
-    );
+    ));
 
     let team_materials = TEAM_COLOURS
         .iter()
         .map(|(r, g, b)| materials.add(flat_material(Color::srgb_u8(*r, *g, *b))))
         .collect();
 
-    let selection_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.3, 1.0, 0.4, 0.55),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        ..default()
-    });
+    // Interface drawn in the world, so it takes no shading: a selection ring
+    // with a lit and an unlit half would read as a physical object.
+    let selection_material = materials.add(FlatMaterial::unlit(Color::srgba(0.3, 1.0, 0.4, 0.55)));
 
     RenderAssets {
         unit_meshes,
@@ -170,14 +174,14 @@ pub fn build_assets(
 ///
 /// A purpose-built cel shader belongs in Phase 4; this keeps Phase 0 free of a
 /// custom render pipeline.
-fn flat_material(colour: Color) -> StandardMaterial {
-    StandardMaterial {
-        base_color: colour,
-        perceptual_roughness: 1.0,
-        metallic: 0.0,
-        reflectance: 0.0,
-        ..default()
-    }
+/// A unit's material: one colour, banded lighting.
+///
+/// This used to be a `StandardMaterial` with roughness turned up and metallic
+/// and reflectance turned down — PBR configured to look flat, paying for the
+/// whole physically based pipeline to compute a result that was then thrown
+/// away. It is a dot product and a `floor` now.
+fn flat_material(colour: Color) -> FlatMaterial {
+    FlatMaterial::new(colour)
 }
 
 /// Builds the terrain as a single mesh.
@@ -636,12 +640,20 @@ pub fn fx_to_f32(value: redshift_sim::Fx) -> f32 {
     value.raw() as f32 / 65536.0
 }
 
-/// The lighting setup, in full.
+/// The lighting setup.
 ///
-/// One directional light, no shadow maps. Shadow mapping is the single most
-/// expensive thing a scene like this could switch on, and the original had no
-/// dynamic shadows either — units sat on a simple dark blob. Phase 4 adds that
-/// blob as a decal.
+/// Nothing, by default. The flat material does not read scene lights — it
+/// carries its own direction as a uniform, because a flat material has no
+/// business walking the scene's light list and that walk is most of what makes
+/// a PBR fragment shader expensive.
+///
+/// The real setup is kept behind `scene-lighting` rather than deleted. The
+/// calibration in it was real work: these values are tuned for an untonemapped
+/// pipeline, where the usual illuminance figures clip every surface to white.
+/// Anything added later that *does* read lights — water, glass, a highlight —
+/// needs them back, and rediscovering them would mean rediscovering that
+/// problem too.
+#[cfg(feature = "scene-lighting")]
 pub fn spawn_lighting(commands: &mut Commands) {
     // Calibrated for an untonemapped pipeline. The usual illuminance figures
     // assume a tone curve compressing high dynamic range into display range;
@@ -662,14 +674,16 @@ pub fn spawn_lighting(commands: &mut Commands) {
     ));
 
     // `AmbientLight` is a per-camera component in this Bevy version; the
-    // scene-wide default lives in `GlobalAmbientLight`. Using the global one
-    // keeps the camera setup free of lighting concerns.
-    // Enough fill that faces turned away from the sun stay readable, but well
-    // short of flattening the shading that gives the low-poly shapes their
-    // form.
+    // scene-wide default lives in `GlobalAmbientLight`. Enough fill that faces
+    // turned away from the sun stay readable, but well short of flattening the
+    // shading that gives the low-poly shapes their form.
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.62, 0.70, 0.92),
         brightness: 220.0,
         ..default()
     });
 }
+
+/// The same, with nothing to do.
+#[cfg(not(feature = "scene-lighting"))]
+pub fn spawn_lighting(_commands: &mut Commands) {}
